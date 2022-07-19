@@ -53,9 +53,9 @@ params:
         lastUpdated: Jan 02, 2006 15:04 MST
 
     sidebar:
-        emoji: 
-        subtitle: Your shelter from the storm
-        avatar:
+        emoji: pe
+        subtitle: Your shelter from the storm.
+        avatar: 
             enabled: true
             local: false
             src: https://raw.githubusercontent.com/cloudui/echen/main/assets/img/circle.jpg
