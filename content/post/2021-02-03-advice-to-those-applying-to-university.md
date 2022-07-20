@@ -1,9 +1,11 @@
 ---
 title: Advice to those Applying to University
 image: https://blog.echen.io/assets/img/blog/2021-02-03-advice-to-those-applying-to-university/college.jpg
-categories: Lifestyle Advice
+categories: [Lifestyle, Advice]
 tags: [guide, college, advice]
 date: 2021-02-03
+
+description: Tidbits from an unconventional experience
 ---
 
 It looks like you're going to start to apply to college soon. It's going to be a rough ride, but there are a couple of tips I'd like to give you just so you can feel more confident about it. Some of this advice will primarily apply to students at Montgomery Blair, but feel free to look for the parts that apply to you. 

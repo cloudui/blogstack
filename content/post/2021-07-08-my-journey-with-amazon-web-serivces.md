@@ -4,6 +4,8 @@ categories: Cloud
 tags: [aws]
 image: http://blog.echen.io/assets/img/blog/2021-07-08-my-journey-with-amazon-web-services.md/thumbnail.png
 date: 2021-07-08
+
+description: From a noob making Twitter bots to a certified Solutions Architect
 ---
 
 Around a year ago, I was bored out of my mind. School sluggishly churned along while I desperately searched for something to do. I stumbled across this YouTube video about creating a Twitter Bot, and I was intrigued. Having relearned some Python, I decided to implement my own.

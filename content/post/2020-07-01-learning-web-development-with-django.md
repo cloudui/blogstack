@@ -4,6 +4,8 @@ image: https://blog.echen.io/assets/img/blog/2020-07-01-learning-web-development
 categories: [Web Development, Django]
 tags: [django, aws, guide]
 date: 2020-07-01
+
+description: A short guide on how to get started
 ---
 
 I spent my last couple of months learning how to make websites with the Django framework. I have happened to pick up on a few things from working on it, and I want to give you a few resources on how to get started.

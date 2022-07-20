@@ -1,8 +1,10 @@
 ---
 title: Two Months at UMD!
-categories: Lifestyle School
+categories: [Lifestyle, School]
 tags: [friends, college]
 date: 2021-10-23
+
+description: A long summary of the transition into a new world
 ---
 
 I've been at the University of Maryland for two months now! Here is a recap of everything that has happened so far. 

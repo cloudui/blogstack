@@ -1,9 +1,11 @@
 ---
-title: Favorite YouTube Channels
+title: My Favorite YouTube Channels
 image: https://blog.echen.io/assets/img/blog/2020-06-29-favorite-youtube-channels/youtube_logo_dark.jpg
 categories: Lifestyle
 tags: [youtube, favorites]
 date: 2020-06-29T18:20:02-04:00
+
+description: Summarizing thousands of hours of watching content
 
 ---
 

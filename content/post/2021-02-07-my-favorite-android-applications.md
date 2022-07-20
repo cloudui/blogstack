@@ -3,6 +3,8 @@ title: My Favorite Android Applications!
 categories: [Lifestyle, Customization]
 tags: [android, ios, favorites]
 date: 2021-02-07
+
+description: Lots of gems in a sea of options
 ---
 
 Android has some fantastic and unique apps, and I thought I'd share a couple of my favorites. This blog post was influenced by the one and only Eli Qian. You can find the post about his iPhone setup [here](https://www.eliqian.com/post/iphone-home-screen-setup).

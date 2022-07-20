@@ -7,6 +7,8 @@ tags: [friends, college, reflection, improvement, advice]
 author: Eric Chen
 image: https://raw.githubusercontent.com/cloudui/echen/main//assets/img/blog/2022-06-10-lessons-learned-in-a-semester-gone-by/mirror-reflection.jpg
 date: 2022-06-13
+
+description: How to confront the man in the mirror
 ---
 
 A semester gone as quickly as it came. Allow me to take you along its momentous journey. 

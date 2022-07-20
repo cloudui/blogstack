@@ -3,6 +3,9 @@ title: Deploying this website [deprecated]
 categories: [Web Development, Django]
 tags: [django, website]
 date: 2020-06-29
+
+description: How I deployed my first Django blog
+
 ---
 
 > Note: "this website" now refers to my previous blog site, coded with Django. You can find it at [blog.echen.io](https://blog.echen.io).
