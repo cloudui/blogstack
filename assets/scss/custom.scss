@@ -1,0 +1,15 @@
+:root {
+    scrollbar-width: thin !important;
+    // --body-background: #eaedf0;
+//     --body-text-color: #646c75;
+}
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+
+.left-sidebar {
+    margin-right: 2em;
+    margin-left: .5em;
+}
