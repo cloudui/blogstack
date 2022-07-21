@@ -5,6 +5,8 @@ tags: [friends, college]
 date: 2021-10-23
 
 description: A long summary of the transition into a new world
+
+image: umd.jpg
 ---
 
 I've been at the University of Maryland for two months now! Here is a recap of everything that has happened so far. 
