@@ -18,11 +18,7 @@ comments: false
 
 ---
 
-Hi! I am a sophomore studying Computer Engineering at the University of Maryland. This blog is for me to share things I find interesting. You'll find an assortment of topics, from school to technology to coding. Feel free to look around. This website was made using [Hugo](https://gohugo.io/) with the [Stack](https://github.com/CaiJimmy/hugo-theme-stack) theme. If you have any questions, contact me at `ericchen314 at gmail dot com`.
-
-Enjoy!
-
-If you want to support my blog, consider [buying me a coffee](https://www.buymeacoffee.com/echen)! 
+Hi! I am a sophomore studying Computer Engineering at the University of Maryland. This blog is for me to share things I find interesting. You'll find an assortment of topics ranging from school to technology to coding. Feel free to look around. This website was made using [Hugo](https://gohugo.io/) with the [Stack](https://github.com/CaiJimmy/hugo-theme-stack) theme. If you have any questions, contact me at `ericchen314 at gmail dot com`.
 
 ## Some Trivia:
 <hr>
