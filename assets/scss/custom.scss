@@ -13,3 +13,12 @@
     margin-right: 2em;
     margin-left: .5em;
 }
+
+.image-url {
+    figcaption {
+        font-size: 1.4rem;
+        color: var(--card-text-color-secondary);
+        text-align: center;
+        margin-top: 0.5em;
+    }
+}
