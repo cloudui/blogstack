@@ -1,11 +1,17 @@
 :root {
     scrollbar-width: thin !important;
-    // --body-background: #eaedf0;
-//     --body-text-color: #646c75;
+    --body-background: #eaedf0;
+    --body-text-color: #646c75;
+    --card-text-color-tertiary: #8b8b8b;
+
+    &[data-scheme=dark] {
+        --body-background: #18191a;
+        --card-background: #272727;
+    }
 }
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
 }
 
 
