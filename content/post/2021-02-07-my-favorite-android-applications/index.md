@@ -42,7 +42,7 @@ This is by far my favorite app. It's a side-loaded YouTube alternative that offe
 
 This app was discontinued as the developer, Sam Ruston, couldn't keep up with the Weather API fees. The app was supposed to be rereleased as it was purchased by MyRadar, but I don't really see that happening any time soon. You can currently sideload it if you would like, but you won't get any app updates. I really like this weather app, due to its simplicity and design. It has minute-to-minute precipitation, rain and snow notifications, and an overall pleasing look. I don't really know how good its accuracy is, but the app design is why I continue to use it. It's overall an excellent weather app, and I highly recommend it.
 
-![Weather Timeline](https://blog.echen.io/media/uploads/screenshot_20210225-011846_weather_(1).jpg){: width="225" }
+![Weather Timeline](https://blog.echen.io/media/uploads/screenshot_20210225-011846_weather_(1).jpg)
 
 ### TickTick &nbsp; <i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true"></i> &nbsp; <i class="fab fa-apple" aria-hidden="true"></i>
 
@@ -70,36 +70,31 @@ A really good app for tracking packages. If you can sync with your Amazon or eBa
 
 Best launcher I've tried. I do not like Samsung's One UI launcher as it is not customizable at all. With Nova Launcher, you can rearrange the app grid, remove app labels, use custom icon packs, hide apps, customize gestures, change animations, change themes, customize app drawers, and more. I've tried a couple of other launchers, but this one has the most features and is compatible with almost every Android feature. It's $4.99 for Nova Prime (more features), and it's worth every penny.
 
-![Nova Launcher](https://i.redd.it/vx4gyfv4zy951.png){: width="225"}
-*Courtesy of [reddit.com](https://redd.it)*
+![Courtesy of [reddit.com](https://redd.it)](https://i.redd.it/vx4gyfv4zy951.png "400")
 
 ### Kwgt &nbsp; <i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true"></i> 
 
 The all-in-one widget makers. You can literally make any widget provided you have a lot of time to spend. A better idea is to buy widget packs. Some good ones are Shadow and Fusion. Using Kwgt will require you to purchase a key, and icon packs will probably cost money as well. But it's your only option for customizable widgets not provided by your apps. 
 
-![One4KWGT Pro](https://pbs.twimg.com/media/EsFAb9NXYAAqAhp.jpg){: width="400" }
-*[One4KWGT Pro](https://play.google.com/store/apps/details?id=cs14.pixelperfect.kwgtwidget.one4kwgtpro&hl=en_US&gl=US) Widget Pack on KWGT*
+![One4KWGT Pro](https://pbs.twimg.com/media/EsFAb9NXYAAqAhp.jpg)
 
 ### [Flight Icon Pack](https://play.google.com/store/apps/details?id=com.natewren.flight&hl=en_US&gl=US) &nbsp; <i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true"></i> 
 
-The icons you see above are from this icon pack. It has thousands of icons, and I really like the clean aesthetic. There are a bunch of default icons you can assign to apps that don't have an icon yet. This is obviously a very personal choice for your home screen, so get the icons you like. The pro version has more icons and costs $1.99. 
+The icons you see below are from this icon pack. It has thousands of icons, and I really like the clean aesthetic. There are a bunch of default icons you can assign to apps that don't have an icon yet. This is obviously a very personal choice for your home screen, so get the icons you like. The pro version has more icons and costs $1.99. 
 
-![Flight Icon Pack](https://blog.echen.io/media/images/Screenshot_20210206-234927_Nova7.jpg){: width="225" }
-*Flight on my home screen*
+![Flight Icon Pack](https://blog.echen.io/media/images/Screenshot_20210206-234927_Nova7.jpg)
 
 ### [Agenda](https://play.google.com/store/apps/details?id=com.franco.agenda&hl=en_US&gl=US) &nbsp; <i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true"></i> 
 
 This is the best calendar widget I've used. It allows syncing with any calendar app and categorizes them. The widget is very customizable and lists all your events chronologically. It's 99 cents on the Google Play store. 
 
-![Agenda Widget](https://blog.echen.io/media/images/Screenshot_20210206-234933_Nova7.jpg){: width="225"}
+![Agenda Widget](https://blog.echen.io/media/images/Screenshot_20210206-234933_Nova7.jpg)
 
 ### Backdrops &nbsp; <i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true"></i> &nbsp; <i class="fab fa-apple" aria-hidden="true"></i>
 
 It's a wallpaper collection app. Wallpapers are added every few days or so, and you can set them through the app. I learned about this app from MKBHD; he gets some of his wallpapers from it. You have to have particular tastes to enjoy these wallpapers, so they may not suit your needs. I like most of the wallpapers, but I probably wouldn't use them on my phone. 
 
-![10 Best Wallpaper apps for Android with Awesome Backgrounds (2021)](https://www.ytechb.com/wp-content/uploads/2020/08/Best-Wallpapers-app-for-Android-Backdrops.jpg)
-*Courtesy of [ytechb.com](https://ytechb.com)*
-
+![Courtesy of ytechb.com](https://www.ytechb.com/wp-content/uploads/2020/08/Best-Wallpapers-app-for-Android-Backdrops.jpg "400")
 
 ## Social Media Alternatives
 
@@ -111,13 +106,13 @@ Honestly, I need to get off social media. It is an incredible waste of time most
 
 This is probably the best Android Reddit app. It has unbelievable customization, and the developer is extremely active and pushes out updates all the time. There are so many features that I can't possibly list them all, but I'll name a few: theme customization (literally every element), dark mode, animations, caching, word filters, and more. I mainly like it because of its clean design and layout flexibility, but there's just something pleasing about being able to customize everything. That's the basis of Android, no? I've used Apollo for iOS, which is also very good, but I definitely like Sync better. It offers more customizability and theming options, but this is just a personal preference. The ad-free version is $4.99, and it's honestly a steal. You probably won't find anything better. 
 
-![Sync for Reddit](https://blog.echen.io/media/uploads/sync.jpg){: width="225" }
+![Sync for Reddit](https://blog.echen.io/media/uploads/sync.jpg)
 
 ### Relay for Reddit &nbsp; <i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true"></i> &nbsp; <i class="fab fa-apple" aria-hidden="true"></i>
 
 I used this app until I found Sync. It is also very good. It is based on fluid animations and a clean, simple design. Sync is definitely more customizable, but you might be overwhelmed by the tsunami of options. Sometimes, falling back on a simple and clean app is better, and you'll definitely find that with Relay. It has multiple card layouts and preset themes. You can go minimalistic or feature-rich. It's overall a very nice app, but I do like Sync a lot more. The ad-free version is $4.99. 
 
-![Relay](https://i.imgur.com/Y4DO74M.png){: width="400" }
+![Relay](https://i.imgur.com/Y4DO74M.png)
 
 ### Flamingo for Twitter &nbsp; <i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true"></i> 
 
@@ -135,29 +130,25 @@ The games I play are not the time-consuming type. They are usually pretty collec
 
 A simple RPG-like app where you collect carrots and roam different areas. You are a small bunny who aims to build relationships and memories with your friends. This game is honestly really cute. There are tons of things to unpack as you go along, and the developers have hidden many secrets. I've played this game for nearly two years, and I am nowhere near finished. There are some adult jokes too, which is strange considering its innocent artwork and designs. The storyline has some pretty dark points. The Yakuza boss owns the bar in the Mushroom Village? The police chief's daughter died falling through the thinning ice? You'll be surprised. It also has events that correlate with real life, like Chinese New Year, Halloween, and Christmas. You have to download it to really understand how this game works because it's probably not what you would expect. 
 
-![Tsuki Adventure](https://i.redd.it/jghb7fcyj7w21.png){: width="225" }
-*Courtesy of [reddit.com](https://redd.it)*
+![Courtesy of [reddit.com](https://redd.it)](https://i.redd.it/jghb7fcyj7w21.png "400")
 
 ### Neko Atsume &nbsp; <i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true"></i> &nbsp; <i class="fab fa-apple" aria-hidden="true"></i>
 
 A cat collecting game. Your goal is to befriend cats by buying food and decorating your house with cat furniture. There are common and rare cats to collect and house remodeling upgrades. It's simple yet addicting. It takes a while to complete, so you better have some patience.
 
-![Neko Atsume](https://images-na.ssl-images-amazon.com/images/I/61JufknUUFL.png){: width="350" }
-*Courtesy of [amazon.com](https://amazon.com)*
+![Courtesy of [amazon.com](https://amazon.com)](https://images-na.ssl-images-amazon.com/images/I/61JufknUUFL.png)
 
 ### Alto's Adventure/Alto's Odyssey &nbsp; <i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true"></i> &nbsp; <i class="fab fa-apple" aria-hidden="true"></i>
 
 It's a clean and elegant endless snowboarding game. Travel different landscapes and scenery while unlocking new boards, abilities, and characters. It's relaxing, and the music is nice. Literally any screenshot you take is wallpaper-worthy.
 
-![Alto's Odyssey](https://is5-ssl.mzstatic.com/image/thumb/Purple62/v4/54/cb/4a/54cb4a9c-caad-ed55-ba44-7d2ca85ed3ca/pr_source.png/643x0w.jpg){: width="600"}
-*Frame from Alto's Odyssey*
+![Frame from Alto's Odyssey](https://is5-ssl.mzstatic.com/image/thumb/Purple62/v4/54/cb/4a/54cb4a9c-caad-ed55-ba44-7d2ca85ed3ca/pr_source.png/643x0w.jpg)
 
 ### Monument Valley 2 &nbsp; <i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true"></i> &nbsp; <i class="fab fa-apple" aria-hidden="true"></i>
 
 A really cool game with some fascinating designs. It's a puzzle game that revolves around impossible shapes and optical illusions. You operate a princess, modifying landscapes to help her reach the next levels and reconnect with her mother. There is no dialogue, yet it tells a pretty charming story. Some puzzles are genuinely challenging, and the landscapes are seriously beautiful. I only wish this game was longer, but otherwise, I have no complaints. This game has a predecessor, Monument Valley 1. The game costs $4.99, but I think it's worth it. 
 
-![Monument Valley](https://cdn.vox-cdn.com/thumbor/RwZRe5pWachCNKfgCbH0FJkjJ1s=/0x0:2776x1808/1200x800/filters:focal(1166x682:1610x1126)/cdn.vox-cdn.com/uploads/chorus_image/image/60982657/monument_valley_hero.0.jpg){: width="600" }
-*Courtesy of [cnn.com](https://cnn.com)*
+![Courtesy of steam.com](https://cdn.cloudflare.steamstatic.com/steam/apps/1927740/ss_dcc6681a9f59237ab1c4b381b0f2aceba0079f78.1920x1080.jpg?t=1657630530)
 
 ### Some others worth considering:
 

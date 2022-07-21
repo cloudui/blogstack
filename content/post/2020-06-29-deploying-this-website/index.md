@@ -20,7 +20,6 @@ The animation created on the toggle was very difficult to implement across all o
 
 I can probably deploy websites faster now because of my experience. Crontab is literally the worst in a container though... I'll try to make some more features on this website along with some of my others. You can check them out on my homepage (look to the bottom). One I didn't include is [news.echen.io][news] since it is rather basic and lacks any type of security behind it, but feel free to post stuff on it (I will probably take it down eventually). You can contact me at my email if you have any suggestions or criticism of any of my sites!
 
-<br>
 > Do what you can, with what you have, where you are.
 >
 > -- <cite>Theodore Roosevelt</cite>

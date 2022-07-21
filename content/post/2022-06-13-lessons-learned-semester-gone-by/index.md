@@ -47,8 +47,7 @@ If you have a problem with a friend, and you’ve been trying to tell them for a
 
 I wanted to start my year with a bang. Too long during quarantine spent lounging around, wasting time, and waking up at two in the afternoon. This year was going to be different. After a mild start during the [first semester](http://echen.io/), I wanted to work hard and achieve a lot during the second. I dedicated myself to demanding clubs and filled most of my free time with “work.” I began to stress myself out, and I was not suited to handle the massive workload. 
 
-![Formula Car](https://echen.io/assets/img/blog/2022-06-10-lessons-learned-in-a-semester-gone-by/car.jpg)
-*Completed formula car for Terps Racing*
+![Completed formula car for Terps Racing](car.jpg)
 
 There were moments when I considered whether I wanted to continue with the clubs. I was sacrificing time to do other things that I wanted to do: study machine learning, write blogs, read books, etc. I considered their career benefits and often convinced myself that I was doing the right thing. But subconsciously, I felt like I was giving up other important things. 
 
@@ -66,8 +65,7 @@ This doesn’t mean I’ll drop the clubs I am in now. I think it takes a lot mo
 
 ## 4. Face your fears head-on
 
-![Fear](/assets/img/blog/2022-06-10-lessons-learned-in-a-semester-gone-by/fear.jpg){: width="400" } 
-*Courtesy of [mymodernmet.com](https://mymodernmet.com)*
+![Courtesy of [mymodernmet.com](https://mymodernmet.com)](fear.jpg)
 
 Many nights, I think about the upcoming deadlines and I feel an impending sense of doom. Maybe I have two meetings lined up, a project that’s due, an email that I need to respond to, or a presentation I need to give. Sometimes in the midst of a mild anxiety attack, I would think about all the items that I needed to complete, thinking *Oh! That’s not that much*. I would regain some confidence before quickly returning to panic mode. I started to question why I had brief moments of composure interspersed in my moments of panic. It’s because I was usually right about there not being much to do. At least, it was much more manageable than my panicking brain was suggesting. But all that fear racing in my head prevented me from thinking straight, as my mind continuously cycled through everything that could go wrong. Often, it would lead me to believe that was more trouble ahead than there actually was.
 
@@ -97,8 +95,7 @@ Still have goals, but make them secondary to the process. Or orient your goal su
 
 ## 6. Remove jealousy and resentment from your life
 
-![Cain and Abel](https://media.swncdn.com/cms/BST/29983-cain-slaying-abel-jacopo-palma-1590.800w.tn.jpg)
-*Courtesy of [biblestudytools.com](http://biblestudytools.com)*
+![Courtesy of [biblestudytools.com](http://biblestudytools.com)](https://media.swncdn.com/cms/BST/29983-cain-slaying-abel-jacopo-palma-1590.800w.tn.jpg)
 
 Jealousy is an innate and natural thing. It’s easy to feel jealous or resent the friend that has all A’s, a prestigious internship, and a full-ride tuition. You’ve been there, I’ve been there, we’ve all been there. It’s not necessarily a bad thing. These “perfect” friends embody what we want for ourselves. Jealousy might be a positive motivator for you to chase your own goals. But let it out of control, and you will become bitter and dissatisfied. Even today, I still feel a twinge of jealousy when I hear about my friends’ new achievements. But rather than breeding resentment, it allows me to push myself to achieve more. Here are some tips to change your mindset:
 
@@ -130,8 +127,7 @@ Life is a long run. Don’t let your jealousy control your life. A feeling of wo
 
 # What Motivates Me?
 
-![Motivation](/assets/img/blog/2022-06-10-lessons-learned-in-a-semester-gone-by/growth.jpg)
-*Courtesy of [osnatfineart.com](https://osnatfineart.com)*
+![Courtesy of [osnatfineart.com](https://osnatfineart.com)](growth.jpg)
 
 Why do I do the things that I do? What do I truly want? 
 
@@ -172,8 +168,7 @@ The liquid rocket team is the newest addition to the engineering club family thi
 
 ### Won the Northrop Grumman Environmental Sustainability Challenge
 
-![Shoveling](/assets/img/blog/2022-06-10-lessons-learned-in-a-semester-gone-by/shovel.jpg)
-*Shoveling a streambed for our prototype*
+![Shoveling a streambed for our prototype](shovel.jpg)
 
 Okay, kind of a flex. We won $2,500. A class member in Terps Racing made a post on the club Slack channel, announcing that she had a good idea for some environmental challenge and was looking for team members. The thought of joining circulated through my mind for an entire week. I was already swamped with my other clubs, but I was sure that an opportunity like this might never arise again. Sophie already had an established idea, the hardest part of any challenge. I remember talking to my roommate, Jason, at night about joining. He told me I would be an idiot for adding another club to my relatively busy schedule, and I agreed. But like the idiot that I am (or a stroke of genius), I decided to talk to Sophie and join her team. 
 
@@ -181,7 +176,7 @@ And it turned out great. We traveled to D.C. every Saturday to build a prototype
 
 ### Went to the gym
 
-![Gym](/assets/img/blog/2022-06-10-lessons-learned-in-a-semester-gone-by/gym.png)
+![](gym.png)
 
 I made a hard commitment to go to the gym to become more fit. I wanted to build muscle and exercise every day. I never imagined that I would keep up with this resolution, but I did (look to lesson 5 above). Even though I’ve taken a few week-long breaks from sickness and injury, I’ve maintained a healthy gym schedule, and I’m proud of myself for that. 
 
@@ -253,8 +248,7 @@ They didn’t have everything I want. Mostly, I don’t know if I could find a p
 
 ## Make new friends
 
-![Gym](/assets/img/blog/2022-06-10-lessons-learned-in-a-semester-gone-by/enes100.jpg)
-*Engineering Group Team Hangout*
+![Engineering Group Team Hangout](enes100.jpg)
 
 Accomplished! To name a few: Max, Ryan, and Sam from Terps Racing. Mohammad, Dev, Bobby from SEDS. Eyobed, Richard, and Sophie from the environmental challenge. Brian Ding. Everyone in my ENES100 group. 
 
@@ -343,7 +337,7 @@ This semester was an emotional ride. Many times did I succumb to the harsh envir
 
 ## A Dedication to Spice
 
-![Spice](/assets/img/blog/2022-06-10-lessons-learned-in-a-semester-gone-by/spice.jpg)
+![](spice.jpg)
 
 As many of you might have heard, my family had to put down our cat, Spice, on March 30, 2022. He fought longer than any vet expected and lived a happy life. He was the best pet I could have ever asked for, along with his sister, Sugar, who is doing well. I miss you, buddy.
 

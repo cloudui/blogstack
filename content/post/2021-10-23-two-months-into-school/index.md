@@ -25,8 +25,7 @@ After fumbling with the lock for two minutes, I finally entered my room. It was 
 
 I unpacked a bit, neatly organizing my clothes and an unnecessary amount of accessories and gadgets that I brought with me. 
 
-![PC ROOM](/assets/img/blog/2021-10-23-one-month-review/IMG_0566-min.jpg){: width="600" }
-*Me and Jason's room at Pyon-Chen*
+![Me and Jason's room at Pyon-Chen](IMG_0566-min.jpg)
 
 Jason arrived an hour later. He unpacked for a little while, and our parents left shortly after. It was surreal. We would finally be settling down in a new place. I would see him day in and day out. I sighed out in excitement and relief. I finally had the freedom I was hoping for throughout the entire summer. Like the idiots we were, we just stayed in our room for hours until our other Blair friends arrived instead of exploring campus or meeting with our neighbors.
 
@@ -38,8 +37,7 @@ A lot of my middle school and high school friends go to UMD, and I had a lot of 
 
 My newest close friend is Stephanie. We clicked instantly the day we met, and I've seen her almost every day since. She practically lives in our room now, mooching on our A/C, using my water boiler, doing her homework, and being annoying. Just kidding. I'm glad to have met her, since we've done a lot of things together, like going to the first-look fair, eating off-campus, painting our nails, playing violin, and much more. It's been really fun, and I look forward to the next four years together. 
 
-![Steph](/assets/img/blog/2021-10-23-one-month-review/steff.png){: width="400" }
-*Me and Steph in CHEM 135*
+![Me and Steph in CHEM 135](steff.png)
 
 I love how I have every day to spend time with friends. Although being relatively quiet around strangers, I can't stand being alone. I'm so fortunate to be able to spend time doing daily activities and going to classes with the people I love most, which is the best part of college so far. I look forward to making new friends, as I desperately need to develop new relationships and expand my social circle. But currently, I'm too reserved. I aim to change that.
 
@@ -55,8 +53,7 @@ First, some context. I am planning on majoring in Computer Engineering, but I am
 
 A class on computer systems, where we learn the fundamental concepts that enable programs to execute on real hardware. We are currently learning the C programming language.
 
-![IRB](https://pbs.twimg.com/media/EIFEpnEXkAAc5_p.jpg){: width="600" }
-*The Computer Science Building: Brendan Iribe Center*
+![The Computer Science Building: Brendan Iribe Center](EIFEpnEXkAAc5_p.jpg)
 
 I'm taking the course with Professor Jose Calderon. The class is in the Antonov auditorium at the Brendan Iribe Center, which is a very large and modern building. There are around 200 students in lecture and around 30 students in each section. Jose presents lectures using PowerPoints on the front screens, taking questions every now and then. He explains things extremely clearly with great enunciation. He provides witty and quippy remarks all the time and it always makes the class chuckle. Each new concept in the slides comes with example code, which is very helpful for understanding concepts. Each lecture is formulaic, with all the content prepared on the course website, ready with all the presentations and homework.
 
@@ -122,8 +119,7 @@ We go over school events, writing resumes, introduction to the program— all th
 
 <hr>
 
-![VSA](/assets/img/blog/2021-10-23-one-month-review/20210930_203918-min.jpg){: width="600" }
-*Lantern Festival with the Vietnamese Student Association*
+![Lantern Festival with the Vietnamese Student Association](20210930_203918-min.jpg)
 
 ## Dormitories
 
@@ -150,7 +146,7 @@ Yuri, Dong, and Alex live here. It has A/C in the dorm rooms, but not in many of
 
 Dheeraj lives in this hall, and I've been there once. It feels like a bedroom, with carpeted floors, an angled ceiling, and brown bed frames. It's more spacious than the other halls I've been in. It has A/C as well. Good first impressions.
 
-![AA Hall](/assets/img/blog/2021-10-23-one-month-review/IMG_0595.jpg){: width="600" }
+![Anne Arundel Hall](IMG_0595.jpg)
 
 ### 1. Pyon-Chen Hall
 
@@ -174,8 +170,7 @@ There are three dining halls on campus: Ellicott Dining, 251 North (Denton), and
 
 My meals are generally hit or miss, but the misses aren't too bad. I often go for the "Cluckers" restaurant in Ellicott, where I fill my plate with some pasta, greens, one piece of meat, and some form of rice. The mac & cheese is good, the quesadillas are good, and the tacos are pretty excellent. The breakfast food is usually pretty sad, and each day's choices are always the same. The diner offers eggs, bacon, sad potatoes, sometimes okay hash browns, and usually pretty bland and sad pancakes. There are waffle machines if you are into that. Dessert is typically pretty static: cakes, pies, cookies, and the soft-serve machine. The types of cakes and pies usually rotate, and they are pretty hit or miss, but I usually go for the soft-serve anyway. I recommend you stay health-conscious, unlike me 😅. 
 
-![Ellicott Dining](https://www.uniquevenues.com/sites/uniquevenues.com/files/imagecache/venue_flexslider_2018/venues/slideshow/DSC_6497.jpg){: width="600" }
-*Ellicott Dining Hall*
+![Ellicott Dining Hall](https://www.uniquevenues.com/sites/uniquevenues.com/files/imagecache/venue_flexslider_2018/venues/slideshow/DSC_6497.jpg)
 
 Lunch and dinner are usually pretty solid, though. However, on weekends, the breakfast food generally becomes lunch food, since students wake up late (obviously for good reason). The food choices of each dining hall are relatively similar, but I think Ellicott is still the best. It has a nice layout with cute neon signs, which overrules the kind of boring and plain layouts of 251 and South Campus. However, the seating arrangement is much more cramped and structured, compared to the open seating of 251 and South Campus. Furthermore, my friends rave over 251 for their cheesy garlic bread, so take that for what it's worth. Overall, the food has exceeded expectations.
 
@@ -191,8 +186,7 @@ I won't go into more detail, as it is something you should find out naturally. A
 
 This is the main rec center for everybody. It's a two-minute walk from Pyon-Chen Hall, making it very convenient to exercise. There are 5 basketball courts, one gym with multiple rooms, and a pool in the basement. Basketball can be pretty sweaty, depending on who you play with. The courts are generally packed, and you have to wait your turn to play. There aren't many opportunities to casually play ball with your friends unless you go super early or super late. Furthermore, the volleyball players share the courts, making it kind of cramped and pretty annoying, as you can get sucker-punched by a flying ball while trying to get that behind-the-back dunk. 
 
-![Eppley](https://campusrecmag.com/wp-content/uploads/2016/01/16018483608_ef1a24953e_z.jpg){: width="600" }
-*Epply Recreational Center Gym*
+![Epply Recreational Center Gym](https://campusrecmag.com/wp-content/uploads/2016/01/16018483608_ef1a24953e_z.jpg)
 
 The gym is big, but then again, there are 40k undergrads at UMD. It is packed in the evening, but not unreasonably so. You can navigate your way through most equipment and the bench without much waiting. There are a lot of machines, a dinky little track, and many weights. It is a nice gym.
 
@@ -202,8 +196,7 @@ The pool is also pretty nice. It closes earlier than the rest of the gym (at 10:
 
 There is a nice shopping center right outside the entrance of the university, with a Target, Chipotle, Kung-Fu Tea, CVS, barbershop, and more. It's a quaint place to buy a couple of groceries or to eat out with friends. We've had a few late-night journeys to McDonald's because the one thing you crave at 3 am is a box of chicken nuggets. The school is surrounded by places to buy food, so it won't be hard grabbing a bite at the restaurant of your choice. My biggest gripe is that there is no Asian Supermarket nearby. What a shame.
 
-![ramen](/assets/img/blog/2021-10-23-one-month-review/20211002_135457-min.jpg){: width="600" }
-*Ramen I had near the Alloy*
+![Ramen at Kangnam College Park](20211002_135457-min.jpg)
 
 On-campus also has a few restaurants, primarily at STAMP, with a Subway, Chick-Fil-A, Quickway, and more. You can use dining dollars there, which is pretty cool. 
 
@@ -211,8 +204,8 @@ On-campus also has a few restaurants, primarily at STAMP, with a Subway, Chick-F
 
 The Stamp Union (Stamp for short), is the community center for UMD students. Inside are many open seating areas, the food court, a bowling alley, arcade, miniature movie theater, convenience store, UMD gear shop, and large rooms for clubs (e.g., TASA, CSA). It is a nice area to get food, grab ice cream, or just hang out. I watched A Quiet Place 2 there, which was a pretty nice experience. Overall, it's a charming place to go to hang out with your friends.
 
-![Stamp](https://universityofmaryland.myuvn.com/wp-content/uploads/sites/39/2018/12/TheStampAtNight.jpg){: width="600" }
-*STAMP Union*
+![STAMP Union](https://universityofmaryland.myuvn.com/wp-content/uploads/sites/39/2018/12/TheStampAtNight.jpg)
+
 
 ## Freshman Flu
 
@@ -240,8 +233,7 @@ I recommend you to watch the show if you somehow haven't already. I am not a TV 
 
 The Fantastic Four— Yuri, Christina, Jason, and I— began watching Stein's Gate sometime in June or July during this summer. By the start of school, we probably weren't even halfway finished. Before school started, we convened on Zoom and watched a variety of movies, like Howl's Moving Castle and The Shawshank Redemption. It was a way for us to propel our budding group synergy and team superpowers; unfortunately, we were really bad at finding nights to watch Stein's Gate, so we decided to finish it when the school year commenced. 
 
-![hangout](/assets/img/blog/2021-10-23-one-month-review/20210901_215756.jpg){: width="600" }
-*Jason and Yuri preparing for Stein's Gate*
+![Jason and Yuri preparing for Stein's Gate](20210901_215756.jpg)
 
 I had a lot of fun spending time with my fellow superheroes, making fun of Okabe's weird facial expressions and Feyris's cutesy speech tick in the early AMs. Yuri and Christina would often be too exhausted to go back to their dorms at 4 am and would spend the night at Pyon-Chen, either sleeping on the floor like psychos or forcing me to get closey-feely with Jason. I honestly need to re-watch the show at some point, because so much time spanned in between each watching session that I couldn't feel the severity of each scene. Fortunately, the show is littered with confusing time travel, gender mix-ups, and uncomfortable relationships, perfect things for us to joke about. I still thoroughly enjoyed it, but the time spent with those 3 losers was what made it a blast.  
 
@@ -257,8 +249,7 @@ This is allegedly true. Maybe it was a dream. I don't know.
 
 Yuri invited me and Jason to go on a panic walk, as she had an exam the next day. We walked in silence, ending up at Clarice around 3 in the morning (haha, again). In the dim glow of the moon, my mischievous and immature self decided to check if each door was open, while Jason and Yuri enjoyed the beauty of the building's architecture and the crisp air of the night. After checking dozens of doors to no avail, I was crushed. On our way back to our dorms, I decided to check one more door. I pulled with hesitation, expecting nothing but disappointment, but the door opened. It was Christmas. We excitedly opened the door and explored the tall and empty music building. What daring students!
 
-![Clarice](/assets/img/blog/2021-10-23-one-month-review/IMG_0627-min.jpg){: width="600" }
-*Outside Clarice Center for the Performing Arts*
+![Outside Clarice Center for the Performing Arts](IMG_0627-min.jpg)
 
 # Clubs
 
@@ -284,8 +275,7 @@ This club has left the strongest impression on me so far. I signed up for the cl
 
 The composites team focuses on building the composite parts on the formula car, like the body, side panels, and more. Instead of giving me a lecture on what the team does or what my responsibilities as a team member were, the team lead, Aly, put me straight to work. I helped the other lead, Max, with cutting the carbon fiber fabric for the monocoque of the car. On the first day, I spent 3 hours there, cutting fabric, infusing the carbon fiber with epoxy and hardener, and molding the fabric over the male monocoque mold. I felt useful for once, and despite the relatively menial tasks I was asked to do, was 100% set on coming to the next meeting. 
 
-![Racing Monocoque Mold](/assets/img/blog/2021-10-23-one-month-review/20211016_123440-min.jpg){: width="600" }
-*Carbon Fiber Monocoque! So beautiful before we had to destroy it...*
+![Carbon Fiber Monocoque! So beautiful before we had to destroy it...](20211016_123440-min.jpg)
 
 I have been to three meetings so far, and it has been excellent. Although not directly learning about how things work, I have picked up bits and pieces of information along the way. Each meeting has been pretty (un)eventful, and I have done something different every time. Our first mold was completely unsuccessful, as the carbon fiber we attached to the mold wouldn't separate, as the Gelcoat layer underneath did not adhere to the fabric properly. We were forced to cut it and painstakingly rip off each piece, which took many hours. After kind of ruining the foam mold (which cost upwards of 6 grand), we were forced to put Bondo (an automotive body filler) over the cracks and joints and sand them down. 
 

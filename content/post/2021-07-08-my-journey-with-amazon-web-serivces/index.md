@@ -2,7 +2,7 @@
 title: My Journey with Amazon Web Services
 categories: Cloud
 tags: [aws]
-image: thumbnail.png
+image: aws.jpeg
 date: 2021-07-08
 
 description: From a noob making Twitter bots to a certified Solutions Architect
@@ -46,7 +46,7 @@ AWS is a fantastic service. Many start-up companies can develop apps and create 
 
 Actually...this was a lot of work. You have to show you want it 😉. Message me and you will get it.
 
-<br>
+
 > There is no knowledge that is not power
 >
 > -- <cite>Ralph Waldo Emerson  </cite>
