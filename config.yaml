@@ -1,4 +1,4 @@
-baseurl: https://example.com
+baseurl: https://dev.echen.io
 languageCode: en-us
 theme: stack
 paginate: 5
@@ -42,35 +42,34 @@ params:
         - post
     featuredImageField: image
     rssFullContent: true
-    favicon:
+    favicon: /favicon/favicon.ico
 
     footer:
-        since: 2020
-        customText:
+        since: 
+        customText: 
 
     dateFormat:
         published: Jan 02, 2006
         lastUpdated: Jan 02, 2006 15:04 MST
 
     sidebar:
-        emoji: pe
+        emoji: 
         subtitle: Your shelter from the storm.
         avatar: 
             enabled: true
-            local: false
-            src: https://raw.githubusercontent.com/cloudui/echen/main/assets/img/circle.jpg
-
+            local: true
+            src: /img/circle.jpeg
     article:
         math: false
         toc: true
         readingTime: true
         license:
-            enabled: true
+            enabled: false
             default: Licensed under CC BY-NC-SA 4.0
 
     comments:
         enabled: true
-        provider: disqus
+        provider: giscus
 
         disqusjs:
             shortname:
@@ -125,11 +124,11 @@ params:
             siteName: "" # You must insert a unique identifier here matching the one you registered (See https://cactus.chat/docs/getting-started/quick-start/#register-your-site)
 
         giscus:
-            repo:
-            repoID:
-            category:
-            categoryID:
-            mapping:
+            repo: cloudui/blog-discussions
+            repoID: R_kgDOHr30HQ
+            category: General
+            categoryID: DIC_kwDOHr30Hc4CQUfi
+            mapping: pathname
             lightTheme:
             darkTheme:
             reactionsEnabled: 1
@@ -153,17 +152,17 @@ params:
                   limit: 5
             - type: categories
               params:
-                  limit: 10
+                  limit: 5
             - type: tag-cloud
               params:
-                  limit: 10
+                  limit: 5
         page:
             - type: toc
 
     opengraph:
         twitter:
             # Your Twitter username
-            site:
+            site: below_ocean
 
             # Available values: summary, summary_large_image
             card: summary_large_image
@@ -194,6 +193,13 @@ menu:
     main: []
 
     social:
+        - identifier: home
+          name: Home
+          url: https://echen.io
+          params:
+            icon: user-circle
+          weight: 1
+
         - identifier: github
           name: GitHub
           url: https://github.com/cloudui
@@ -205,11 +211,11 @@ menu:
           url: https://twitter.com/below_ocean
           params:
               icon: brand-twitter
-        - identifier: instagram
-          name: Instagram
-          url: https://instagram.com/violeric
-          params:
-            icon: instagram
+        # - identifier: instagram
+        #   name: Instagram
+        #   url: https://instagram.com/violeric
+        #   params:
+        #     icon: brand-instagram
 
 related:
     includeNewer: true
@@ -226,10 +232,10 @@ markup:
     goldmark:
         renderer:
             ## Set to true if you have HTML content inside Markdown
-            unsafe: false
+            unsafe: true
     tableOfContents:
         endLevel: 2
-        ordered: true
+        ordered: false
         startLevel: 1
     highlight:
         noClasses: false
