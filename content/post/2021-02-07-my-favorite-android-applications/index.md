@@ -5,6 +5,8 @@ tags: [android, ios, favorites]
 date: 2021-02-07
 
 description: Lots of gems in a sea of options
+
+image: android.jpeg
 ---
 
 Android has some fantastic and unique apps, and I thought I'd share a couple of my favorites. This blog post was influenced by the one and only Eli Qian. You can find the post about his iPhone setup [here](https://www.eliqian.com/post/iphone-home-screen-setup).
@@ -42,7 +44,7 @@ This is by far my favorite app. It's a side-loaded YouTube alternative that offe
 
 This app was discontinued as the developer, Sam Ruston, couldn't keep up with the Weather API fees. The app was supposed to be rereleased as it was purchased by MyRadar, but I don't really see that happening any time soon. You can currently sideload it if you would like, but you won't get any app updates. I really like this weather app, due to its simplicity and design. It has minute-to-minute precipitation, rain and snow notifications, and an overall pleasing look. I don't really know how good its accuracy is, but the app design is why I continue to use it. It's overall an excellent weather app, and I highly recommend it.
 
-![Weather Timeline](https://blog.echen.io/media/uploads/screenshot_20210225-011846_weather_(1).jpg)
+![Courtesy of adroidsis.com](https://www.androidsis.com/wp-content/uploads/2015/04/weather-timeline.jpg)
 
 ### TickTick &nbsp; <i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true"></i> &nbsp; <i class="fab fa-apple" aria-hidden="true"></i>
 
@@ -82,7 +84,7 @@ The all-in-one widget makers. You can literally make any widget provided you hav
 
 The icons you see below are from this icon pack. It has thousands of icons, and I really like the clean aesthetic. There are a bunch of default icons you can assign to apps that don't have an icon yet. This is obviously a very personal choice for your home screen, so get the icons you like. The pro version has more icons and costs $1.99. 
 
-![Flight Icon Pack](https://blog.echen.io/media/images/Screenshot_20210206-234927_Nova7.jpg)
+![Courtesy of Dave2D](https://pbs.twimg.com/media/EBopOx7U0AAOssN.jpg)
 
 ### [Agenda](https://play.google.com/store/apps/details?id=com.franco.agenda&hl=en_US&gl=US) &nbsp; <i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true"></i> 
 
