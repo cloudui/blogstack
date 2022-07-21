@@ -1,6 +1,6 @@
 ---
 title: Advice to those Applying to University
-image: https://blog.echen.io/assets/img/blog/2021-02-03-advice-to-those-applying-to-university/college.jpg
+image: college.jpg
 categories: [Lifestyle, Advice]
 tags: [guide, college, advice]
 date: 2021-02-03

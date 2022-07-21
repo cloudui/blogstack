@@ -2,7 +2,7 @@
 title: My Journey with Amazon Web Services
 categories: Cloud
 tags: [aws]
-image: http://blog.echen.io/assets/img/blog/2021-07-08-my-journey-with-amazon-web-services.md/thumbnail.png
+image: thumbnail.png
 date: 2021-07-08
 
 description: From a noob making Twitter bots to a certified Solutions Architect

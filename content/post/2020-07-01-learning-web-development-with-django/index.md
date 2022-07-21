@@ -1,6 +1,6 @@
 ---
 title: Learning Web Development with Django
-image: https://blog.echen.io/assets/img/blog/2020-07-01-learning-web-development-with-django/django.jpeg
+image: django.jpeg
 categories: [Web Development, Django]
 tags: [django, aws, guide]
 date: 2020-07-01

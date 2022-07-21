@@ -1,6 +1,6 @@
 ---
 title: My Favorite YouTube Channels
-image: https://blog.echen.io/assets/img/blog/2020-06-29-favorite-youtube-channels/youtube_logo_dark.jpg
+image: youtube_logo_dark.jpg
 categories: Lifestyle
 tags: [youtube, favorites]
 date: 2020-06-29T18:20:02-04:00
@@ -14,8 +14,7 @@ I have been watching a lot of YouTube recently, and I'd like to share my favorit
 
 ## Commentary Channels
 ------
-![Drew Gooden](/assets/img/blog/2020-06-29-favorite-youtube-channels/75y73mf3tkc41.png){: width="250" }
-*Big stinker Drew Gooden*
+![Big stinker Drew Gooden](75y73mf3tkc41.png)
 
 I like commentary channels a lot, and I have watched quite a handful of them. I recently found a guy named Drew Gooden, and he's very entertaining. He is very sarcastic yet mellow, even when he's mad. His commentary is funny and relatable, and I like the consistency throughout his videos. He discusses all sorts of topics, including the infamous Paul Brothers, dumb arts and crafts channels, and movies. I think he is underrated, and you should check him out.
 
@@ -27,8 +26,7 @@ The last one is Mother's Basement. He does commentary on anime. He does a lot of
 ------
 I have a few favorites in mind: NigaHiga, Casually Explained, and You Suck at Cooking (YSAC). NigaHiga has been around forever, and I grew up with his videos. He has created amazing skits, ranted about topics like racism and swearing, and has produced some amazing and unique series (Skitzo, ParkCourse, DearRyan). He is extremely likable and funny, and his ideas are as original as they get. He is good at acting as multiple characters, and I like every single person in his studio (RIP Sean). His videos are seriously top-notch, and you can tell that he spends a lot of time on them, all for his audience. He has gradually lost viewers, but I seriously believe he is one of the most underrated channels of modern YouTube.
 
-![Casually Explained](/assets/img/blog/2020-06-29-favorite-youtube-channels/Casually-Explained-Interview-header-Image-htxt.africa.png){: width="400"}
-*Casually Explained being interviewed by a woman*
+![Casually Explained's first encounter with a woman](Casually-Explained-Interview-header-Image-htxt.africa.png)
 
 Casually Explained (CE) and YSAC are similar channels. Both are very sarcastic and entertaining. CE uses simplistic yet iconic drawings and talks about a lot of common issues (relationships, diets, banking) with a monotone voice. He is extremely sarcastic and every single joke lands really hard and is very thought out. He relies on the misery of his primarily male audience and has a depressing tone in every video, but it is seriously golden. His silly drawings really bring out the comedic effect of his videos, and he actually teaches you stuff at the same time, even though most of it is a joke. YSAC is a cooking channel, where he does comedy through cooking. His videos are all original with the same tinge of sarcasm and slapstick humor as CE. His repetition of inside jokes throughout his videos always make me chuckle. You have to watch him to understand what I'm talking about. He can sing (not in the way you might think), play instruments, cook, make jokes, and put cute animals all into one video without making it weird. Absolutely incredible.
 
@@ -40,8 +38,7 @@ My favorites channels are MKBHD, Dave2D, and LinusTechTips. MKBHD is one of the 
 
 Dave2D does YouTube on the side. His videos are extremely clean and his film work is simple yet refined. He has a soothing voice and he is very efficient. He gets videos done in like half the time of other channels but covers the same amount of content. Recently, he's been discussing more of what a new product means to the market, and you can really learn new things. He prefers a certain aesthetic to all his products, and I share that aesthetic. His videos are efficient and have good style, and he is very thorough and covers topics as a consumer rather than a "guy who has everything."
 
-![LTT](/assets/img/blog/2020-06-29-favorite-youtube-channels/maxresdefault.jpg){: width="465" }
-*Linus from LinusTechTips*
+![Linus Tech Tips](maxresdefault.jpg)
 
 Linus Tech Tips (LTT) is probably the most educational of the bunch. You can seriously learn something about technology/computer science in nearly all his videos. He cares a lot about things like gaming monitors and peripherals, and he knows a lot of his audience is too. He is very opinionated and controversial, and you'll either love the way he creates videos or you'll hate them. Linus is a very hard worker and covers every base in the tech world. His team is very likable and they do a lot of interesting things with tech, and his reviews are extremely thorough.
 
@@ -51,8 +48,7 @@ Skits are really fun because they're short and easy to watch. I know that SNL an
 
 Studio C is a family-friendly skit channel that plays on BYU-TV, but everything they do is on YouTube. The original cast (who I like the most) has now moved to JK! Studios to pursue something new. But all the old videos on Studio C are golden. The cast is extremely talented, funny, and diverse. Everyone has their own kinks and unique traits, and I honestly love all of them. Their skits are amazingly original, and they always pick the best people to play the part. They can do accents, sing and dance, and dress up in hilarious costumes. Sometimes they publish skits where people break character, and honestly, that makes it even better. I recommend watching the older stuff from Studio C, and I think you'll really enjoy it.
 
-![CalebCity](/assets/img/blog/2020-06-29-favorite-youtube-channels/f9a2849e2e864f47670447765c13a0af.jpg){: width="450" }
-*CalebCity's [If life glitched like video games](https://www.youtube.com/watch?v=OirZWjCoeo0)*
+![CalebCity's "If life glitched like video games"](f9a2849e2e864f47670447765c13a0af.jpg)
 
 CalebCity is a skit channel ran by Caleb, a former Viner-turned-YouTuber. He usually plays all the characters in his skits, hence, Caleb "City". He sticks to very relatable topics, and his skits are also very funny and original. They are short, but they always get the theme across. You know there will always be a plot twist, where his skits devolve into punching, screaming, or feet falling off. It's honestly hilarious, and his crude-yet-refined editing and sound effects make it that much better. He doesn't have the same studio-level production tools, and his creative ways of implementing the same effect are outright amazing.
 
@@ -64,8 +60,7 @@ First off, I am not a gamer. I do not have the peripherals to play even basic ti
 
 I have only ever watched a few channels in my life, but I enjoy them nonetheless. They are TheRunawayGuys (I'll be specific) and JosephSaelee.
 
-![The Runaway Guys](/assets/img/blog/2020-06-29-favorite-youtube-channels/trg.jpg){: width="431" }
-*Drawing of TheRunAwayGuys (left to right: Tim, Jon, Chugga)*
+![Drawing of TheRunAwayGuys (left to right: Tim, Jon, Chugga)](trg.jpg)
 
 The Runawayguys (TRG) consists of ChuggaaConroy (Emile), ProtonJon (Jon), and NintendoCapriSun (Tim). They have also collaborated with MasaeAnela (Masae) and JoshJepson (Josh). I literally love all of them. They play multiplayer games such as Brawl, Super Mario, Kirby, and a lot of Nintendo games (kind of my jam). They have very good chemistry. Chugga is silly and crazy, but he is also really good at the games. I would say Jon is probably the best player of the bunch, and also the most intellectual and sane. Chugga and Jon are the "hate each other" best friends, and they always mess with each other and get mad at each other, usually stemming from Chugga pissing off Jon and Jon trying to kill him (in the game). Tim is usually quiet but he says a bunch of super weird but funny stuff and he is honestly super chill and somehow essential to the group. Josh is the crazy one with the crazy high-pitched voice and a lot of energy. He usually plays when there need to be 4 players in a game (e.g. Super Mario Bros), and he makes the LPs more lively. Masae also has a feud with Chugga (they are also shipped a lot), but she is really sweet and is a really nice addition to the sausage fest sometimes. They all share fantastic and exciting moments throughout all of the LPs, and you really get to know them and what they are good at. You feel like they are also your friends, and honestly, I wish I could play with friends more often after watching them.
 
@@ -81,8 +76,7 @@ I think it's really valuable to learn something on YouTube. There are millions o
 
 They are Kurzgesagt and Charisma on Command.
 
-![Kurzgesagt](/assets/img/blog/2020-06-29-favorite-youtube-channels/kgsagt.jpeg){: width="465" }
-*Animation frame from Kurzgesagt*
+![Kurzgesagt animation frame](kgsagt.jpeg)
 
 
 Kurzgesagt is a narration-over-animation channel. They dive deep into real topics in science, such as black holes, the immune system, and climate change. They gather information from many professionals and explain it to the audience in a really simple and elegant way. The visuals are eye-candy, and they seriously put a ton of effort into their videos. They discuss really fascinating topics, and it has really exposed me to a bunch of cool science I would have never considered.
@@ -97,8 +91,7 @@ I mentioned these channels already, but they can be classified as education. A l
 ------
 People make a lot of music on YouTube. A lot of people are really creative and I like a lot of them. I listen to a lot of music, but there are a few channels where I usually watch more than one video. I wouldn't regard musicians like Hillary Hahn or Jascha Heifetz to be YouTubers, so I have chosen not to include them. Also, I guess artists like 20syl or Taylor Swift do not really make "entertaining" content, so I also will not include artists who just make music.
 
-![TwoSetViolin](/assets/img/blog/2020-06-29-favorite-youtube-channels/StudioTwoSet-Violin0821-banner.jpg){: width="500" }
-*TwoSetViolin: Brett Yang (left), Eddy Chen (right)*
+![TwoSetViolin: Brett Yang (left), Eddy Chen (right)](StudioTwoSet-Violin0821-banner.jpg)
 
 My favorite is TwoSetViolin. TwoSet consists of two Australian violinists that make comedic videos. They are very quirky and talk about a lot of music-related stuff. A lot of it is roasting fake musicians, cracking lame jokes, and playing charades on the violin. I really connect with them because I, too, play the violin. Their jokes do get a bit repetitive, but they are very charming and their videos are hilarious and fun to watch. They are also good musicians, having gone to music school and playing in professional orchestras. You probably won't watch them for their own playing, but it is worth staying for the comedy.
 
@@ -117,8 +110,8 @@ Vat19. They are literally a commercial online shop, and all of their videos are 
 Domics. Domics is an animation channel, where he talks about relatable issues, such as relationships, pet peeves, and interesting events in his life (a lot of it is anecdotal). He is really good at animating, and you can see his progress throughout his videos. He is fun and has a unique take on a lot of situations, and it's easy to go down a rabbit hole when watching his videos. He is Asian too, and I probably relate to stuff because I am Asian too. He is Filipino, so don't get confused!
 
 
-![Magnus Carlsen Chess24](/assets/img/blog/2020-06-29-favorite-youtube-channels/carlsen.jpg){: width="450" }
-*Magnus Carlsen Chess24 Banter Blitz*
+![Magnus Carlsen Chess24 Banter Blitz](carlsen.jpg)
+
 
 Oh, man. Chess has become a real time-consuming pastime for me. If you are getting started, you must watch Magnus Carlsen's Banter Blitz series. He provides insight into his genius, monotone jokes, and unbelievable gameplay. It's not obvious why he makes particular chess moves, but it can still be a valuable learning experience. He's just interesting, which makes it that much fun. He has recently gotten WAY better at explaining his moves. It's a privilege for modern chess players. If you would like to take things more slowly, I highly recommend Agadmator's Chess Channel. He explains things very simply and elegantly, and he is almost unintentionally funny, saying ridiculous things with no emotion. It is great for anyone who wants to analyze chess games by the top Grandmasters. Though I have not really watched GMHikaru, Anish Giri, or other GM Youtube channels, I know a lot of them are very popular and probably very good. I'll link some of them below.
 

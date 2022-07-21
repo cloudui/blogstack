@@ -1,12 +1,12 @@
 ---
 title: About
 description: Hugo, the world's fastest framework for building websites
-date: '2019-02-28'
+date: 2022-07-20
 aliases:
   - about-us
   - about-hugo
   - contact
-license: CC BY-NC-ND
+toc: false
 # lastmod: '2020-10-09'
 menu:
     main: 
@@ -15,22 +15,39 @@ menu:
             icon: user
 
 comments: false
+
 ---
 
-Written in Go, Hugo is an open source static site generator available under the [Apache Licence 2.0.](https://github.com/gohugoio/hugo/blob/master/LICENSE) Hugo supports TOML, YAML and JSON data file types, Markdown and HTML content files and uses shortcodes to add rich content. Other notable features are taxonomies, multilingual mode, image processing, custom output formats, HTML/CSS/JS minification and support for Sass SCSS workflows.
+Hi! I am a sophomore studying Computer Engineering at the University of Maryland. This blog is for me to share things I find interesting. You'll find an assortment of topics, from school to technology to coding. Feel free to look around. This website was made using [Hugo](https://gohugo.io/) with the [Stack](https://github.com/CaiJimmy/hugo-theme-stack) theme. If you have any questions, contact me at `ericchen314 at gmail dot com`.
 
-Hugo makes use of a variety of open source projects including:
+Enjoy!
 
-* https://github.com/yuin/goldmark
-* https://github.com/alecthomas/chroma
-* https://github.com/muesli/smartcrop
-* https://github.com/spf13/cobra
-* https://github.com/spf13/viper
+If you want to support my blog, consider [buying me a coffee](https://www.buymeacoffee.com/echen)! 
 
-Hugo is ideal for blogs, corporate websites, creative portfolios, online magazines, single page applications or even a website with thousands of pages.
+## Some Trivia:
 
-Hugo is for people who want to hand code their own website without worrying about setting up complicated runtimes, dependencies and databases.
+<hr>
 
-Websites built with Hugo are extremelly fast, secure and can be deployed anywhere including, AWS, GitHub Pages, Heroku, Netlify and any other hosting provider.
+**Favorite Animal**: Cats
 
-Learn more and contribute on [GitHub](https://github.com/gohugoio).
+**Favorite Food**: My mom's noodle soup
+
+**Favorite Sport**: Basketball
+
+**Superpower I'd like to have**: Flight or Super Speed
+
+**Favorite Ice Cream Flavor**: Salted Caramel
+
+**Favorite Music Genres**: Classical, Jpop, Video Game, Classic Pop 
+
+**Favorite Composer**: Tchaikovsky
+
+**Favorite Musician/Artist**: Hilary Hahn and Frank Sinatra
+
+**Favorite Subjects**: Cosmology, Geology, Modern Physics
+
+**Greatest Fears**: Heights, Spiders, Jellyfish
+
+**Favorite TV Show**: Avatar the Last Airbender
+
+**One thing I'd like to be good at**: Singing 
