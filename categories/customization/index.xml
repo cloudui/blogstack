@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Customization on echen's blog</title><link>https://dev.echen.io/categories/customization/</link><description>Recent content in Customization on echen's blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Sun, 07 Feb 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://dev.echen.io/categories/customization/index.xml" rel="self" type="application/rss+xml"/><item><title>My Favorite Android Applications!</title><link>https://dev.echen.io/p/my-favorite-android-applications/</link><pubDate>Sun, 07 Feb 2021 00:00:00 +0000</pubDate><guid>https://dev.echen.io/p/my-favorite-android-applications/</guid><description>&lt;p>Android has some fantastic and unique apps, and I thought I&amp;rsquo;d share a couple of my favorites. This blog post was influenced by the one and only Eli Qian. You can find the post about his iPhone setup &lt;a class="link" href="https://www.eliqian.com/post/iphone-home-screen-setup" target="_blank" rel="noopener"
+>here&lt;/a>.&lt;/p>
+&lt;p>Some of the apps I will talk about are not from the Google Play Store. This is generally because they might not be able to survive there and rely on you to sideload them. However, this is a very simple task on Android, which is one reason I prefer it over iOS. Be careful with downloading malicious apps as they will likely steal your data or mess up your device in some way.&lt;/p>
+&lt;p>You can sideload apps that would otherwise cost money on the Google Play Store. I have done this with a couple of apps, but I don&amp;rsquo;t really recommend it. This is because they will not get automatic updates and do not support the developer. However, if you make the argument that you will patronize the creator when you are financially capable of doing so, I can get behind that. I do pay for 99% of my apps, so don&amp;rsquo;t arrest me.&lt;/p>
+&lt;p>A general tip: If you do use Reddit, join the subreddit for the indie apps on your phone. It will let you know about features coming down the line, and you can submit bugs or request features.&lt;/p>
+&lt;p>&lt;em>Note: Most of these apps are also available on iOS. Just search for them in the App Store and see if they exist.&lt;/em>&lt;/p>
+&lt;h2 id="general-apps">General Apps&lt;/h2>
+&lt;hr>
+&lt;h3 id="google-opinion-rewards-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Google Opinion Rewards   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>Every Android user should have this app. Google Opinion Rewards is a rewards-based program by Google. All you need to do is answer the surveys it gives you and you will be able to receive rewards in the form of your Google Play Balance. Surveys will pop up every few days or so based on your activity on your phone. Questions range from &amp;ldquo;Have you been to &lt;em>this place&lt;/em> recently&amp;rdquo; or &amp;ldquo;Have you searched for this term using Google Assistant?&amp;rdquo;. They take less than a minute, and rewards will range from 10 cents to a dollar. The more questions you answer (based on your answers to previous questions), the more money you earn. I&amp;rsquo;ve probably amassed over $20 in total in less than two years, and I&amp;rsquo;ve used the money to buy apps. There&amp;rsquo;s no reason for you not to get it. I believe iOS also has this app, where you can earn some money towards PayPal instead, which is kinda cool.&lt;/p>
+&lt;h3 id="google-keep-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Google Keep   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>Good for jotting down a couple of notes. I use it for writing down important things and saving URLs.&lt;/p>
+&lt;h3 id="google-photos-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Google Photos   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>It backs up your photos and allows you to sync photos across devices. Either get free 1080p unlimited or have each picture contribute to your 15GB limit. Every phone user (iOS or Android) should have this app. You can also share albums with friends and family.&lt;/p>
+&lt;h3 id="youtube-vancedhttpsvancedappcom-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">&lt;a class="link" href="https://vancedapp.com/" target="_blank" rel="noopener"
+>Youtube Vanced&lt;/a>   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>This is by far my favorite app. It&amp;rsquo;s a side-loaded YouTube alternative that offers different themes, ad-free playback, and SponsorBlock. It&amp;rsquo;s essentially Youtube Premium with more customization. The app has user-login through MicroG, a Google Play Services mod. SponsorBlock allows you to skip pesky portions of YouTube videos, like intros, sponsored messages, and empty silence. I was skeptical of it at first, but it actually works very well. As someone who watches YouTube a ton, this app is literally a blessing from above. Vanced also has automatic updates through their Vanced manager, which allows you to update MicroG, YT Vanced, but also YT Music Vanced, which is essentially free YouTube Music (albeit, no download capabilities). No hassle and easy updates.&lt;/p>
+&lt;h3 id="weather-timeline-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">Weather Timeline   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>This app was discontinued as the developer, Sam Ruston, couldn&amp;rsquo;t keep up with the Weather API fees. The app was supposed to be rereleased as it was purchased by MyRadar, but I don&amp;rsquo;t really see that happening any time soon. You can currently sideload it if you would like, but you won&amp;rsquo;t get any app updates. I really like this weather app, due to its simplicity and design. It has minute-to-minute precipitation, rain and snow notifications, and an overall pleasing look. I don&amp;rsquo;t really know how good its accuracy is, but the app design is why I continue to use it. It&amp;rsquo;s overall an excellent weather app, and I highly recommend it.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://blog.echen.io/media/uploads/screenshot_20210225-011846_weather_%281%29.jpg"
+loading="lazy"
+alt="Weather Timeline"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Weather Timeline&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="ticktick-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">TickTick   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>The to-do list app in my life. It&amp;rsquo;s very good for managing tasks and has a clean design. It will automatically schedule tasks with keywords, like &amp;ldquo;tomorrow,&amp;rdquo; &amp;ldquo;next week,&amp;rdquo; etc. Its free version is actually good enough for me. Premium features include calendar integration, calendar view, smart lists, and more. It&amp;rsquo;s $2.99 / M or $27.99 / Y. I&amp;rsquo;ve tried Google tasks and Todoist, but TickTick is just better.&lt;/p>
+&lt;h3 id="tachiyomihttpstachiyomiorg-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">&lt;a class="link" href="https://tachiyomi.org/" target="_blank" rel="noopener"
+>Tachiyomi&lt;/a>   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>The best app for the manga reader in your life. That&amp;rsquo;s not me, but this app is really good. It has a clean design and dozens of manga sources available, from NSFW stuff to your normal stuff. Although I don&amp;rsquo;t use it much, it is riddled with convenient features and gives you access to things you wouldn&amp;rsquo;t be able to read otherwise. It is a sideloaded app (also indie), and you can find it &lt;a class="link" href="https://tachiyomi.org/" target="_blank" rel="noopener"
+>here&lt;/a>. Thank you to Maxwell Zhang for telling me about this app.&lt;/p>
+&lt;h3 id="duolingo-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Duolingo   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>I&amp;rsquo;ve been learning Japanese for over two years at this point. For my new year&amp;rsquo;s resolution in 2019, I wanted to learn a new language, and I&amp;rsquo;ve stuck with that since. It&amp;rsquo;s probably the only time I&amp;rsquo;ve ever kept one. Duolingo is an excellent resource for learning languages. Although I don&amp;rsquo;t necessarily think it&amp;rsquo;s ideal for a language like Japanese, I still use it as it is convenient and simple. Although the ads are quite annoying, I think it is nice overall. I picked up French a couple months ago and I&amp;rsquo;m also trying to learn it at the same time. I think you should diversify your sources to maximize your learning capabilities, as Duolingo isn&amp;rsquo;t good for all aspects of learning a language.&lt;/p>
+&lt;h3 id="aftership-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Aftership   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>A really good app for tracking packages. If you can sync with your Amazon or eBay account. The package updates aren&amp;rsquo;t always in time for some reason (maybe delayed an hour), but it&amp;rsquo;s good enough, and it&amp;rsquo;s free.&lt;/p>
+&lt;h2 id="customization">Customization&lt;/h2>
+&lt;hr>
+&lt;h3 id="nova-launcher-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">Nova Launcher   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>Best launcher I&amp;rsquo;ve tried. I do not like Samsung&amp;rsquo;s One UI launcher as it is not customizable at all. With Nova Launcher, you can rearrange the app grid, remove app labels, use custom icon packs, hide apps, customize gestures, change animations, change themes, customize app drawers, and more. I&amp;rsquo;ve tried a couple of other launchers, but this one has the most features and is compatible with almost every Android feature. It&amp;rsquo;s $4.99 for Nova Prime (more features), and it&amp;rsquo;s worth every penny.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://i.redd.it/vx4gyfv4zy951.png"
+loading="lazy"
+alt="Courtesy of reddit.com"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+width="400"
+>
+&lt;figcaption>Courtesy of reddit.com&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="kwgt-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">Kwgt   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>The all-in-one widget makers. You can literally make any widget provided you have a lot of time to spend. A better idea is to buy widget packs. Some good ones are Shadow and Fusion. Using Kwgt will require you to purchase a key, and icon packs will probably cost money as well. But it&amp;rsquo;s your only option for customizable widgets not provided by your apps.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://pbs.twimg.com/media/EsFAb9NXYAAqAhp.jpg"
+loading="lazy"
+alt="One4KWGT Pro"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>One4KWGT Pro&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="flight-icon-packhttpsplaygooglecomstoreappsdetailsidcomnatewrenflighthlen_usglus-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">&lt;a class="link" href="https://play.google.com/store/apps/details?id=com.natewren.flight&amp;amp;hl=en_US&amp;amp;gl=US" target="_blank" rel="noopener"
+>Flight Icon Pack&lt;/a>   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>The icons you see below are from this icon pack. It has thousands of icons, and I really like the clean aesthetic. There are a bunch of default icons you can assign to apps that don&amp;rsquo;t have an icon yet. This is obviously a very personal choice for your home screen, so get the icons you like. The pro version has more icons and costs $1.99.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://blog.echen.io/media/images/Screenshot_20210206-234927_Nova7.jpg"
+loading="lazy"
+alt="Flight Icon Pack"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Flight Icon Pack&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="agendahttpsplaygooglecomstoreappsdetailsidcomfrancoagendahlen_usglus-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">&lt;a class="link" href="https://play.google.com/store/apps/details?id=com.franco.agenda&amp;amp;hl=en_US&amp;amp;gl=US" target="_blank" rel="noopener"
+>Agenda&lt;/a>   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>This is the best calendar widget I&amp;rsquo;ve used. It allows syncing with any calendar app and categorizes them. The widget is very customizable and lists all your events chronologically. It&amp;rsquo;s 99 cents on the Google Play store.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://blog.echen.io/media/images/Screenshot_20210206-234933_Nova7.jpg"
+loading="lazy"
+alt="Agenda Widget"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Agenda Widget&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="backdrops-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Backdrops   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>It&amp;rsquo;s a wallpaper collection app. Wallpapers are added every few days or so, and you can set them through the app. I learned about this app from MKBHD; he gets some of his wallpapers from it. You have to have particular tastes to enjoy these wallpapers, so they may not suit your needs. I like most of the wallpapers, but I probably wouldn&amp;rsquo;t use them on my phone.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://www.ytechb.com/wp-content/uploads/2020/08/Best-Wallpapers-app-for-Android-Backdrops.jpg"
+loading="lazy"
+alt="Courtesy of ytechb.com"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+width="400"
+>
+&lt;figcaption>Courtesy of ytechb.com&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h2 id="social-media-alternatives">Social Media Alternatives&lt;/h2>
+&lt;hr>
+&lt;p>Honestly, I need to get off social media. It is an incredible waste of time most days, and I find myself mindlessly scrolling through reposted and uninteresting content. I agree with Eli in the sense that I should remove these distractions from my homepage and focus on things that matter more. As much as I hate Reddit, it is good for some things, like finding good wallpapers, learning about app updates, and finding excellent photography.&lt;/p>
+&lt;h3 id="sync-for-reddit-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">Sync for Reddit   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>This is probably the best Android Reddit app. It has unbelievable customization, and the developer is extremely active and pushes out updates all the time. There are so many features that I can&amp;rsquo;t possibly list them all, but I&amp;rsquo;ll name a few: theme customization (literally every element), dark mode, animations, caching, word filters, and more. I mainly like it because of its clean design and layout flexibility, but there&amp;rsquo;s just something pleasing about being able to customize everything. That&amp;rsquo;s the basis of Android, no? I&amp;rsquo;ve used Apollo for iOS, which is also very good, but I definitely like Sync better. It offers more customizability and theming options, but this is just a personal preference. The ad-free version is $4.99, and it&amp;rsquo;s honestly a steal. You probably won&amp;rsquo;t find anything better.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://blog.echen.io/media/uploads/sync.jpg"
+loading="lazy"
+alt="Sync for Reddit"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Sync for Reddit&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="relay-for-reddit-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Relay for Reddit   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>I used this app until I found Sync. It is also very good. It is based on fluid animations and a clean, simple design. Sync is definitely more customizable, but you might be overwhelmed by the tsunami of options. Sometimes, falling back on a simple and clean app is better, and you&amp;rsquo;ll definitely find that with Relay. It has multiple card layouts and preset themes. You can go minimalistic or feature-rich. It&amp;rsquo;s overall a very nice app, but I do like Sync a lot more. The ad-free version is $4.99.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://i.imgur.com/Y4DO74M.png"
+loading="lazy"
+alt="Relay"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Relay&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="flamingo-for-twitter-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">Flamingo for Twitter   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>This app is also discontinued, and you can&amp;rsquo;t really get it anymore. So why am I mentioning it? First, it still has an incredibly nice design, and it is a very customizable Twitter app. However, I do not recommend it. Twitter&amp;rsquo;s API for developers is some hot garbage. It restricts access to features like favorite notifications, retweet count, and token limits. I doubt this will be changed any time soon, which means all independent Twitter apps are missing out on features only the actual app will have. I do not recommend Twitter apps unless you really like the design, so it&amp;rsquo;s up to you. Having worked with the API, I know the pain of working with free-tier limits.&lt;/p>
+&lt;h2 id="games">Games&lt;/h2>
+&lt;hr>
+&lt;p>The games I play are not the time-consuming type. They are usually pretty collector-based, so don&amp;rsquo;t expect any triple-A shooter games here.&lt;/p>
+&lt;h3 id="tsuki-adventure-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Tsuki Adventure   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>A simple RPG-like app where you collect carrots and roam different areas. You are a small bunny who aims to build relationships and memories with your friends. This game is honestly really cute. There are tons of things to unpack as you go along, and the developers have hidden many secrets. I&amp;rsquo;ve played this game for nearly two years, and I am nowhere near finished. There are some adult jokes too, which is strange considering its innocent artwork and designs. The storyline has some pretty dark points. The Yakuza boss owns the bar in the Mushroom Village? The police chief&amp;rsquo;s daughter died falling through the thinning ice? You&amp;rsquo;ll be surprised. It also has events that correlate with real life, like Chinese New Year, Halloween, and Christmas. You have to download it to really understand how this game works because it&amp;rsquo;s probably not what you would expect.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://i.redd.it/jghb7fcyj7w21.png"
+loading="lazy"
+alt="Courtesy of reddit.com"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+width="400"
+>
+&lt;figcaption>Courtesy of reddit.com&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="neko-atsume-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Neko Atsume   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>A cat collecting game. Your goal is to befriend cats by buying food and decorating your house with cat furniture. There are common and rare cats to collect and house remodeling upgrades. It&amp;rsquo;s simple yet addicting. It takes a while to complete, so you better have some patience.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://images-na.ssl-images-amazon.com/images/I/61JufknUUFL.png"
+loading="lazy"
+alt="Courtesy of amazon.com"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Courtesy of amazon.com&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="altos-adventurealtos-odyssey-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Alto&amp;rsquo;s Adventure/Alto&amp;rsquo;s Odyssey   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>It&amp;rsquo;s a clean and elegant endless snowboarding game. Travel different landscapes and scenery while unlocking new boards, abilities, and characters. It&amp;rsquo;s relaxing, and the music is nice. Literally any screenshot you take is wallpaper-worthy.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://is5-ssl.mzstatic.com/image/thumb/Purple62/v4/54/cb/4a/54cb4a9c-caad-ed55-ba44-7d2ca85ed3ca/pr_source.png/643x0w.jpg"
+loading="lazy"
+alt="Frame from Alto&amp;rsquo;s Odyssey"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Frame from Alto&amp;rsquo;s Odyssey&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="monument-valley-2-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Monument Valley 2   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>A really cool game with some fascinating designs. It&amp;rsquo;s a puzzle game that revolves around impossible shapes and optical illusions. You operate a princess, modifying landscapes to help her reach the next levels and reconnect with her mother. There is no dialogue, yet it tells a pretty charming story. Some puzzles are genuinely challenging, and the landscapes are seriously beautiful. I only wish this game was longer, but otherwise, I have no complaints. This game has a predecessor, Monument Valley 1. The game costs $4.99, but I think it&amp;rsquo;s worth it.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://cdn.cloudflare.steamstatic.com/steam/apps/1927740/ss_dcc6681a9f59237ab1c4b381b0f2aceba0079f78.1920x1080.jpg?t=1657630530"
+loading="lazy"
+alt="Courtesy of steam.com"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Courtesy of steam.com&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="some-others-worth-considering">Some others worth considering:&lt;/h3>
+&lt;p>Games like Genshin Impact and Sky: Children of the Light are open-world RPG-like games. They are processor intensive but with very nice graphics. I thought I&amp;rsquo;d be into those types of games, but they don&amp;rsquo;t suit me. I can imagine a lot of people liking them, however.&lt;/p>
+&lt;h2 id="concluding-thoughts">Concluding Thoughts&lt;/h2>
+&lt;p>As you can probably tell, I&amp;rsquo;m pretty invested in customizing my phone. It&amp;rsquo;s pretty time-consuming, but I like the freedom to customize to my heart&amp;rsquo;s desire. One thing I can say for certain is that I currently spend way too much time on my phone, primarily watching YouTube videos. I think this line from Eli&amp;rsquo;s post about how a phone should function in our lives is pretty good.&lt;/p>
+&lt;blockquote>
+&lt;p>Instead of a technology that sucks up time and controls my attention, I want my phone to be the opposite - something that saves me time and frees up attention for important tasks.&lt;/p>
+&lt;/blockquote>
+&lt;p>We have an unlimited arsenal of tools at our fingertips, and putting it to good use should be its purpose. Starting from now, I&amp;rsquo;m going to try to build more positive habits and try new things instead of lazily swiping my finger over nonsensical posts on Reddit. My goal is to read &lt;em>Frankenstein&lt;/em> by Mary Shelley within the next few weeks. Expect a blog post with my thoughts.&lt;/p></description></item></channel></rss>

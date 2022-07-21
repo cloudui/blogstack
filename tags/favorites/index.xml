@@ -1,0 +1,495 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>favorites on echen's blog</title><link>https://dev.echen.io/tags/favorites/</link><description>Recent content in favorites on echen's blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Sun, 07 Feb 2021 00:00:00 +0000</lastBuildDate><atom:link href="https://dev.echen.io/tags/favorites/index.xml" rel="self" type="application/rss+xml"/><item><title>My Favorite Android Applications!</title><link>https://dev.echen.io/p/my-favorite-android-applications/</link><pubDate>Sun, 07 Feb 2021 00:00:00 +0000</pubDate><guid>https://dev.echen.io/p/my-favorite-android-applications/</guid><description>&lt;p>Android has some fantastic and unique apps, and I thought I&amp;rsquo;d share a couple of my favorites. This blog post was influenced by the one and only Eli Qian. You can find the post about his iPhone setup &lt;a class="link" href="https://www.eliqian.com/post/iphone-home-screen-setup" target="_blank" rel="noopener"
+>here&lt;/a>.&lt;/p>
+&lt;p>Some of the apps I will talk about are not from the Google Play Store. This is generally because they might not be able to survive there and rely on you to sideload them. However, this is a very simple task on Android, which is one reason I prefer it over iOS. Be careful with downloading malicious apps as they will likely steal your data or mess up your device in some way.&lt;/p>
+&lt;p>You can sideload apps that would otherwise cost money on the Google Play Store. I have done this with a couple of apps, but I don&amp;rsquo;t really recommend it. This is because they will not get automatic updates and do not support the developer. However, if you make the argument that you will patronize the creator when you are financially capable of doing so, I can get behind that. I do pay for 99% of my apps, so don&amp;rsquo;t arrest me.&lt;/p>
+&lt;p>A general tip: If you do use Reddit, join the subreddit for the indie apps on your phone. It will let you know about features coming down the line, and you can submit bugs or request features.&lt;/p>
+&lt;p>&lt;em>Note: Most of these apps are also available on iOS. Just search for them in the App Store and see if they exist.&lt;/em>&lt;/p>
+&lt;h2 id="general-apps">General Apps&lt;/h2>
+&lt;hr>
+&lt;h3 id="google-opinion-rewards-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Google Opinion Rewards   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>Every Android user should have this app. Google Opinion Rewards is a rewards-based program by Google. All you need to do is answer the surveys it gives you and you will be able to receive rewards in the form of your Google Play Balance. Surveys will pop up every few days or so based on your activity on your phone. Questions range from &amp;ldquo;Have you been to &lt;em>this place&lt;/em> recently&amp;rdquo; or &amp;ldquo;Have you searched for this term using Google Assistant?&amp;rdquo;. They take less than a minute, and rewards will range from 10 cents to a dollar. The more questions you answer (based on your answers to previous questions), the more money you earn. I&amp;rsquo;ve probably amassed over $20 in total in less than two years, and I&amp;rsquo;ve used the money to buy apps. There&amp;rsquo;s no reason for you not to get it. I believe iOS also has this app, where you can earn some money towards PayPal instead, which is kinda cool.&lt;/p>
+&lt;h3 id="google-keep-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Google Keep   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>Good for jotting down a couple of notes. I use it for writing down important things and saving URLs.&lt;/p>
+&lt;h3 id="google-photos-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Google Photos   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>It backs up your photos and allows you to sync photos across devices. Either get free 1080p unlimited or have each picture contribute to your 15GB limit. Every phone user (iOS or Android) should have this app. You can also share albums with friends and family.&lt;/p>
+&lt;h3 id="youtube-vancedhttpsvancedappcom-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">&lt;a class="link" href="https://vancedapp.com/" target="_blank" rel="noopener"
+>Youtube Vanced&lt;/a>   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>This is by far my favorite app. It&amp;rsquo;s a side-loaded YouTube alternative that offers different themes, ad-free playback, and SponsorBlock. It&amp;rsquo;s essentially Youtube Premium with more customization. The app has user-login through MicroG, a Google Play Services mod. SponsorBlock allows you to skip pesky portions of YouTube videos, like intros, sponsored messages, and empty silence. I was skeptical of it at first, but it actually works very well. As someone who watches YouTube a ton, this app is literally a blessing from above. Vanced also has automatic updates through their Vanced manager, which allows you to update MicroG, YT Vanced, but also YT Music Vanced, which is essentially free YouTube Music (albeit, no download capabilities). No hassle and easy updates.&lt;/p>
+&lt;h3 id="weather-timeline-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">Weather Timeline   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>This app was discontinued as the developer, Sam Ruston, couldn&amp;rsquo;t keep up with the Weather API fees. The app was supposed to be rereleased as it was purchased by MyRadar, but I don&amp;rsquo;t really see that happening any time soon. You can currently sideload it if you would like, but you won&amp;rsquo;t get any app updates. I really like this weather app, due to its simplicity and design. It has minute-to-minute precipitation, rain and snow notifications, and an overall pleasing look. I don&amp;rsquo;t really know how good its accuracy is, but the app design is why I continue to use it. It&amp;rsquo;s overall an excellent weather app, and I highly recommend it.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://blog.echen.io/media/uploads/screenshot_20210225-011846_weather_%281%29.jpg"
+loading="lazy"
+alt="Weather Timeline"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Weather Timeline&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="ticktick-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">TickTick   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>The to-do list app in my life. It&amp;rsquo;s very good for managing tasks and has a clean design. It will automatically schedule tasks with keywords, like &amp;ldquo;tomorrow,&amp;rdquo; &amp;ldquo;next week,&amp;rdquo; etc. Its free version is actually good enough for me. Premium features include calendar integration, calendar view, smart lists, and more. It&amp;rsquo;s $2.99 / M or $27.99 / Y. I&amp;rsquo;ve tried Google tasks and Todoist, but TickTick is just better.&lt;/p>
+&lt;h3 id="tachiyomihttpstachiyomiorg-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">&lt;a class="link" href="https://tachiyomi.org/" target="_blank" rel="noopener"
+>Tachiyomi&lt;/a>   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>The best app for the manga reader in your life. That&amp;rsquo;s not me, but this app is really good. It has a clean design and dozens of manga sources available, from NSFW stuff to your normal stuff. Although I don&amp;rsquo;t use it much, it is riddled with convenient features and gives you access to things you wouldn&amp;rsquo;t be able to read otherwise. It is a sideloaded app (also indie), and you can find it &lt;a class="link" href="https://tachiyomi.org/" target="_blank" rel="noopener"
+>here&lt;/a>. Thank you to Maxwell Zhang for telling me about this app.&lt;/p>
+&lt;h3 id="duolingo-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Duolingo   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>I&amp;rsquo;ve been learning Japanese for over two years at this point. For my new year&amp;rsquo;s resolution in 2019, I wanted to learn a new language, and I&amp;rsquo;ve stuck with that since. It&amp;rsquo;s probably the only time I&amp;rsquo;ve ever kept one. Duolingo is an excellent resource for learning languages. Although I don&amp;rsquo;t necessarily think it&amp;rsquo;s ideal for a language like Japanese, I still use it as it is convenient and simple. Although the ads are quite annoying, I think it is nice overall. I picked up French a couple months ago and I&amp;rsquo;m also trying to learn it at the same time. I think you should diversify your sources to maximize your learning capabilities, as Duolingo isn&amp;rsquo;t good for all aspects of learning a language.&lt;/p>
+&lt;h3 id="aftership-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Aftership   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>A really good app for tracking packages. If you can sync with your Amazon or eBay account. The package updates aren&amp;rsquo;t always in time for some reason (maybe delayed an hour), but it&amp;rsquo;s good enough, and it&amp;rsquo;s free.&lt;/p>
+&lt;h2 id="customization">Customization&lt;/h2>
+&lt;hr>
+&lt;h3 id="nova-launcher-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">Nova Launcher   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>Best launcher I&amp;rsquo;ve tried. I do not like Samsung&amp;rsquo;s One UI launcher as it is not customizable at all. With Nova Launcher, you can rearrange the app grid, remove app labels, use custom icon packs, hide apps, customize gestures, change animations, change themes, customize app drawers, and more. I&amp;rsquo;ve tried a couple of other launchers, but this one has the most features and is compatible with almost every Android feature. It&amp;rsquo;s $4.99 for Nova Prime (more features), and it&amp;rsquo;s worth every penny.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://i.redd.it/vx4gyfv4zy951.png"
+loading="lazy"
+alt="Courtesy of reddit.com"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+width="400"
+>
+&lt;figcaption>Courtesy of reddit.com&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="kwgt-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">Kwgt   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>The all-in-one widget makers. You can literally make any widget provided you have a lot of time to spend. A better idea is to buy widget packs. Some good ones are Shadow and Fusion. Using Kwgt will require you to purchase a key, and icon packs will probably cost money as well. But it&amp;rsquo;s your only option for customizable widgets not provided by your apps.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://pbs.twimg.com/media/EsFAb9NXYAAqAhp.jpg"
+loading="lazy"
+alt="One4KWGT Pro"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>One4KWGT Pro&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="flight-icon-packhttpsplaygooglecomstoreappsdetailsidcomnatewrenflighthlen_usglus-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">&lt;a class="link" href="https://play.google.com/store/apps/details?id=com.natewren.flight&amp;amp;hl=en_US&amp;amp;gl=US" target="_blank" rel="noopener"
+>Flight Icon Pack&lt;/a>   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>The icons you see below are from this icon pack. It has thousands of icons, and I really like the clean aesthetic. There are a bunch of default icons you can assign to apps that don&amp;rsquo;t have an icon yet. This is obviously a very personal choice for your home screen, so get the icons you like. The pro version has more icons and costs $1.99.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://blog.echen.io/media/images/Screenshot_20210206-234927_Nova7.jpg"
+loading="lazy"
+alt="Flight Icon Pack"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Flight Icon Pack&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="agendahttpsplaygooglecomstoreappsdetailsidcomfrancoagendahlen_usglus-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">&lt;a class="link" href="https://play.google.com/store/apps/details?id=com.franco.agenda&amp;amp;hl=en_US&amp;amp;gl=US" target="_blank" rel="noopener"
+>Agenda&lt;/a>   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>This is the best calendar widget I&amp;rsquo;ve used. It allows syncing with any calendar app and categorizes them. The widget is very customizable and lists all your events chronologically. It&amp;rsquo;s 99 cents on the Google Play store.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://blog.echen.io/media/images/Screenshot_20210206-234933_Nova7.jpg"
+loading="lazy"
+alt="Agenda Widget"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Agenda Widget&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="backdrops-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Backdrops   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>It&amp;rsquo;s a wallpaper collection app. Wallpapers are added every few days or so, and you can set them through the app. I learned about this app from MKBHD; he gets some of his wallpapers from it. You have to have particular tastes to enjoy these wallpapers, so they may not suit your needs. I like most of the wallpapers, but I probably wouldn&amp;rsquo;t use them on my phone.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://www.ytechb.com/wp-content/uploads/2020/08/Best-Wallpapers-app-for-Android-Backdrops.jpg"
+loading="lazy"
+alt="Courtesy of ytechb.com"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+width="400"
+>
+&lt;figcaption>Courtesy of ytechb.com&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h2 id="social-media-alternatives">Social Media Alternatives&lt;/h2>
+&lt;hr>
+&lt;p>Honestly, I need to get off social media. It is an incredible waste of time most days, and I find myself mindlessly scrolling through reposted and uninteresting content. I agree with Eli in the sense that I should remove these distractions from my homepage and focus on things that matter more. As much as I hate Reddit, it is good for some things, like finding good wallpapers, learning about app updates, and finding excellent photography.&lt;/p>
+&lt;h3 id="sync-for-reddit-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">Sync for Reddit   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>This is probably the best Android Reddit app. It has unbelievable customization, and the developer is extremely active and pushes out updates all the time. There are so many features that I can&amp;rsquo;t possibly list them all, but I&amp;rsquo;ll name a few: theme customization (literally every element), dark mode, animations, caching, word filters, and more. I mainly like it because of its clean design and layout flexibility, but there&amp;rsquo;s just something pleasing about being able to customize everything. That&amp;rsquo;s the basis of Android, no? I&amp;rsquo;ve used Apollo for iOS, which is also very good, but I definitely like Sync better. It offers more customizability and theming options, but this is just a personal preference. The ad-free version is $4.99, and it&amp;rsquo;s honestly a steal. You probably won&amp;rsquo;t find anything better.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://blog.echen.io/media/uploads/sync.jpg"
+loading="lazy"
+alt="Sync for Reddit"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Sync for Reddit&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="relay-for-reddit-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Relay for Reddit   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>I used this app until I found Sync. It is also very good. It is based on fluid animations and a clean, simple design. Sync is definitely more customizable, but you might be overwhelmed by the tsunami of options. Sometimes, falling back on a simple and clean app is better, and you&amp;rsquo;ll definitely find that with Relay. It has multiple card layouts and preset themes. You can go minimalistic or feature-rich. It&amp;rsquo;s overall a very nice app, but I do like Sync a lot more. The ad-free version is $4.99.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://i.imgur.com/Y4DO74M.png"
+loading="lazy"
+alt="Relay"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Relay&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="flamingo-for-twitter-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei">Flamingo for Twitter   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>This app is also discontinued, and you can&amp;rsquo;t really get it anymore. So why am I mentioning it? First, it still has an incredibly nice design, and it is a very customizable Twitter app. However, I do not recommend it. Twitter&amp;rsquo;s API for developers is some hot garbage. It restricts access to features like favorite notifications, retweet count, and token limits. I doubt this will be changed any time soon, which means all independent Twitter apps are missing out on features only the actual app will have. I do not recommend Twitter apps unless you really like the design, so it&amp;rsquo;s up to you. Having worked with the API, I know the pain of working with free-tier limits.&lt;/p>
+&lt;h2 id="games">Games&lt;/h2>
+&lt;hr>
+&lt;p>The games I play are not the time-consuming type. They are usually pretty collector-based, so don&amp;rsquo;t expect any triple-A shooter games here.&lt;/p>
+&lt;h3 id="tsuki-adventure-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Tsuki Adventure   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>A simple RPG-like app where you collect carrots and roam different areas. You are a small bunny who aims to build relationships and memories with your friends. This game is honestly really cute. There are tons of things to unpack as you go along, and the developers have hidden many secrets. I&amp;rsquo;ve played this game for nearly two years, and I am nowhere near finished. There are some adult jokes too, which is strange considering its innocent artwork and designs. The storyline has some pretty dark points. The Yakuza boss owns the bar in the Mushroom Village? The police chief&amp;rsquo;s daughter died falling through the thinning ice? You&amp;rsquo;ll be surprised. It also has events that correlate with real life, like Chinese New Year, Halloween, and Christmas. You have to download it to really understand how this game works because it&amp;rsquo;s probably not what you would expect.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://i.redd.it/jghb7fcyj7w21.png"
+loading="lazy"
+alt="Courtesy of reddit.com"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+width="400"
+>
+&lt;figcaption>Courtesy of reddit.com&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="neko-atsume-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Neko Atsume   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>A cat collecting game. Your goal is to befriend cats by buying food and decorating your house with cat furniture. There are common and rare cats to collect and house remodeling upgrades. It&amp;rsquo;s simple yet addicting. It takes a while to complete, so you better have some patience.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://images-na.ssl-images-amazon.com/images/I/61JufknUUFL.png"
+loading="lazy"
+alt="Courtesy of amazon.com"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Courtesy of amazon.com&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="altos-adventurealtos-odyssey-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Alto&amp;rsquo;s Adventure/Alto&amp;rsquo;s Odyssey   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>It&amp;rsquo;s a clean and elegant endless snowboarding game. Travel different landscapes and scenery while unlocking new boards, abilities, and characters. It&amp;rsquo;s relaxing, and the music is nice. Literally any screenshot you take is wallpaper-worthy.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://is5-ssl.mzstatic.com/image/thumb/Purple62/v4/54/cb/4a/54cb4a9c-caad-ed55-ba44-7d2ca85ed3ca/pr_source.png/643x0w.jpg"
+loading="lazy"
+alt="Frame from Alto&amp;rsquo;s Odyssey"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Frame from Alto&amp;rsquo;s Odyssey&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="monument-valley-2-nbsp-i-classfab-fa-android-stylecolor-3ddc84-aria-hiddentruei-nbsp-i-classfab-fa-apple-aria-hiddentruei">Monument Valley 2   &lt;i class="fab fa-android" style="color: #3DDC84;" aria-hidden="true">&lt;/i>   &lt;i class="fab fa-apple" aria-hidden="true">&lt;/i>&lt;/h3>
+&lt;p>A really cool game with some fascinating designs. It&amp;rsquo;s a puzzle game that revolves around impossible shapes and optical illusions. You operate a princess, modifying landscapes to help her reach the next levels and reconnect with her mother. There is no dialogue, yet it tells a pretty charming story. Some puzzles are genuinely challenging, and the landscapes are seriously beautiful. I only wish this game was longer, but otherwise, I have no complaints. This game has a predecessor, Monument Valley 1. The game costs $4.99, but I think it&amp;rsquo;s worth it.&lt;/p>
+&lt;p>
+&lt;div class="image-url">
+&lt;img src="https://cdn.cloudflare.steamstatic.com/steam/apps/1927740/ss_dcc6681a9f59237ab1c4b381b0f2aceba0079f78.1920x1080.jpg?t=1657630530"
+loading="lazy"
+alt="Courtesy of steam.com"
+style="display: block;
+margin-left: auto;
+margin-right: auto;
+border-radius: 5px;"
+>
+&lt;figcaption>Courtesy of steam.com&lt;/figcaption>
+&lt;/div>
+&lt;/p>
+&lt;h3 id="some-others-worth-considering">Some others worth considering:&lt;/h3>
+&lt;p>Games like Genshin Impact and Sky: Children of the Light are open-world RPG-like games. They are processor intensive but with very nice graphics. I thought I&amp;rsquo;d be into those types of games, but they don&amp;rsquo;t suit me. I can imagine a lot of people liking them, however.&lt;/p>
+&lt;h2 id="concluding-thoughts">Concluding Thoughts&lt;/h2>
+&lt;p>As you can probably tell, I&amp;rsquo;m pretty invested in customizing my phone. It&amp;rsquo;s pretty time-consuming, but I like the freedom to customize to my heart&amp;rsquo;s desire. One thing I can say for certain is that I currently spend way too much time on my phone, primarily watching YouTube videos. I think this line from Eli&amp;rsquo;s post about how a phone should function in our lives is pretty good.&lt;/p>
+&lt;blockquote>
+&lt;p>Instead of a technology that sucks up time and controls my attention, I want my phone to be the opposite - something that saves me time and frees up attention for important tasks.&lt;/p>
+&lt;/blockquote>
+&lt;p>We have an unlimited arsenal of tools at our fingertips, and putting it to good use should be its purpose. Starting from now, I&amp;rsquo;m going to try to build more positive habits and try new things instead of lazily swiping my finger over nonsensical posts on Reddit. My goal is to read &lt;em>Frankenstein&lt;/em> by Mary Shelley within the next few weeks. Expect a blog post with my thoughts.&lt;/p></description></item><item><title>My Favorite YouTube Channels</title><link>https://dev.echen.io/p/my-favorite-youtube-channels/</link><pubDate>Mon, 29 Jun 2020 18:20:02 -0400</pubDate><guid>https://dev.echen.io/p/my-favorite-youtube-channels/</guid><description>&lt;img src="https://dev.echen.io/p/my-favorite-youtube-channels/youtube_logo_dark.jpg" alt="Featured image of post My Favorite YouTube Channels" />&lt;p>I have been watching a lot of YouTube recently, and I&amp;rsquo;d like to share my favorites by category. I hope you can find one you like out of the bunch. Note: many people fall into multiple categories, but I tried my best to separate them. A list of all the channels I mention will be at the bottom. Alert: this will be a very long post.&lt;/p>
+&lt;h2 id="commentary-channels">Commentary Channels&lt;/h2>
+&lt;hr>
+&lt;p>
+&lt;img src="https://dev.echen.io/p/my-favorite-youtube-channels/75y73mf3tkc41.png"
+width="803"
+height="705"
+srcset="https://dev.echen.io/p/my-favorite-youtube-channels/75y73mf3tkc41_hu5110ac33e7b3ad230d3cc32f4d3021cc_374638_480x0_resize_box_3.png 480w, https://dev.echen.io/p/my-favorite-youtube-channels/75y73mf3tkc41_hu5110ac33e7b3ad230d3cc32f4d3021cc_374638_1024x0_resize_box_3.png 1024w"
+loading="lazy"
+alt="Big stinker Drew Gooden"
+class="gallery-image"
+data-flex-grow="113"
+data-flex-basis="273px"
+>
+&lt;/p>
+&lt;p>I like commentary channels a lot, and I have watched quite a handful of them. I recently found a guy named Drew Gooden, and he&amp;rsquo;s very entertaining. He is very sarcastic yet mellow, even when he&amp;rsquo;s mad. His commentary is funny and relatable, and I like the consistency throughout his videos. He discusses all sorts of topics, including the infamous Paul Brothers, dumb arts and crafts channels, and movies. I think he is underrated, and you should check him out.&lt;/p>
+&lt;p>Some other notable commentary channels are PewDiePie and H3H3. PewDiePie&amp;rsquo;s content often involves discussing Youtube controversy, going through his subreddit, or playing video games. It does get a little bit repetitive, but he is very likable, and he generates well-edited videos. It gives me a sense of being part of a community. I wish he would vary his content a bit more in the future. H3H3 is a pretty controversial channel, and I have found myself watching him less, but he is funny nonetheless. He&amp;rsquo;s not afraid to say what he thinks, and he makes fun of people as well as himself. Hila, his wife, is pretty much the opposite of him, but they have a great dynamic. I don&amp;rsquo;t like H3H3 on Twitter as much, but a lot of his content is golden, but I can see why people think he&amp;rsquo;s disturbing because he is a bit crazy.&lt;/p>
+&lt;p>The last one is Mother&amp;rsquo;s Basement. He does commentary on anime. He does a lot of research and puts a lot of time into his videos, and it really shows. He discusses what makes great films great, and what makes horrible films horrible. He is able to take a lot of meaning out of scenes and has shown me a lot about what an anime&amp;rsquo;s central theme was. He is funny and likable, and his videos are very well crafted and organized.&lt;/p>
+&lt;h2 id="comedy-channels">Comedy Channels&lt;/h2>
+&lt;hr>
+&lt;p>I have a few favorites in mind: NigaHiga, Casually Explained, and You Suck at Cooking (YSAC). NigaHiga has been around forever, and I grew up with his videos. He has created amazing skits, ranted about topics like racism and swearing, and has produced some amazing and unique series (Skitzo, ParkCourse, DearRyan). He is extremely likable and funny, and his ideas are as original as they get. He is good at acting as multiple characters, and I like every single person in his studio (RIP Sean). His videos are seriously top-notch, and you can tell that he spends a lot of time on them, all for his audience. He has gradually lost viewers, but I seriously believe he is one of the most underrated channels of modern YouTube.&lt;/p>
+&lt;p>
+&lt;img src="https://dev.echen.io/p/my-favorite-youtube-channels/Casually-Explained-Interview-header-Image-htxt.africa.png"
+width="800"
+height="450"
+srcset="https://dev.echen.io/p/my-favorite-youtube-channels/Casually-Explained-Interview-header-Image-htxt.africa_hua7c6a24a2a13b1f0d37efdf69e64c474_157681_480x0_resize_box_3.png 480w, https://dev.echen.io/p/my-favorite-youtube-channels/Casually-Explained-Interview-header-Image-htxt.africa_hua7c6a24a2a13b1f0d37efdf69e64c474_157681_1024x0_resize_box_3.png 1024w"
+loading="lazy"
+alt="Casually Explained&amp;rsquo;s first encounter with a woman"
+class="gallery-image"
+data-flex-grow="177"
+data-flex-basis="426px"
+>
+&lt;/p>
+&lt;p>Casually Explained (CE) and YSAC are similar channels. Both are very sarcastic and entertaining. CE uses simplistic yet iconic drawings and talks about a lot of common issues (relationships, diets, banking) with a monotone voice. He is extremely sarcastic and every single joke lands really hard and is very thought out. He relies on the misery of his primarily male audience and has a depressing tone in every video, but it is seriously golden. His silly drawings really bring out the comedic effect of his videos, and he actually teaches you stuff at the same time, even though most of it is a joke. YSAC is a cooking channel, where he does comedy through cooking. His videos are all original with the same tinge of sarcasm and slapstick humor as CE. His repetition of inside jokes throughout his videos always make me chuckle. You have to watch him to understand what I&amp;rsquo;m talking about. He can sing (not in the way you might think), play instruments, cook, make jokes, and put cute animals all into one video without making it weird. Absolutely incredible.&lt;/p>
+&lt;h2 id="tech-channels">Tech Channels&lt;/h2>
+&lt;hr>
+&lt;p>I really like technology, almost to a fault. I want stuff that I will never be able to get, but I watch these videos anyway.&lt;/p>
+&lt;p>My favorites channels are MKBHD, Dave2D, and LinusTechTips. MKBHD is one of the most popular tech channels on YouTube. He buys a LOT of expensive stuff and puts it into good use. His videos are very stylish and punchy, and all the shots he uses are amazing. He is very extreme with tech, and you like tech because he likes tech. He talks about smartphones, TVs, electric cars, and more. His editing is spot on and the way he talks about technology is very easy to consume. The variety he brings out makes every video seem fresh and new, and he has seriously conquered the YT algorithm. He uses nearly NO clickbait at all.&lt;/p>
+&lt;p>Dave2D does YouTube on the side. His videos are extremely clean and his film work is simple yet refined. He has a soothing voice and he is very efficient. He gets videos done in like half the time of other channels but covers the same amount of content. Recently, he&amp;rsquo;s been discussing more of what a new product means to the market, and you can really learn new things. He prefers a certain aesthetic to all his products, and I share that aesthetic. His videos are efficient and have good style, and he is very thorough and covers topics as a consumer rather than a &amp;ldquo;guy who has everything.&amp;rdquo;&lt;/p>
+&lt;p>
+&lt;img src="https://dev.echen.io/p/my-favorite-youtube-channels/maxresdefault.jpg"
+width="1280"
+height="720"
+srcset="https://dev.echen.io/p/my-favorite-youtube-channels/maxresdefault_hu5067c088682eaa063248d5939acc5428_83516_480x0_resize_q75_box.jpg 480w, https://dev.echen.io/p/my-favorite-youtube-channels/maxresdefault_hu5067c088682eaa063248d5939acc5428_83516_1024x0_resize_q75_box.jpg 1024w"
+loading="lazy"
+alt="Linus Tech Tips"
+class="gallery-image"
+data-flex-grow="177"
+data-flex-basis="426px"
+>
+&lt;/p>
+&lt;p>Linus Tech Tips (LTT) is probably the most educational of the bunch. You can seriously learn something about technology/computer science in nearly all his videos. He cares a lot about things like gaming monitors and peripherals, and he knows a lot of his audience is too. He is very opinionated and controversial, and you&amp;rsquo;ll either love the way he creates videos or you&amp;rsquo;ll hate them. Linus is a very hard worker and covers every base in the tech world. His team is very likable and they do a lot of interesting things with tech, and his reviews are extremely thorough.&lt;/p>
+&lt;h2 id="skit-channels">Skit Channels&lt;/h2>
+&lt;hr>
+&lt;p>Skits are really fun because they&amp;rsquo;re short and easy to watch. I know that SNL and CollegeHumor are pretty popular, but I don&amp;rsquo;t really watch those. My favorite skit channels are Studio C (cast moved to JK! Studios), CalebCity, and ProZD.&lt;/p>
+&lt;p>Studio C is a family-friendly skit channel that plays on BYU-TV, but everything they do is on YouTube. The original cast (who I like the most) has now moved to JK! Studios to pursue something new. But all the old videos on Studio C are golden. The cast is extremely talented, funny, and diverse. Everyone has their own kinks and unique traits, and I honestly love all of them. Their skits are amazingly original, and they always pick the best people to play the part. They can do accents, sing and dance, and dress up in hilarious costumes. Sometimes they publish skits where people break character, and honestly, that makes it even better. I recommend watching the older stuff from Studio C, and I think you&amp;rsquo;ll really enjoy it.&lt;/p>
+&lt;p>
+&lt;img src="https://dev.echen.io/p/my-favorite-youtube-channels/f9a2849e2e864f47670447765c13a0af.jpg"
+width="1280"
+height="720"
+srcset="https://dev.echen.io/p/my-favorite-youtube-channels/f9a2849e2e864f47670447765c13a0af_hud98dbc27094ad540b7b99c8182bcc713_44149_480x0_resize_q75_box.jpg 480w, https://dev.echen.io/p/my-favorite-youtube-channels/f9a2849e2e864f47670447765c13a0af_hud98dbc27094ad540b7b99c8182bcc713_44149_1024x0_resize_q75_box.jpg 1024w"
+loading="lazy"
+alt="CalebCity&amp;rsquo;s &amp;ldquo;If life glitched like video games&amp;rdquo;"
+class="gallery-image"
+data-flex-grow="177"
+data-flex-basis="426px"
+>
+&lt;/p>
+&lt;p>CalebCity is a skit channel ran by Caleb, a former Viner-turned-YouTuber. He usually plays all the characters in his skits, hence, Caleb &amp;ldquo;City&amp;rdquo;. He sticks to very relatable topics, and his skits are also very funny and original. They are short, but they always get the theme across. You know there will always be a plot twist, where his skits devolve into punching, screaming, or feet falling off. It&amp;rsquo;s honestly hilarious, and his crude-yet-refined editing and sound effects make it that much better. He doesn&amp;rsquo;t have the same studio-level production tools, and his creative ways of implementing the same effect are outright amazing.&lt;/p>
+&lt;p>ProZD is a chubby Asian guy who makes a lot of really short skits (he is a voice actor). Like CalebCity, he plays all the characters and films himself. He has a different sort of style, and he is also very creative. He sticks to topics like card games, anime, and relatable topics, and his tone and slapstick humor makes even his 10 second videos great to watch. Honorable Mention: NigaHiga also makes a lot of great skits, but I already mentioned him earlier. They have great production quality.&lt;/p>
+&lt;h2 id="gaming">Gaming&lt;/h2>
+&lt;hr>
+&lt;p>First off, I am not a gamer. I do not have the peripherals to play even basic titles, and I would also probably get addicted. Most of my gaming consists of playing Wii, Nintendo Switch, and GameCube. I&amp;rsquo;m a huge Nintendo sucker; I love the Mario series, and one of my favorite games ever is &amp;ldquo;Super Mario Galaxy 2&amp;rdquo;. The music is great, the gameplay is fantastic, and I would really like to be able to buy a console so I can play more when I have the money. I like Tetris a lot. I know it seems super lame, but I recommend you try it.&lt;/p>
+&lt;p>I have only ever watched a few channels in my life, but I enjoy them nonetheless. They are TheRunawayGuys (I&amp;rsquo;ll be specific) and JosephSaelee.&lt;/p>
+&lt;p>
+&lt;img src="https://dev.echen.io/p/my-favorite-youtube-channels/trg.jpg"
+width="1280"
+height="720"
+srcset="https://dev.echen.io/p/my-favorite-youtube-channels/trg_hu240b259b147e9fed4c1487d68255983e_126383_480x0_resize_q75_box.jpg 480w, https://dev.echen.io/p/my-favorite-youtube-channels/trg_hu240b259b147e9fed4c1487d68255983e_126383_1024x0_resize_q75_box.jpg 1024w"
+loading="lazy"
+alt="Drawing of TheRunAwayGuys (left to right: Tim, Jon, Chugga)"
+class="gallery-image"
+data-flex-grow="177"
+data-flex-basis="426px"
+>
+&lt;/p>
+&lt;p>The Runawayguys (TRG) consists of ChuggaaConroy (Emile), ProtonJon (Jon), and NintendoCapriSun (Tim). They have also collaborated with MasaeAnela (Masae) and JoshJepson (Josh). I literally love all of them. They play multiplayer games such as Brawl, Super Mario, Kirby, and a lot of Nintendo games (kind of my jam). They have very good chemistry. Chugga is silly and crazy, but he is also really good at the games. I would say Jon is probably the best player of the bunch, and also the most intellectual and sane. Chugga and Jon are the &amp;ldquo;hate each other&amp;rdquo; best friends, and they always mess with each other and get mad at each other, usually stemming from Chugga pissing off Jon and Jon trying to kill him (in the game). Tim is usually quiet but he says a bunch of super weird but funny stuff and he is honestly super chill and somehow essential to the group. Josh is the crazy one with the crazy high-pitched voice and a lot of energy. He usually plays when there need to be 4 players in a game (e.g. Super Mario Bros), and he makes the LPs more lively. Masae also has a feud with Chugga (they are also shipped a lot), but she is really sweet and is a really nice addition to the sausage fest sometimes. They all share fantastic and exciting moments throughout all of the LPs, and you really get to know them and what they are good at. You feel like they are also your friends, and honestly, I wish I could play with friends more often after watching them.&lt;/p>
+&lt;p>Outside of TRG, I probably watch Chugga the most, and only the games I&amp;rsquo;ve actually played myself. He does a lot of research before playing the games, and he talks a lot about the creation of the game. He gives you a lot of information about characters&amp;rsquo; design, and flaws in every episode, and you actually learn from him. He is a really cool guy, but he is also kind of insane, but probably in a good way. You&amp;rsquo;ll get what I mean if you watch him.&lt;/p>
+&lt;p>Joseph Saelee is not really a gaming channel. He plays Tetris, and he is regarded as the best player alive today. He is 18 (I think), and he is really good. I watch him because he really can play better than any other pro-Tetris player, and he constantly breaks records. He is also charismatic, which adds to the appeal. His content isn&amp;rsquo;t particularly interesting if you don&amp;rsquo;t know what to look for, but I find it calming. The matches he has with other people are actually somewhat exciting, and I recommend you check them out on the Official Tetris channel.&lt;/p>
+&lt;p>Honorable Mentions: Ninja. I watched him because he was good at Fortnite when he was popular (not so much anymore), and it was fun to see him rage and own players. I know a lot of people hate him, but I found him pretty entertaining. I don&amp;rsquo;t watch him anymore, but I guess it&amp;rsquo;s fun watching the best of the best. I&amp;rsquo;m leaving this in the past.&lt;/p>
+&lt;h2 id="educational">Educational&lt;/h2>
+&lt;hr>
+&lt;p>I think it&amp;rsquo;s really valuable to learn something on YouTube. There are millions of resources and you can find almost everything. I like watching the ones that are also entertaining.&lt;/p>
+&lt;p>They are Kurzgesagt and Charisma on Command.&lt;/p>
+&lt;p>
+&lt;img src="https://dev.echen.io/p/my-favorite-youtube-channels/kgsagt.jpeg"
+width="1536"
+height="864"
+srcset="https://dev.echen.io/p/my-favorite-youtube-channels/kgsagt_hu5d725a75a2562e172a0c714a4b2b793e_159845_480x0_resize_q75_box.jpeg 480w, https://dev.echen.io/p/my-favorite-youtube-channels/kgsagt_hu5d725a75a2562e172a0c714a4b2b793e_159845_1024x0_resize_q75_box.jpeg 1024w"
+loading="lazy"
+alt="Kurzgesagt animation frame"
+class="gallery-image"
+data-flex-grow="177"
+data-flex-basis="426px"
+>
+&lt;/p>
+&lt;p>Kurzgesagt is a narration-over-animation channel. They dive deep into real topics in science, such as black holes, the immune system, and climate change. They gather information from many professionals and explain it to the audience in a really simple and elegant way. The visuals are eye-candy, and they seriously put a ton of effort into their videos. They discuss really fascinating topics, and it has really exposed me to a bunch of cool science I would have never considered.&lt;/p>
+&lt;p>Charisma on Command teaches you how to be more charismatic and sociable. They discuss what to do and what not to do, often distributing the information in a numbered list. They also analyze celebrities and tell you what they do right and what they do wrong (e.g. Jordan Peterson, Donald Trump, and Brie Larson). It has helped me realize what makes my social interactions weak and boring, and I&amp;rsquo;m really trying to get better. They offer really detailed videos, and I think anyone can learn how to become more charismatic. I think this is really important, as I want to become a leader and really be able to engage with other people.&lt;/p>
+&lt;p>Honorable Mentions: Crash Course teaches literally every school topic, but it is really specific to you WANTING to learn something. It&amp;rsquo;s more difficult to just pick a video randomly and watch it. They hire professionals in their fields (like Hank and John), and their videos are very thorough and refined. Veritasium also makes good content. It is a guy who travels around to learn more about science, and his videos discuss topics from aerogel to radiation. I&amp;rsquo;m not as familiar with his content, however. The last one is Daily Dose of Internet. He compiles videos of insane things, from amazing scenery to intelligent dogs and feats of extreme athleticism. The videos are short and are a rapid-fire compilation style, and his narration is soothing. They are cool videos and nice to watch when you want to relax. ASAPScience makes animated videos too. They are good for the common person, and the videos are very informational and surprising. Worth a look.&lt;/p>
+&lt;p>I mentioned these channels already, but they can be classified as education. A lot of Linus&amp;rsquo;s (LTT) channels are educational, and they teach you a lot about computers and technology (e.g. displays, networking, CPUs). Casually Explained is also loosely educational but entertaining.&lt;/p>
+&lt;h2 id="music">Music&lt;/h2>
+&lt;hr>
+&lt;p>People make a lot of music on YouTube. A lot of people are really creative and I like a lot of them. I listen to a lot of music, but there are a few channels where I usually watch more than one video. I wouldn&amp;rsquo;t regard musicians like Hillary Hahn or Jascha Heifetz to be YouTubers, so I have chosen not to include them. Also, I guess artists like 20syl or Taylor Swift do not really make &amp;ldquo;entertaining&amp;rdquo; content, so I also will not include artists who just make music.&lt;/p>
+&lt;p>
+&lt;img src="https://dev.echen.io/p/my-favorite-youtube-channels/StudioTwoSet-Violin0821-banner.jpg"
+width="2500"
+height="1404"
+srcset="https://dev.echen.io/p/my-favorite-youtube-channels/StudioTwoSet-Violin0821-banner_hu7aef838c4248e3b07272ddb352a772d1_359967_480x0_resize_q75_box.jpg 480w, https://dev.echen.io/p/my-favorite-youtube-channels/StudioTwoSet-Violin0821-banner_hu7aef838c4248e3b07272ddb352a772d1_359967_1024x0_resize_q75_box.jpg 1024w"
+loading="lazy"
+alt="TwoSetViolin: Brett Yang (left), Eddy Chen (right)"
+class="gallery-image"
+data-flex-grow="178"
+data-flex-basis="427px"
+>
+&lt;/p>
+&lt;p>My favorite is TwoSetViolin. TwoSet consists of two Australian violinists that make comedic videos. They are very quirky and talk about a lot of music-related stuff. A lot of it is roasting fake musicians, cracking lame jokes, and playing charades on the violin. I really connect with them because I, too, play the violin. Their jokes do get a bit repetitive, but they are very charming and their videos are hilarious and fun to watch. They are also good musicians, having gone to music school and playing in professional orchestras. You probably won&amp;rsquo;t watch them for their own playing, but it is worth staying for the comedy.&lt;/p>
+&lt;p>Honorable Mentions: Paint. He makes those videos where you sing all the parts yourself. He is very good at it, and also he adds a little bit of acting to all of them. He has a crude sense of humor, but his videos are fantastic nonetheless. He hasn&amp;rsquo;t been active in a while, but the videos are still very fun to watch. I recommend the &amp;ldquo;After Ever After&amp;rdquo; series. The Piano Guys. It is a band with a pianist, cellist, vocalist, and editor/set up guy. They have very creative videos to showcase their music, and they create fabulous remixes of pop and classical music (and movie stuff). They sound amazing, and they go to places all across the world (e.g. the Great Wall) to achieve the intended effect of the piece. Their videos are very entertaining and very nice to look at. Sungha Jung. He plays guitar and remixes a lot of random songs (K-Pop, normal pop, movie music). He&amp;rsquo;s really good at the guitar. His videos aren&amp;rsquo;t the most consumable, but it is worthwhile to appreciate the amazing talent he possesses.&lt;/p>
+&lt;h2 id="miscellaneous">Miscellaneous&lt;/h2>
+&lt;hr>
+&lt;p>There are some channels that I watch, but don&amp;rsquo;t fit into a category I watch very often. Here are some of them.&lt;/p>
+&lt;p>SuperCarlinBrothers. They create movie/book analysis and theory videos, mainly about Harry Potter, Pixar, and Star Wars. It consists of Jay and Ben, two brothers. Their theories are very well crafted and believable, and they dive amazingly deep into the books and movies to pull the information. It&amp;rsquo;s a lot of dedication and hard work, and they are also very exciting and fun. The videos are creative as heck, and the theories are really worth a watch, mostly if you are a Harry Potter, Star Wars, Pixar, or Disney fan.&lt;/p>
+&lt;p>Binging with Babish. He makes cooking videos, and they are much more &amp;ldquo;cooking-like&amp;rdquo; than YSAC. The recipes are very thought out, and he goes above and beyond to showcase them. I like to watch him make food, and not do it it myself. He also cracks jokes sometimes, but I don&amp;rsquo;t think it&amp;rsquo;s really comedy-centric. He makes recipes based on movie items, such as the &amp;ldquo;Krabby Patty&amp;rdquo; from Spongebob. He appears to be good at cooking, but it is still worth the watch anyway.&lt;/p>
+&lt;p>Vat19. They are literally a commercial online shop, and all of their videos are commercials. But they sell stuff I want, like giant candy, color-changing putty, and wobbly wine glasses. The people in the videos are really funny, and they somehow make a commercial fun to watch. They have common tropes in their videos, and they do a lot of skits to promote their products. I don&amp;rsquo;t think I&amp;rsquo;ll ever buy from them, but the channel is still very fun, even if you&amp;rsquo;re a big man like me.&lt;/p>
+&lt;p>Domics. Domics is an animation channel, where he talks about relatable issues, such as relationships, pet peeves, and interesting events in his life (a lot of it is anecdotal). He is really good at animating, and you can see his progress throughout his videos. He is fun and has a unique take on a lot of situations, and it&amp;rsquo;s easy to go down a rabbit hole when watching his videos. He is Asian too, and I probably relate to stuff because I am Asian too. He is Filipino, so don&amp;rsquo;t get confused!&lt;/p>
+&lt;p>
+&lt;img src="https://dev.echen.io/p/my-favorite-youtube-channels/carlsen.jpg"
+width="1280"
+height="720"
+srcset="https://dev.echen.io/p/my-favorite-youtube-channels/carlsen_hue647ea642fd8b89be7631a1d748447e7_169325_480x0_resize_q75_box.jpg 480w, https://dev.echen.io/p/my-favorite-youtube-channels/carlsen_hue647ea642fd8b89be7631a1d748447e7_169325_1024x0_resize_q75_box.jpg 1024w"
+loading="lazy"
+alt="Magnus Carlsen Chess24 Banter Blitz"
+class="gallery-image"
+data-flex-grow="177"
+data-flex-basis="426px"
+>
+&lt;/p>
+&lt;p>Oh, man. Chess has become a real time-consuming pastime for me. If you are getting started, you must watch Magnus Carlsen&amp;rsquo;s Banter Blitz series. He provides insight into his genius, monotone jokes, and unbelievable gameplay. It&amp;rsquo;s not obvious why he makes particular chess moves, but it can still be a valuable learning experience. He&amp;rsquo;s just interesting, which makes it that much fun. He has recently gotten WAY better at explaining his moves. It&amp;rsquo;s a privilege for modern chess players. If you would like to take things more slowly, I highly recommend Agadmator&amp;rsquo;s Chess Channel. He explains things very simply and elegantly, and he is almost unintentionally funny, saying ridiculous things with no emotion. It is great for anyone who wants to analyze chess games by the top Grandmasters. Though I have not really watched GMHikaru, Anish Giri, or other GM Youtube channels, I know a lot of them are very popular and probably very good. I&amp;rsquo;ll link some of them below.&lt;/p>
+&lt;p>End note: I&amp;rsquo;m subscribed to a ton of channels. I love YouTube, and the people who make the content I watch work very hard. I have probably missed some, but this list should be close enough. I can update it over time if I remember or find new channels. If you made it this far, let me know and I&amp;rsquo;ll give you a prize!&lt;/p>
+&lt;blockquote>
+&lt;p>&amp;ldquo;All the world&amp;rsquo;s a stage, the men and women are merely players&amp;rdquo;&lt;/p>
+&lt;p>&amp;ndash; &lt;cite>Shakespeare&lt;/cite>
+&lt;br>&lt;/p>
+&lt;/blockquote>
+&lt;h2 id="links">Links&lt;/h2>
+&lt;hr>
+&lt;h3 id="commentary">Commentary&lt;/h3>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/channel/UCTSRIY3GLFYIpkR2QwyeklA" target="_blank" rel="noopener"
+>Drew Gooden&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/PewDiePie" target="_blank" rel="noopener"
+>PewDiePie&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/h3h3Productions" target="_blank" rel="noopener"
+>H3H3 Productions&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/channel/UCBs2Y3i14e1NWQxOGliatmg" target="_blank" rel="noopener"
+>Mother&amp;rsquo;s Basement&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;h3 id="comedy">Comedy&lt;/h3>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/nigahiga" target="_blank" rel="noopener"
+>nigahiga&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/channel/UCr3cBLTYmIK9kY0F_OdFWFQ" target="_blank" rel="noopener"
+>Casually Explained&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/channel/UCekQr9znsk2vWxBo3YiLq2w" target="_blank" rel="noopener"
+>You Suck at Cooking&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;h3 id="technology">Technology&lt;/h3>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/marquesbrownlee" target="_blank" rel="noopener"
+>MKBHD&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/channel/UCVYamHliCI9rw1tHR1xbkfw" target="_blank" rel="noopener"
+>Dave2D&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/LinusTechTips" target="_blank" rel="noopener"
+>Linus Tech Tips&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;h3 id="skits">Skits&lt;/h3>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/BYUTelevision" target="_blank" rel="noopener"
+>Studio C&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/channel/UCZDj6Ig-gxkHWzZyQSdGq0Q" target="_blank" rel="noopener"
+>JK! Studios&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/GizzlyB3aver" target="_blank" rel="noopener"
+>CalebCity&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/ProZD" target="_blank" rel="noopener"
+>ProZD&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;h3 id="gaming-1">Gaming&lt;/h3>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/TheRunawayGuys" target="_blank" rel="noopener"
+>TheRunawayGuys&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/channel/UC9yubS4W7CdoD5F8RNz4Fuw" target="_blank" rel="noopener"
+>Joseph Saelee&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/chuggaaconroy" target="_blank" rel="noopener"
+>ChuggaaConroy&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/ProtonJonSA" target="_blank" rel="noopener"
+>ProtonJon&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/MasaeAnela" target="_blank" rel="noopener"
+>MasaeAnela&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/NintendoCapriSun" target="_blank" rel="noopener"
+>NintendoCaprisun&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/JoshJepson" target="_blank" rel="noopener"
+>JoshJepson&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/NinjasHyper" target="_blank" rel="noopener"
+>Ninja&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;h3 id="education">Education&lt;/h3>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/Kurzgesagt" target="_blank" rel="noopener"
+>Kurzgesagt&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/charismaoncommand" target="_blank" rel="noopener"
+>Charisma on Command&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/crashcourse" target="_blank" rel="noopener"
+>Crash Course&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/1veritasium" target="_blank" rel="noopener"
+>Veritasium&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/channel/UCdC0An4ZPNr_YiFiYoVbwaw" target="_blank" rel="noopener"
+>Daily Dose of Internet&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/AsapSCIENCE" target="_blank" rel="noopener"
+>AsapSCIENCE&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;h3 id="music-1">Music&lt;/h3>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/twosetviolin" target="_blank" rel="noopener"
+>TwoSetViolin&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/Paint" target="_blank" rel="noopener"
+>Paint&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/ThePianoGuys" target="_blank" rel="noopener"
+>The Piano Guys&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/jwcfree" target="_blank" rel="noopener"
+>Sungha Jung&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;h3 id="misc">Misc.&lt;/h3>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/jwcfree" target="_blank" rel="noopener"
+>SuperCarlinBrothers&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/bgfilms" target="_blank" rel="noopener"
+>Binging with Babish&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/vat19com" target="_blank" rel="noopener"
+>Vat19&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/user/D0MICS" target="_blank" rel="noopener"
+>Domics&lt;/a>&lt;/li>
+&lt;li>Chess
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/channel/UCkTCNuQ2mGfW6-SpHpaze_g" target="_blank" rel="noopener"
+>chess24&lt;/a> and &lt;a class="link" href="https://www.youtube.com/channel/UCbYSIeioCenYhCBkTeH6F0g/featured" target="_blank" rel="noopener"
+>chess24.5&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/channel/UCL5YbN5WLFD8dLIegT5QAbA" target="_blank" rel="noopener"
+>Agadmator&amp;rsquo;s Chess Channel&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/channel/UCweCc7bSMX5J4jEH7HFImng" target="_blank" rel="noopener"
+>GMHikaru&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/channel/UC9Zs0DGUuenE23tObR50jJQ" target="_blank" rel="noopener"
+>Anish Giri&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://www.youtube.com/channel/UCHP9CdeguNUI-_nBv_UXBhw" target="_blank" rel="noopener"
+>Daniel Naroditsky&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;/li>
+&lt;/ul></description></item></channel></rss>
