@@ -1,6 +1,6 @@
 ---
 title: About
-description: Hugo, the world's fastest framework for building websites
+description: Who is this guy, anyway?
 date: 2022-07-20
 aliases:
   - about-us
@@ -25,7 +25,6 @@ Enjoy!
 If you want to support my blog, consider [buying me a coffee](https://www.buymeacoffee.com/echen)! 
 
 ## Some Trivia:
-
 <hr>
 
 **Favorite Animal**: Cats
