@@ -80,6 +80,7 @@
 
     @include respond(lg) {
         padding-top: var(--main-top-padding);
+        padding-right: 40px;
     }
 }
 
