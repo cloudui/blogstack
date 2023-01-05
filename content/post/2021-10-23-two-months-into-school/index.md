@@ -419,9 +419,10 @@ School is only a stepping stone to your future. Looking back in time, you probab
 
 You should still try as hard as you can on college applications. If you can go to a better school, why not? But if you don't get in, that's okay too. I have been loving it here so far, just like my sister said. I like my friends, my clubs, and I'm excited for the courses in the upcoming semesters. My classes are easy enough to the point where it gives me the time to do what I want. I have surprised myself with an improving work ethic, and I think I will go far here. But the road ahead will be defined by the work I am willing to put in. Hopefully, I don't reach a cliff. That would be bad.
 
-> The way to get started is to quit talking and begin doing. 
->
-> -Walt Disney
+{{< quote author="Walt Disney">}}
+The way to get started is to quit talking and begin doing. 
+{{< /quote >}}
+
 
 
 ## List of visitors so far:

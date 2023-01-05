@@ -197,7 +197,7 @@ menu:
           name: Home
           url: https://echen.io
           params:
-            icon: user-circle
+            icon: sofa
           weight: 1
 
         - identifier: github
