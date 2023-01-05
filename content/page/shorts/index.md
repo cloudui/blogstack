@@ -1,9 +1,6 @@
 ---
 title: "Shorts"
 
-outputs:
-    - html
-    - json
 menu:
     main:
         weight: -60
