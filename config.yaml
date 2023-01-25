@@ -1,6 +1,6 @@
 baseurl: https://blog.echen.io
 languageCode: en-us
-theme: stack
+theme: stack-v3
 paginate: 5
 title: echen's blog
 
