@@ -26,7 +26,7 @@ comments: false
 - Cloud Computing
 - Popular media
 
-Contact me at `eric chen (at) gmail (dot) com`!
+Reach out to me at `eric chen (at) gmail (dot) com`!
 
 ## Some Trivia:
 
