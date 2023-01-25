@@ -1,7 +1,7 @@
 ---
 title: About
 description: Who is this guy, anyway?
-date: 2022-07-20
+# date: 2022-07-20
 aliases:
   - about-us
   - about-hugo
@@ -9,19 +9,24 @@ aliases:
 toc: false
 # lastmod: '2020-10-09'
 menu:
-    main: 
-        weight: -90
-        params:
-            icon: user
+  main:
+    weight: -90
+    params:
+      icon: user
 
 comments: false
-
 ---
 
-Hi! I am a sophomore studying Computer Engineering at the University of Maryland. This blog is for me to share things I find interesting. You'll find an assortment of topics ranging from school to technology to coding. Feel free to look around. This website was made using [Hugo](https://gohugo.io/) with the [Stack](https://github.com/CaiJimmy/hugo-theme-stack) theme. If you have any questions, contact me at `ericchen314 at gmail dot com`.
+**Welcome!** I'm Eric, and I'm a sophomore studying Computer Engineering at the University of Maryland. I have a small presence online via my [Twitter](https://twitter.com/below_ocean), my [short-form writing](/shorts) and my blog (here!), where I share advice and my inner musings. The topics I write about include:
+
+- Technology and the Internet
+- Cognitive Science and Pyschology
+- Areas of Science: Physics, Astronomy, and Geology
+- Culture and Politics
+- Cloud Computing
+- Popular media
 
 ## Some Trivia:
-<hr>
 
 **Favorite Animal**: Cats
 
@@ -33,7 +38,7 @@ Hi! I am a sophomore studying Computer Engineering at the University of Maryland
 
 **Favorite Ice Cream Flavor**: Salted Caramel
 
-**Favorite Music Genres**: Classical, Jpop, Video Game, Classic Pop 
+**Favorite Music Genres**: Classical, Jpop, Video Game, Classic Pop
 
 **Favorite Composer**: Tchaikovsky
 
@@ -45,4 +50,4 @@ Hi! I am a sophomore studying Computer Engineering at the University of Maryland
 
 **Favorite TV Show**: Avatar the Last Airbender
 
-**One thing I'd like to be good at**: Singing 
+**One thing I'd like to be good at**: Singing
