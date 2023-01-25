@@ -26,6 +26,8 @@ comments: false
 - Cloud Computing
 - Popular media
 
+Contact me at `eric chen (at) gmail (dot) com`!
+
 ## Some Trivia:
 
 **Favorite Animal**: Cats
