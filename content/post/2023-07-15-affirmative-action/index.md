@@ -202,7 +202,7 @@ One other big misconception about mismatch theory is that it doesn’t state tha
 
 Ultimately, it’s not a good thing to place your students at a disadvantage to pursue some arbitrary goal. They will feel inferior and suffer when they could instead be prospering in a better environment. Instead of helping students succeed, our elite institutions are doing the exact opposite.
 
-> I understand that people debate the validity of the SAT. But whether we like it or not, the scores have been shown again and again that they are good predictors of cognitive ability. That’s why it is a *standardized* test.[^33] [^34] [^35] [^36]
+> I understand that people debate the validity of the SAT. But whether we like it or not, the scores have been shown again and again that they are good predictors of academic success. That’s why it is a *standardized* test.[^33] [^34] [^35] [^36]
 
 ### Planting Doubt in the Minds of Students
 
