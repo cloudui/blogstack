@@ -67,7 +67,7 @@ Ultimately, I firmly believe that the Court made the right decision. The argumen
 
 ## Affirmative Action is itself Racist
 
-Affirmative action in its purest sense aims to delineate people by pure sex- or race-based identities, boiling people down to their immutable characteristics. This is racism in its purest sense— attributing abilities and qualities to a group purely by their race.
+Affirmative action in its purest sense aims to delineate people by pure sex- or race-based identities, boiling people down to their immutable characteristics. This is racism in its purest sense—attributing abilities and qualities to a group purely by their race.
 
 Everyone can clearly see the wrong in statements such as “Asians are bad drivers” or “all Mexicans are drug dealers.” But, why do we allow similar generalizations within college admissions? Colleges see your race as a *deterministic predictor* of what kind of person you are. By simply selecting a checkbox with your race or ethnicity, they claim to be able to say something conclusive about your character or quality. They are assigning a score to your name before they know anything about you; if you submitted nothing on your application except for your race, they claim to have the ability to assess you solely on this single categorical marker.
 
