@@ -1,0 +1,3 @@
+---
+image: "politics.jpeg"
+---
