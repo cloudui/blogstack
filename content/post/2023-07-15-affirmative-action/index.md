@@ -262,7 +262,7 @@ In *Grutter v. Bollinger*, Justice O’Connor wrote in her majority opinion tha
 
 ## Conflation Between Race and Other Variables
 
-A super common fallacy within the affirmative action debate is when proponents conflate race with other variables. Just because something affects more people of one race does not mean race is the deciding variable. Allow me to demonstrate.
+A super common fallacy within the affirmative action debate is the conflation of race with other variables. Just because something affects more people of one race does not mean race is the deciding variable. Allow me to demonstrate.
 
 For the sake of argument, let’s say that the United States decides to fully ban the consumption of pumpkin spice lattes (PSLs) in coffee shops. We find out later that in the affected population, 70% are Taylor Swift fans. Is it reasonable to assume that the government is discriminating against Taylor Swift fans? The answer is no. The fact that the ban primarily affects Taylor Swift fans has nothing to do with the ban itself. In a different universe, it would have only affected wannabe SoundCloud rappers. No prescription in the law targeted the Swifties.
 
