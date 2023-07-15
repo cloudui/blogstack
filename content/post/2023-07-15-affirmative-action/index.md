@@ -6,7 +6,7 @@ tags: [politics, equality, media]
 
 author: Eric Chen
 image: thumbnail.jpg
-date: 2023-07-13
+date: 2023-07-15
 
 description: The truth behind the façade.
 ---
