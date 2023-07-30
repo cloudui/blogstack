@@ -362,7 +362,7 @@ You could argue that there are more white legacy students and fewer black legacy
 
 ## Say it in an Essay
 
-Given that we’ve made it this far, let’s review what affirmative action actually does. Let’s take the [Google definition](https://www.google.com/search?q=irrespective):
+Given that we’ve made it this far, let’s refresh our memory of what affirmative action means. Let’s take the [Google definition](https://www.google.com/search?q=irrespective):
 
 > The practice or policy of favoring individuals belonging to groups regarded as disadvantaged or subject to discrimination.
 
