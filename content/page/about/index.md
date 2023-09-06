@@ -17,7 +17,7 @@ menu:
 comments: false
 ---
 
-**Welcome!** I'm Eric, and I'm a junior studying Computer Engineering at the University of Maryland. I have a small presence online via my [Twitter](https://twitter.com/below_ocean), my [short-form writing](/shorts) and my blog (here!), where I share advice and my inner musings. The topics I write about include:
+**Welcome!** I'm Eric, and I'm a junior studying Computer Engineering at the University of Maryland. I have a small presence online via my [Twitter](https://twitter.com/below_ocean), my [short-form writing](https://echen.io/shorts) and my blog (here!), where I share advice and my inner musings. The topics I write about include:
 
 - Technology and the Internet
 - Cognitive Science and Pyschology
