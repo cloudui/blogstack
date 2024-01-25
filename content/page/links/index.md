@@ -1,7 +1,7 @@
 ---
 title: Links
 links:
-  - title: Hompage
+  - title: Homepage
     description: Find my home page website and portfolio.
     website: https://echen.io
     image: https://echen.io/favicon.png
