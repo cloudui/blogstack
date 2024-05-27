@@ -17,7 +17,7 @@ menu:
 comments: false
 ---
 
-**Welcome!** I'm Eric, and I'm a junior studying Computer Engineering at the University of Maryland. I have a small presence online via my [Twitter](https://twitter.com/below_ocean), my [short-form writing](https://echen.io/shorts) and my blog (here!), where I share advice and my inner musings. The topics I write about include:
+**Welcome!** I'm Eric, and I'm a rising senior studying Computer Engineering at the University of Maryland. I have a small presence online via my [Twitter](https://twitter.com/below_ocean), my [short-form writing](https://echen.io/shorts) and my blog (here!), where I share advice and my inner musings. The topics I write about include:
 
 - Technology and the Internet
 - Cognitive Science and Pyschology
@@ -32,19 +32,19 @@ Reach out to me at `eric chen (at) gmail (dot) com`!
 
 **Favorite Animal**: Cats
 
-**Favorite Food**: My mom's noodle soup
+**Favorite Food**: Ramen, Sushi, Kimchi stew
 
 **Favorite Sport**: Basketball
 
 **Superpower I'd like to have**: Flight or Super Speed
 
-**Favorite Ice Cream Flavor**: Salted Caramel
+**Favorite Ice Cream Flavor**: Salted Caramel, Butter Pecan, Cherry, Strawberry
 
-**Favorite Music Genres**: Classical, Jpop, Video Game, Classic Pop
+**Favorite Music Genres**: Classical, Kpop, Jazz (or adjacent)
 
 **Favorite Composer**: Tchaikovsky
 
-**Favorite Musician/Artist**: Hilary Hahn and Frank Sinatra
+**Favorite Musician/Artist**: Seventeen, Enhypen, Riize, Laufey
 
 **Favorite Subjects**: Cosmology, Geology, Modern Physics
 
@@ -52,4 +52,4 @@ Reach out to me at `eric chen (at) gmail (dot) com`!
 
 **Favorite TV Show**: Avatar the Last Airbender
 
-**One thing I'd like to be good at**: Singing
+**One thing I'd like to be good at**: Singing and Dancing
