@@ -17,7 +17,7 @@ menu:
 comments: false
 ---
 
-**Welcome!** I'm Eric, and I'm a rising senior studying Computer Engineering at the University of Maryland. I have a small presence online via my [Twitter](https://twitter.com/below_ocean), my [short-form writing](https://echen.io/shorts) and my blog (here!), where I share advice and my inner musings. The topics I write about include:
+**Welcome!** I'm Eric, and I'm a senior studying Computer Engineering at the University of Maryland. I have a small presence online via my [Twitter](https://twitter.com/below_ocean), my [short-form writing](https://echen.io/shorts) and my blog (here!), where I share advice and my inner musings. The topics I write about include:
 
 - Technology and the Internet
 - Cognitive Science and Pyschology
@@ -40,11 +40,11 @@ Reach out to me at `eric chen (at) gmail (dot) com`!
 
 **Favorite Ice Cream Flavor**: Salted Caramel, Butter Pecan, Cherry, Strawberry
 
-**Favorite Music Genres**: Classical, Kpop, Jazz (or adjacent)
+**Favorite Music Genres**: Classical, Kpop, Jazz
 
 **Favorite Composer**: Tchaikovsky
 
-**Favorite Musician/Artist**: Seventeen, Enhypen, Riize, Laufey
+**Favorite Musician/Artist**: None
 
 **Favorite Subjects**: Cosmology, Geology, Modern Physics
 
