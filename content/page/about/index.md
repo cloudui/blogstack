@@ -17,7 +17,7 @@ menu:
 comments: false
 ---
 
-**Welcome!** I'm Eric, and I'm a senior studying Computer Engineering at the University of Maryland. I have a small presence online via my [Twitter](https://twitter.com/below_ocean), my [short-form writing](https://echen.io/shorts) and my blog (here!), where I share advice and my inner musings. The topics I write about include:
+**Welcome!** I'm Eric, and I recently graduated as a computer engineering student at the University of Maryland. I have a small presence online via my [Twitter](https://twitter.com/below_ocean), my [short-form writing](https://echen.io/shorts) and my blog (here!), where I share advice and my inner musings. The topics I write about include:
 
 - Technology and the Internet
 - Cognitive Science and Pyschology
@@ -26,7 +26,7 @@ comments: false
 - Cloud Computing
 - Popular media
 
-Reach out to me at `eric chen (at) gmail (dot) com`!
+Reach out to me at `eric chen 314 (at) gmail (dot) com`!
 
 ## Some Trivia:
 
