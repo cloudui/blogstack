@@ -30,10 +30,10 @@ $$s = (6400\text{km})\cdot(360\text{deg}/1\text{day})$$
 With some quick maths (and also considering that 360 degrees is \\(2\pi\\) radians), we get this speed to be around 1,000mph. That's pretty fast! So a helicopter flying vertically overhead for just one hour could get you from NYC to Florida. What an efficient mode of travel! Also, we're clearly not moving at 1000mph, which means the Earth is flat! TheCryptoElf wins! Not so fast, buddy.
 
 # Dunning-Kruger Effect in Full Force
-Fortunately, a lot of the enlightened spherical-Earthers came to sanity's defense with marvellous tweets like this:
+Fortunately, a lot of the enlightened spherical-Earthers came to sanity's defense with marvelous tweets like this:
 {{< twitter user="jetstothewest" id="1909107774073819333" >}}
 
-A brilliant response to the brilliant TheCryptoElf. Clearly, he forgot that gravity exists, the wonderful "force" (or maybe travelling straight lines through curved spacetime?!) that keeps our feet on this beautiful Earth. Let's marvel at another "gotcha" tweet:
+A brilliant response to the brilliant TheCryptoElf. Clearly, he forgot that gravity exists, the wonderful "force" (or maybe traveling straight lines through curved spacetime?!) that keeps our feet on this beautiful Earth. Let's marvel at another "gotcha" tweet:
 
 {{< twitter user="actgeot" id="1909208732703080715" >}}
 
