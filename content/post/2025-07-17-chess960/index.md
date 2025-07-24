@@ -2,7 +2,7 @@
 title: Two Ways of Counting Chess960 Positions
 date: 2025-06-26
 
-image: thumbnail.webp
+image: thumbnail.jpg
 mathjax: true
 
 categories: [Discussion, Math]
