@@ -1,4 +1,598 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>satire on echen's blog</title><link>https://blog.echen.io/tags/satire/</link><description>Recent content in satire on echen's blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Wed, 05 Nov 2025 00:00:00 +0000</lastBuildDate><atom:link href="https://blog.echen.io/tags/satire/index.xml" rel="self" type="application/rss+xml"/><item><title>Eat with the Rich</title><link>https://blog.echen.io/p/eat-with-the-rich/</link><pubDate>Wed, 05 Nov 2025 00:00:00 +0000</pubDate><guid>https://blog.echen.io/p/eat-with-the-rich/</guid><description>&lt;img src="https://blog.echen.io/p/eat-with-the-rich/thumbnail.webp" alt="Featured image of post Eat with the Rich" />&lt;p>I’ve been wanting to make fun of a specific breed of people I’ve seen becoming more and more popular over the past decade: the rich person who hates billionaires.&lt;/p>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>satire on echen's blog</title><link>https://blog.echen.io/tags/satire/</link><description>Recent content in satire on echen's blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Mon, 04 May 2026 00:00:00 +0000</lastBuildDate><atom:link href="https://blog.echen.io/tags/satire/index.xml" rel="self" type="application/rss+xml"/><item><title>FlashAttention, but the Actual Details</title><link>https://blog.echen.io/p/flashattention-but-the-actual-details/</link><pubDate>Mon, 04 May 2026 00:00:00 +0000</pubDate><guid>https://blog.echen.io/p/flashattention-but-the-actual-details/</guid><description>&lt;img src="https://blog.echen.io/thumbnail.webp" alt="Featured image of post FlashAttention, but the Actual Details" />&lt;p>I made the unfortunate decision to read through the FlashAttention-v2 paper maybe a month or two back. Its name was tossed around work enough to pique my curiosity, and I found myself forking through the details one lazy afternoon. It read similar to one of those simple yet foundational ML papers back in the day&amp;ndash;something like ResNet or BatchNorm. The math was almost trivially understandable to anyone who has even touched a few models in the last decade, and the algorithm seemed relatively understandable to my untrained eye. I had not even touched a GPU kernel before, and I felt some semblance of hubris given that my naive computer engineering degree allowed me to understand an algorithm of such importance.&lt;/p>
+&lt;p>I made the unfortunate mistake of thinking I actually understood the algorithm in its entirety. At a surface level, sure, but such triviality only exists in the abstract. It was akin to me thinking that I could build a microwave simply because I know how it works. However, I was not amateur enough as to simply read the paper, I wanted to implement it myself like the engineer that I am. I had heard Triton was making waves in the GPU sea, and I decided to take a venture into its wake. I started by making some simple kernels: a softmax here, a SwiGLU there. One or two hours of barely any code, and I was done. Easy peasy. In fact, I wrote the full flash attention kernel within two or three days during the work week and achieved similar-ish performance to pytorch&amp;rsquo;s native implementation on smaller sequence lengths within this time. I replicated Tri Dao&amp;rsquo;s work in a fraction of the time, and I didn&amp;rsquo;t even optimize my kernel that much along the way. I was feeling unstoppable.&lt;/p>
+&lt;p>I made the unfortunate oversight of trying to rewrite the kernel using CUDA. Obviously, two days of work with only a few sweats of confusion wasn&amp;rsquo;t enough to satiate my hunger. I felt as though Triton had taught me nothing of GPU programming, and I wanted more. In the throne room of luxury and convenience, I sought the caves and the jungles. With a few more drops of sweat and maybe a few tears, I finished a few elementary kernels in CUDA. Piece of two-layer cake. But, I wanted that 12-layer wedding cake. I sought to recreate flash attention in its fully glory, and it seemed like I was equipped to do so. Over the course of the next week or two, I would complete a first draft iteration of FlashAttention-v2 using a somewhat outdated WMMA API, achieving&amp;hellip;only 20% of native FA2 performance. Clearly, this old WMMA abstraction wouldn&amp;rsquo;t cut it. I looked at Dao lab&amp;rsquo;s source code, and it looked nothing like the verbose mess of for loops and somewhat-understandable code in my repository.&lt;/p>
+&lt;p>I made the unfortunate blunder of rewriting my kernel with CuTe in C++. As with any performance library, I had to rewrite the entire using a poorly documented library with complex syntax and abstracted BS that somehow is way faster. What I thought would be a somewhat simple task turned out to be a nightmare in understanding. It&amp;rsquo;s as path I&amp;rsquo;m sure any low-level developer had to cross at some point in their journey, and I am certain they have seen the fear in the eyes of the avoiders and the stockpile of bodies along the way. After many pools of sweat, many hairs pulled, and many neurons disintegrated, I finally found success. But, I was not filled with glory, confidence, or peace. In the end, I could only feel relief and a massive sense of responsibility to aid any traveler who dare wish to traverse this same path.&lt;/p>
+&lt;h1 id="flashattention-v2">FlashAttention-v2&lt;/h1>
+&lt;p>If you&amp;rsquo;re reading this, I will assume you already have a solid understanding of the attention mechanism and at least the basics of the FlashAttention algorithm itself. If not, I recommend reading Tri Dao&amp;rsquo;s original paper to build your understanding of the algorithm before coming back. Or, you could just read the article as is, because you will probably piece it together through the struggle of trying to understand. It would be helpful for you to at least know the pseudocode/baseline algorithm for FA2, and it would be even better if you have maybe tried simulating it in pytorch (or your framework of choice) or maybe even implemented it in Triton.&lt;/p>
+&lt;p>If you&amp;rsquo;ve never touched CUDA, you should at least try to understand it&amp;rsquo;s SIMT programming nature and maybe implement some basic level kernels using this thread-level view. Try to build your understanding of how CUDA works and a solid understanding of NVIDIA&amp;rsquo;s GPU architecture, from threads to warps to thread blocks to SMs and beyond. I will talk about a lot of these concepts as if you at least have a basic understanding of them. I will be as comprehensive as I can, but it will be an uphill battle should you try to read this blog in its entirety without some background knowledge.&lt;/p>
+&lt;p>Most of this blog will concern how high-level concepts like &amp;ldquo;online softmax&amp;rdquo; or &amp;ldquo;gemm&amp;rdquo; actually translate to production-grade code. The algorithm itself is not particularly difficult, but the implementation details at the CUDA level can become a nightmare, particularly to beginners. Tri Dao originally wrote FA2 using CuTe (CUDA Templates), a core component within NVIDIA&amp;rsquo;s CUTLASS library that abstracts away tensor layouts and thread-data mapping for high-performance GPU computing. Although this may seem nicer than doing it from scratch, there are a lot of intracacies and difficult to understand design choices that make reading it somewhat of a nightmare. It&amp;rsquo;s higher-level than your typical C program with normal for loops and variables, but it&amp;rsquo;s still practically as close to bare metal as most people will ever get. So, even though you will understand CUDA and FlashAttention much better, honestly it will mostly allow you to understand CuTe, why it exists, and how people actually use it.&lt;/p>
+&lt;p>Fortunately, since the release of Blackwell (B200), NVIDIA released CuTe&amp;rsquo;s Python DSL&amp;ndash;a python library you can use to write the same code without all the annoying crap that&amp;rsquo;s baggaged with C++. The use case is pretty much unchanged, but it makes debugging and templating much more palatable, and the compile times are enormously faster. Moving forward, CuTe 3.X in C++ will probably be somewhat of a relic of the past, but as a learning exercise, nothing beats the absolute struggle of working with the most annoying and explicit version of whatever you&amp;rsquo;re trying to learn. Let&amp;rsquo;s get started.&lt;/p>
+&lt;h1 id="overview">Overview&lt;/h1>
+&lt;h2 id="design-choices">Design Choices&lt;/h2>
+&lt;p>We&amp;rsquo;re going to make some basic design choices to make this learning exercise simpler on the implementation side. A lot of the source code involves edge cases and optional configuration settings (RoPe, QK smem sharing, etc.) that aren&amp;rsquo;t practical for learning the fundamentals of FA2 and CuTe. Our choices are as follows:&lt;/p>
+&lt;ul>
+&lt;li>A100: the GPU I had access to and the industry standard when FA2 was released. Hopper and Blackwell have even more complicated algorithms due to hardware improvements and optimizations&lt;/li>
+&lt;li>fp16: supported on A100 tensor cores, pretty basic default for most kernel ops for training
+&lt;ul>
+&lt;li>fp32 accumulation, reduces precision drift, more accurate FLOPs for softmax and scale&lt;/li>
+&lt;/ul>
+&lt;/li>
+&lt;li>Clean basic out-of-the-box attention mechanism: no causal masking, RoPe, dropout, etc.&lt;/li>
+&lt;li>head_dim: focus on 64 and 128 block size, although 32 may be covered, though I didn&amp;rsquo;t specifically check&lt;/li>
+&lt;li>Assume sequence length is a power of two, more specifically a multiple of the Q block size.&lt;/li>
+&lt;li>We expect $Q, K, V$ to be in row-major order.&lt;/li>
+&lt;/ul>
+&lt;h2 id="some-naming-conventions">Some Naming Conventions&lt;/h2>
+&lt;p>If you look at DaoLab&amp;rsquo;s source code, you might notice they have some weird naming conventions. Some of them are standard CuTe/CUTLASS some carry over from other things. Here are some patterns:&lt;/p>
+&lt;ul>
+&lt;li>Starts with k: compile-time constant, e.g. kBlockM, kHeadDim&lt;/li>
+&lt;li>$M, N, K$: All of general matrix-multiply (GEMM) parameters are in this order for a $(M, K) \times (K, N)$ matrix-multiply. Hence, the shape of Q is (kBlockM, kHeadDim) and the shape of K, V is (kBlockN, kHeadDim).&lt;/li>
+&lt;/ul>
+&lt;h2 id="basic-structure">Basic Structure&lt;/h2>
+&lt;p>First, attention itself:&lt;/p>
+&lt;p>$$\begin{aligned}
+P &amp;amp;= \frac{QK^T}{\sqrt{d_h}} \\
+S &amp;amp;= \text{softmax}(P) \\
+O &amp;amp;= S \cdot V
+\end{aligned}$$&lt;/p>
+&lt;p>Or in pytorch for those who haven&amp;rsquo;t read a math equation in a while:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="n">P&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Q&lt;/span>&lt;span class="nd">@K&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">T&lt;/span>&lt;span class="o">/&lt;/span>&lt;span class="n">torch&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">sqrt&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">d_h&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">S&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">torch&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">nn&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">functional&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">softmax&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">P&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">dim&lt;/span>&lt;span class="o">=-&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">O&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">S&lt;/span>&lt;span class="nd">@V&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Let&amp;rsquo;s establish the specifics of the FA2 algorithm at a high level.&lt;/p>
+&lt;ul>
+&lt;li>Our grid is &lt;code>batch/head&lt;/code> x &lt;code>q_tile&lt;/code>. The batch/head dimensions are independent and can be grouped. The &lt;code>q_tile&lt;/code> determines which tile of Q we get, and we make it the last dimension for better cache locality between thread blocks.&lt;/li>
+&lt;li>Q is of shape (kBlockM, kHeadDim). The main computation on any thread block revolves around the Q tile. This Q tile does not change for the duration of the thread block. We iterate over the relevant K, V tile per thread block to get an output tile. Each q tile maps to exactly the same size output tile, which is necessary as we need to manifest a whole row of P to do the softmax.&lt;/li>
+&lt;li>We load each tile from global memory (GMEM) to shared memory (SMEM) for staging. When we need to do our GEMM, we load from SMEM to the register file as we loop over K and V.&lt;/li>
+&lt;li>Our GMEM-&amp;gt;SMEM copying are all async (&lt;code>cp.async&lt;/code> on Ampere). Q technically doesn&amp;rsquo;t really have to since it doesn&amp;rsquo;t overlap that much compute but is a micro-optimization.&lt;/li>
+&lt;/ul>
+&lt;p>The overall pseudocode for a tile Q is:&lt;/p>
+&lt;ol>
+&lt;li>Define GMEM, SMEM, register files, hardware copy/GEMM instructions, and mappings&lt;/li>
+&lt;li>Load Q tile from global memory to SMEM. This is only done once, as Q tile doesn&amp;rsquo;t change.&lt;/li>
+&lt;li>Prefetch 0th K-tile.&lt;/li>
+&lt;li>Loop start: Wait for K-tile to arrive. Then, prefetch the next V-tile.&lt;/li>
+&lt;li>Issue GEMM for $P = QK^T$ tile.&lt;/li>
+&lt;li>Wait for V-tile to arrive. Then, issue next K-tile prefetch if we&amp;rsquo;re not on the last iteration.&lt;/li>
+&lt;li>Compute $S=\text{softmax}(P)$ and softmax statistics and update accumulator/output tile.&lt;/li>
+&lt;li>Issue GEMM for $O = SV$ tile.&lt;/li>
+&lt;li>Loop back to 4 until row is complete.&lt;/li>
+&lt;li>Scale final output by $l=\text{expsum(P)}$&lt;/li>
+&lt;li>Copy output from SMEM back to GMEM. Ampere doesn&amp;rsquo;t have any direct SMEM-&amp;gt;GMEM instructions so we stage this copy through registers.&lt;/li>
+&lt;/ol>
+&lt;p>Only 11 steps and they&amp;rsquo;re all pretty simple in concept&amp;hellip;Let&amp;rsquo;s take a deeper look into the implementation details.&lt;/p>
+&lt;h1 id="cute-the-basics">CuTe, the Basics&lt;/h1>
+&lt;p>Bombarding you up front with all the design choices in CuTe/CUTLASS will only confuse you, and the best way to learn is honestly by necessity. However, having some basic info is still probably required, so I will bombard you with some sadness before we move onto the &amp;ldquo;cool&amp;rdquo; stuff.&lt;/p>
+&lt;h2 id="background">Background&lt;/h2>
+&lt;p>CuTe is essentially a templating engine that allows you to manipulate memory using tensors, shapes, layouts, data types, and strides, sort of similar to pytorch&amp;rsquo;s &lt;code>torch.Tensor&lt;/code> object. Unfortunately, it&amp;rsquo;s not nearly as friendly. But, if you&amp;rsquo;re familiar with any deep learning library, these concepts should click pretty quickly. It allows you to declare a general &amp;ldquo;shape&amp;rdquo; once and if you template it with a fp32 vs fp16, you can just pass the relevant parameters to your kernel template.&lt;/p>
+&lt;p>However, you are still responsible for all of the sizes. It may be able to extract fp16 from a 128-bit load, but you&amp;rsquo;ll have to figure out that 128-bits is 8 fp16 numbers. It just handles the typing on your behalf and lets you index stuff more easily. This will click later.&lt;/p>
+&lt;h2 id="layouts-shapes-and-strides">Layouts, Shapes, and Strides&lt;/h2>
+&lt;p>Ah yes, back to tensor school. A shape and stride is precisely the same concept as in PyTorch. A layout is just a composition of a shape and a stride.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;span class="lnt">7
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="cp">#include&lt;/span> &lt;span class="cpf">&amp;lt;cute/tensor.hpp&amp;gt;&lt;/span>&lt;span class="cp">
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span>&lt;span class="c1">// runnable just like this without GPU
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">layout&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_16&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">layout_1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">8&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">16&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{}),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">print_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">layout&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// this is the shape of a torch.tensor([[0]*8 for _ in range(16)]).T
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>A shape of (8, 16) with stride (1, 8). Pretty simple. Both declarations are identical. So what&amp;rsquo;s with the freaky underscore numbers?&lt;/p>
+&lt;h2 id="statically-vs-dynamically-typed">Statically vs. Dynamically Typed&lt;/h2>
+&lt;p>Any standard C++ integer passed into a layout, shape, or stride is dynamically typed, i.e. its value is only known at runtime (e.g. int, const int, static int). Even CUDA&amp;rsquo;s &lt;code>constexpr int&lt;/code> is treated as such by CuTe. Any time you index into a tensor, the library will compute&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">A&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">][&lt;/span>&lt;span class="n">j&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="n">stride_row&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">j&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="n">stride_column&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Each index operation is a multiply and add, which can be quite costly. Instead, when we can, we opt to use for statics: type wrappers used by CUTLASS to allow the value to be known at compile time. It&amp;rsquo;s just a C++ compiler trick that allows CuTe to compute all indexing during compilation rather at runtime, saving the GPU from having to do so while its running. Obviously, you can only do this if sizes are predetermined, either because they are definite, templated, or constant. So instead of passing in &lt;code>make_stride(2, 4)&lt;/code>, we can pass in &lt;code>make_stride(make_Int&amp;lt;2&amp;gt;{}, _4{})&lt;/code>. Functionally, these are the same, but any subsequent indexing done will be done at compile time for the latter.&lt;/p>
+&lt;p>Layouts &lt;em>do&lt;/em> take in dynamic integers as well. They should be used &lt;em>if they are only known at runtime&lt;/em>.&lt;/p>
+&lt;p>Some syntax quirks:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;span class="lnt">15
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// identical, CuTe provides most power of twos by default as shorthand
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">8&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">_8&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// Functions take in objects, types only use types
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">l1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">l2&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}),&lt;/span> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// type
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">8&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// object/struct
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">8&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// can have both dynamics and statics in same layout
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">shape&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">stride&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">256&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">64&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Read more here:&lt;/p>
+&lt;h2 id="tensors">Tensors&lt;/h2>
+&lt;p>Tensors are just a pointer wrapped in a layout. The underlying data is just a pointer, usually of contiguous data, and the layout determines how we interact with it. Pretty much exactly the same as a &lt;code>torch.Tensor&lt;/code>. However, we manage the layout: we can change it to whatever we want, however we want, but we are ultimately responsible for the tensor&amp;rsquo;s integrity.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;span class="lnt">15
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">static&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">x&lt;/span>&lt;span class="p">[]&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">{&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="p">...,&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="p">};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">l_row_major&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_4&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// row major view
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">t_row_major&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">l_row_major&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// column major view
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">l_col_major&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">t_col_major&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">l_col_major&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// tensor indexing
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// i, j = 2, 3
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">n_row&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">t_row_major&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="c1">// 12
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">n_col&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">t_col_major&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="c1">// 15
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;h2 id="row-and-column-major">Row and Column Major&lt;/h2>
+&lt;p>In row-major formats, data is stored row-contiguous (C, C++ style), i.e. &lt;code>A[0][1]&lt;/code> and &lt;code>A[0][2]&lt;/code> are contiguous in memory.&lt;/p>
+&lt;p>In row-major formats, data is stored column-contiguous (Fortran, CUBLAS style), i.e. &lt;code>A[0][1]&lt;/code> and &lt;code>A[1][1]&lt;/code> are contiguous in memory.&lt;/p>
+&lt;p>The way to tell is by the stride; for any 2D matrix with stride $(a, b)$, the matrix is row-major if $b=1$ and column-major if $a=1$. In CuTe, any layout without a provided stride is &lt;strong>column-major&lt;/strong> by default.&lt;/p>
+&lt;p>For FA2, we assume Q, K, and V are all &lt;strong>row-major.&lt;/strong> Although somewhat arbitrary, most consumer applications or libraries like Pytorch or JAX are row-major by default, so this is the most obvious configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it&amp;rsquo;s also a choice in simplicity.&lt;/p>
+&lt;h1 id="cute-copy-then-cry">CuTe, Copy, then Cry&lt;/h1>
+&lt;h2 id="a100-ampere-specs">A100 (Ampere) Specs&lt;/h2>
+&lt;p>The entire point of FA2 or even GPU optimization in general is to maximize compute by overlapping it with memory loads. Here are the memory and card specs of A100 GPU (Ampere):&lt;/p>
+&lt;table>
+&lt;thead>
+&lt;tr>
+&lt;th style="text-align:left">Storage Level&lt;/th>
+&lt;th style="text-align:left">Latency (Clock Cycles)&lt;/th>
+&lt;th style="text-align:left">Magnitude Slower than Registers&lt;/th>
+&lt;/tr>
+&lt;/thead>
+&lt;tbody>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>Registers&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">~1 cycle&lt;/td>
+&lt;td style="text-align:left">—&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>Shared Memory (SMEM) / L1&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">~20–30 cycles&lt;/td>
+&lt;td style="text-align:left">~25x&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>L2 Cache&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">~200 cycles&lt;/td>
+&lt;td style="text-align:left">~200x&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>HBM2e (Main Memory)&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">~400–600+ cycles&lt;/td>
+&lt;td style="text-align:left">&lt;strong>~500x+&lt;/strong>&lt;/td>
+&lt;/tr>
+&lt;/tbody>
+&lt;/table>
+&lt;table>
+&lt;thead>
+&lt;tr>
+&lt;th style="text-align:left">Feature&lt;/th>
+&lt;th style="text-align:left">Specification&lt;/th>
+&lt;/tr>
+&lt;/thead>
+&lt;tbody>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>Total SMs&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">108 (SXM4) / 128 (Full Die)&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>CUDA Cores per SM&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">64 (FP32)&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>Max Threads per SM&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">2048&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>Max Warps per SM&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">64&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>Max Blocks per SM&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">32&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>Registers per SM&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">65,536 (32-bit)&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>Max Registers per Thread&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">255&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>Max Shared Memory per SM&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">164 KB&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>Max Shared Memory per Block&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">163 KB&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>L1 Cache (Combined with SMEM)&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">192 KB total pool per SM&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">&lt;strong>L2 Cache&lt;/strong>&lt;/td>
+&lt;td style="text-align:left">40 MB or 80 MB&lt;/td>
+&lt;/tr>
+&lt;/tbody>
+&lt;/table>
+&lt;h2 id="gmem-smem-async-copying">GMEM-&amp;gt;SMEM (Async Copying)&lt;/h2>
+&lt;p>A rule of thumb is to have approximately &lt;strong>150-200 FLOPs per byte loaded from HBM&lt;/strong>. On Ampere, we can take advantage of asynchronous copies from GMEM-&amp;gt;SMEM that can help us overlap a meaningful amount of the tile fetches with compute. This means our threads can do other stuff without having to immediately stall for memory fetches.&lt;/p>
+&lt;p>Memory coalescing is also extremely important here. GPUs never fetch just one byte at a time; they can fetch a whole 32, 64, or 128-byte chunk at a time. Ideally, a warp fetching a full 128-byte contiguous block allows the GPU to issue one instruction to clear this entire block of data. Furthermore, this block fully saturates a L2 cache line, making any subsequent cache accesses more efficient. If all 32 threads in the warp are each fetching some random chunk scattered across memory, then the memory controller would issue 32 separate transactions, immediately crushing your performance, hopes, and dreams. So in principle, we would love for all 32 threads to &amp;ldquo;coalesce&amp;rdquo; by fetching 128-byte contiguous blocks of data. Let&amp;rsquo;s introduce how we do that in CuTe.&lt;/p>
+&lt;h3 id="copy-atoms">Copy Atoms&lt;/h3>
+&lt;p>There is a boatload of copy PTX instructions in CUDA. You can fetch 32 bytes, 64 bytes, one byte, synchronous or asynchronous alike. CuTe neatly packages these copy instructions into a core piece called an &lt;code>Atom&lt;/code>. These &amp;ldquo;atomic&amp;rdquo; pieces are the core hardware instructions that you eventually pass to the &lt;code>copy&lt;/code> function so it knows what instruction to use to copy your data.&lt;/p>
+&lt;p>Ampere has a specific asynchronous &lt;code>Copy_Atom&lt;/code> with the architecture name &lt;code>SM_80&lt;/code>: &lt;code>SM80_CP_ASYNC_CACHEGLOBAL&amp;lt;bit_size&amp;gt;&lt;/code> or &lt;code>SM80_CP_ASYNC_CACHEALWAYS&amp;lt;bit_size&amp;gt;&lt;/code>. The &lt;code>cache_global&lt;/code> and &lt;code>cache_always&lt;/code> map to the PTX instructions &lt;code>ld.global.cg.u32&lt;/code> and &lt;code>ld.global.ca.u32&lt;/code>; &lt;code>cache_global&lt;/code> loads straight from L2 to the destination, skipping over L1 cache, while &lt;code>cache_always&lt;/code> also loads the data into L1. Most kernels will use &lt;code>cache_always&lt;/code> by default because of improved spatial and temporal locality across threads. But, in FA2, we never reference Q, K, or V again once they are loaded into SMEM&amp;ndash;therefore, we can bypass the L2 cache, which is slightly faster. It also reduces thrashing at the L1 level and allows more important data to stay in-cache. In practice, this is a micro-optimization and relatively not that important.&lt;/p>
+&lt;p>The &lt;code>bit_size&lt;/code> supports up to 128-bit loads. &lt;strong>Bits&lt;/strong>, not bytes, as these atoms are &lt;strong>per-thread&lt;/strong>. The memory controller indeed loves sending the full fat 128-bytes per warp, but CUDA views all transactions at the thread-level. Hence, our atom loads a total of $128\dot 32 / 8 = 512$ bytes. This means each 128-bit fetch across the 32 threads in a warp takes $512/128 =4$ memory transactions in 4 &amp;ldquo;phases&amp;rdquo; (more on this later). For our purposes, we want that full coaslesced 128-bit power using &lt;code>cache_global&lt;/code>. We can define the &lt;code>Copy_Atom&lt;/code> with the following syntax:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="cp">#include&lt;/span> &lt;span class="cpf">&amp;lt;cute/atom/copy_atom.hpp&amp;gt;&lt;/span>&lt;span class="cp">
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span>&lt;span class="k">using&lt;/span> &lt;span class="n">GmemCopyAtom&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Copy_Atom&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">SM80_CP_ASYNC_CACHEGLOBAL&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">uint128_t&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>We use the cute namespace types for robustness, and our source data type is fp16 (&lt;code>cute::half_t&lt;/code>). Each thread therefore loads $128/16=8$ halfs.&lt;/p>
+&lt;h3 id="tiled_copy">Tiled_Copy&lt;/h3>
+&lt;p>Even though each thread copies 128 bits, each thread block is usually working with a variable amount of threads/warps. Given the 4 tensor cores per SM, 4 warps per block is typically a good choice for FA2. This means we have to determine how to copy each Q,K,V tile using these 128-bit async copies.&lt;/p>
+&lt;p>CuTe uses &lt;code>Tiled_Copy&lt;/code>, which &amp;ldquo;tiles&amp;rdquo; the memory you are trying to copy (in this case, GMEM) in a structured way over your entire memory region. It outlines the &amp;ldquo;tiling strategy&amp;rdquo; that your threads will follow.&lt;/p>
+&lt;blockquote>
+&lt;p>Note that the &amp;ldquo;tiling&amp;rdquo; here is not the same tile as the Q,K,V tile. It&amp;rsquo;s tiling the memory layout, while our Q,K,V are tiles of our algorithm. Unfortunately in our case, it&amp;rsquo;s tiling&amp;hellip;our tiles.&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// layouts are not filled in yet
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">using&lt;/span> &lt;span class="n">MyTiledCopy&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="k">decltype&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_tiled_copy&lt;/span>&lt;span class="p">(&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Copy_Atom&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Atom&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">T&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="c1">// Atom
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="c1">// Thread layout (who)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{}&lt;/span> &lt;span class="c1">// Value layout (what per thread)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="p">));&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>The tiled copy function &lt;code>make_tiled_copy&lt;/code> takes in the atom, the thread layout, and the values given to each thread. Our &lt;code>Copy_Atom&lt;/code> is 128-bit wide chunk of 8 fp16 numbers, which is 8 values per thread. Given our row-major inputs, the output layout has to be: &lt;code>Layout&amp;lt;Shape&amp;lt;_1, _8&amp;gt;&amp;gt;{}&lt;/code>. The layout is the thread layout, i.e. how you want to distribute your threads per tile. Assuming &lt;code>kNThreads=128&lt;/code>, we have to give each thread a 128-bit chunk. The stride determines which 128-thread tile of memory comes next. The easiest strategy is to simply spread the tiles across along columns and then the rows, essentially filling it from the top like an upside-down cup.&lt;/p>
+&lt;p>Funnily enough, it gets slightly tricky here because of bank conflict optimization. Dao uses the same tiled copy setup for Q, K, V despite them having slightly different dimensions. We&amp;rsquo;ll revsit this when we talk about bank conflicts, but for now, assume our smem block is of shape &lt;code>(_, kBlockKSmem)&lt;/code>, where &lt;code>kBlockKSmem&lt;/code> is the column width for all 3 tensors. We can compute the layout as:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// pseudocode; assume static constexpr ints
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">halfs_per_128bit_load&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="k">sizeof&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">uint128_t&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="k">sizeof&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">half_t&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kt">int&lt;/span> &lt;span class="n">threads_per_row&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">kBlockKSmem&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="n">halfs_per_128bit_load&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kt">int&lt;/span> &lt;span class="n">num_thread_rows&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">kNThreads&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="n">threads_per_row&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kt">int&lt;/span> &lt;span class="n">num_thread_cols&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">threads_per_row&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>For &lt;code>kBlockKSmem=64&lt;/code>, each row is 64 halfs or 8 128-bit loads, so 8 threads per row. With 128 threads, we cover $128/8=16$ rows per tile. The stride is simple: the column stride should move by static &lt;code>_1{}&lt;/code> for the next 128-bit load. The row stride should move by the entire &lt;code>num_thread_cols&lt;/code> chunk to the next row. Hence, our &lt;code>Tiled_Copy&lt;/code> is:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;span class="lnt">7
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// Since these are constexpr, we use statics!
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">using&lt;/span> &lt;span class="n">TiledCopyQKV&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="k">decltype&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_tiled_copy&lt;/span>&lt;span class="p">(&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">GmemCopyAtom&lt;/span>&lt;span class="p">{},&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">num_thread_rows&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">num_thread_cols&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">num_thread_cols&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">));&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>The way to think about this is that this &lt;code>Tiled_Copy&lt;/code> is the tiling strategy for your source memory (GMEM in this case). All 128 threads load the first 128 contiguous 128-bit chunks, finish, then move onto the next 128 chunks until the entire GMEM section is copied. Even though this example is for a GMEM source, &lt;code>Tiled_Copy&lt;/code> works between GMEM, SMEM, and per-thread registers. It doesn&amp;rsquo;t know what anything is, it&amp;rsquo;s just the floorplan, and we&amp;rsquo;re responsible for providing the expected input.&lt;/p>
+&lt;h3 id="tiled_copy-source-and-destination">Tiled_Copy, Source and Destination&lt;/h3>
+&lt;p>Our &lt;code>Tiled_Copy&lt;/code> determines how our source is tiled, but we now have to configure the destination. The layout of the destination is determined by the destination tensor&amp;rsquo;s tensor layout. The &lt;code>Tiled_Copy&lt;/code> simply places the threads data in the &amp;ldquo;same place&amp;rdquo; it was loaded from. The destination layout can essentially be anything as long as it is compatible with the &lt;code>Copy_Atom&lt;/code>. Since we have 128-bit loads/stores, we hope the destination tensor layout must accept aligned 8-half blocks (more on this in swizzling). For now, we can ignore what the output tensor is. &lt;code>Tiled_Copy&lt;/code> has a specific pattern for copying between a source and a destination: a thread view, partitioning step, and then finally, the copy.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// defining tiled copy
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">typename&lt;/span> &lt;span class="n">Traits&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">GmemTiledCopyQKV&lt;/span> &lt;span class="n">gmem_tiled_copy_QKV&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// what thread are we? let&amp;#39;s get the slice of the data
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// that belongs to thread tid
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">gmem_thr_copy_QKV&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">gmem_tiled_copy_QKV&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">get_thread_slice&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tid&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// partition thread Q gmem SOURCE tensor
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tQgQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">gmem_thr_copy_QKV&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_S&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">gQ&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// partition thread Q smem DEST tensor
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tQsQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">gmem_thr_copy_QKV&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_D&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sQ&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// copy op: (tiled_copy, source, dest)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">copy&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">gmem_tiled_copy_QKV&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tQgQ&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tQsQ&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>In this example, assume &lt;code>gQ&lt;/code> and &lt;code>sQ&lt;/code> are correctly-defined GMEM and SMEM tensors. We first define our tiled copy blueprint. Then, we get the thread slice of this tiled copy, which translates our global tiled copy object to the values this thread actually fetches. Then, we partition the source and the destination, laying the thread blueprint on the source and destination tensors. Finally, we issue the copy operation.&lt;/p>
+&lt;blockquote>
+&lt;p>Example: Thread 0 takes the 0th (first) 128-bits, halfs 0-7. Then, it takes the 128th 128-bit chunk. Then the 256th, 384th, until the source is tiled. The intermediate thread tensor has shape &lt;code>((1, 8), M, N)&lt;/code> where M, N represent the tile and 1, 8 is the value layout. It may not be this exactly, but it doesn&amp;rsquo;t really matter as we don&amp;rsquo;t usually have to work with the intermediate partition.&lt;/p>
+&lt;/blockquote>
+&lt;h3 id="gmem-and-smem-tensors">GMEM and SMEM Tensors&lt;/h3>
+&lt;p>Saved the easiest step for last. Let&amp;rsquo;s define the &lt;code>gX&lt;/code> and &lt;code>sX&lt;/code> tensors for GMEM and SMEM.&lt;/p>
+&lt;p>CuTe provides us with a convenient API to retrieve the proper tensor tile from the source. It has the unfortunate side effect of being somewhat convoluted and ugly, but hey, it works.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// gmem
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">Tensor&lt;/span> &lt;span class="n">mQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_gmem_ptr&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="k">reinterpret_cast&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="k">const&lt;/span> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span> &lt;span class="o">*&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">q_ptr&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">+&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">batch_idx&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">q_batch_stride&lt;/span> &lt;span class="o">+&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">head_idx&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">q_head_stride&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">seqlen_q&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">head_dim&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">q_row_stride&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">gQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">local_tile&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">mQ&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockM&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kHeadDim&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{}),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_coord&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">m_block&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// smem
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">Tensor&lt;/span> &lt;span class="n">sQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="k">reinterpret_cast&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span> &lt;span class="o">*&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">smem&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">SmemLayoutQ&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">sK&lt;/span> &lt;span class="o">=&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sQ&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">()&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sQ&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">SmemLayoutKV&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>This looks awful but the mechanism is quite simple. Each thread block operates on a unique block Q for some unique batch/head. We compute the batch and head index and offset into the Q tensor by the batch and head stride, arriving at that particular batch/head&amp;rsquo;s Q tensor. CuTe has primitives like &lt;code>make_gmem_ptr&lt;/code> and &lt;code>make_smem_ptr&lt;/code> to tell the underlying engine to issue the correct PTX instructions for copying between GMEM, SMEM, and the register file. We provide it a layout so we can easily call &lt;code>local_tile(tensor, tile_layout, coord)&lt;/code> to retrieve the tile of interest, in this case, the &lt;code>mth&lt;/code> block of Q. It takes in a &lt;code>Coord&lt;/code> which is the &lt;code>(i, j)&lt;/code>-th tile according to &lt;code>tile_layout&lt;/code>.&lt;/p>
+&lt;p>We could easily have made the mQ pointer point to the the start of the batch/head dimension and local tile into BH as well as &lt;code>m_block&lt;/code>. The output PTX would be exactly the same&amp;ndash;it&amp;rsquo;s simply a matter of personal preference. The K and V gmem tensors iterate over all blocks along the d_h dimension, so their coord is given an underscore &lt;code>_&lt;/code> to signal this to the compiler.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">gK&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">local_tile&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">mK&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockN&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kHeadDim&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{}),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_coord&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">));&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;h2 id="smem-registers">SMEM-&amp;gt;Registers&lt;/h2>
+&lt;p>We will issue a second &lt;code>Tiled_Copy&lt;/code> to copy from our SMEM to the registers. The copy pattern is mostly the same, but instead of simply transferring memory from SMEM to the registers, we must format the SMEM and registers for the tensor core matrix multiply-add (MMA) instructions.&lt;/p>
+&lt;p>Our first MMA GEMM is between Q and K. Since they are both in row-major format, the copy will work quite easily without much overhead. We will get into the tensor core instructions quite shortly, but for now, all we need to know is that Ampere natively supports 16x8x16 (MxNxK) MMAs out of the box. Each tensor op has shape $(16\times 16) \times (16\times 8) = (16\times 8)$.&lt;/p>
+&lt;p>$$C = A\times B + C$$&lt;/p>
+&lt;p>Each warp does one MMA in one tensor core cycle and the warps synchronize with one another to produce the final accumulated output. Each MMA is mapped to one warp, where A, B, and C are stored in &lt;strong>fragments&lt;/strong> across all 32 threads in registers. NVIDIA selects the register mapping for each architecture, which is conveniently defined in CuTe via the &lt;code>MMA_Atom&lt;/code>, which we will discuss more later. For now, all we know is that each thread must hold its share of A, B, and C (Q, K, accumulator) via the &lt;code>Tiled_Copy&lt;/code>.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">SmemCopyAtom&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Copy_Atom&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">SM75_U32x4_LDSM_N&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Our copy atom this time leverages the &lt;code>LDSM&lt;/code> PTX instruction: Load from Shared Memory with the &amp;ldquo;N&amp;quot;ormal row-major/no-transpose layout. It moves 4 words = 128 bits per instruction, similar to our async load from before. However, this instruction is specialized to copy from shared memory to the correct registers for MMA, vectorizing per-warp loads and bypassing bank conflicts. However, unlike for GMEM-&amp;gt;SMEM, our tiled copy has to be aware of the MMA layout as well as the relevant thread fragments, which differ between fragments A, B, and C.&lt;/p>
+&lt;h3 id="tiled_mma">Tiled_MMA&lt;/h3>
+&lt;p>Getting deja vu yet? This time, we define the tiling for the MMA GEMM. We define the following Tiled MMA atom:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// TN means transposed-normal for AxB. It&amp;#39;s a historical convention
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// that you can search up.
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// Practically, it means both A and B are row-major
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">using&lt;/span> &lt;span class="n">TiledMmaAtom&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">MMA_Atom&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">SM80_16x8x16_F32F16F16F32_TN&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>You might wonder, why 16x8x16 and not 16x16x16? Again, it&amp;rsquo;s a hardware design choice made by NVIDIA engineers. There are a few reasons why:&lt;/p>
+&lt;ol>
+&lt;li>Less register pressure: B and C fragments are both 16x8, reducing the total register footprint by 16x16 per warp.&lt;/li>
+&lt;li>More register re-use. Each A tile is used twice per B and C tile, reducing the number of simultaneous register reads.&lt;/li>
+&lt;li>Best &amp;ldquo;area of efficiency&amp;rdquo;. NVIDIA certainly tested many combos and somehow found this size to be optimal.&lt;/li>
+&lt;/ol>
+&lt;p>This is by far not an exhaustive list, and tensor core shapes change generation-to-generation for a multitude of reasons. It&amp;rsquo;s best to just use it as-is instead of wondering all day why it is this way. The TiledMMA atom conveniently defines which threads get which chunks and which registers are used for the MMA (TODO: printing). We now define the full &lt;code>Tiled_MMA&lt;/code>:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">TiledMma&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">TiledMMA&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">MMA_Atom&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">SM80_16x8x16_F32F16F16F32_TN&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kNWarps&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Tile&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">16&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">kNWarps&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_16&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_16&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>We chose 128 threads or 4 warps because each SM has 4 resident tensor cores, a sensible choice in order to maximize MMA throughput. For the layout, we tile across the M-dimension, which we take a slice from the left column of Q, and move across the K dimension. This allows each warp to compute a full output row. This makes it easy and efficient to warp-sychronize the online softmax statistics, such as the max and the expsum later down the line. Each tile is &lt;code>kNWarps&lt;/code> stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$. $N$ is 16, not 8, because we must aggregate across adjacent N-atoms to produce one $16x16$ output tile due to the 16x8 assymetry (TODO: image).&lt;/p>
+&lt;p>(TODO: MMA layout, shape)&lt;/p>
+&lt;h3 id="tiled_copy-a-b-and-c">Tiled_Copy A, B, and C&lt;/h3>
+&lt;p>This time, we need to make a different tiled copy for A, B, and C since the fragment registers are specific to each component per atom. The code patterns is mostly the same, with some SMEM-&amp;gt;register specifics.&lt;/p>
+&lt;p>First, we create the register fragments for each thread according to the tiled mma:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;span class="lnt">7
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// create tiled mma
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">tiled_mma&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">TiledMma&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// partition the fragments
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">thr_mma&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">tiled_mma&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">get_thread_slice&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tid&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tSrQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">thr_mma&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_fragment_A&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sQ&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tSrK&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">thr_mma&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_fragment_B&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sK&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Next, we create the tiled copy and partition SMEM for the copy transaction.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// create Q, K tiled copy
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">smem_tiled_copy_Q&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tiled_copy_A&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">SmemCopyAtom&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">tiled_mma&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">smem_tiled_copy_K&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tiled_copy_B&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">SmemCopyAtom&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">tiled_mma&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// thread slice of MMA
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">smem_thr_copy_Q&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_tiled_copy_Q&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">get_thread_slice&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tid&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">smem_thr_copy_K&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_tiled_copy_K&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">get_thread_slice&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tid&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// partition SMEM
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">tSsQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_thr_copy_Q&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_S&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sQ&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">tSsK&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_thr_copy_K&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_S&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sK&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Before the actual copy and GEMM, notice how we don&amp;rsquo;t partition the destination registers. The registers must be known at compile-time and are already predefined for each thread. Registers are not even memory addressable the same way as GMEM or SMEM are. The Atom already knows the destination registers per thread; there is nothing to partition. Instead, we often have to retile the register to reconcile the LDSM and the MMA atom.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tXrQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_thr_copy_Q&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">retile_D&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tCrQ&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tXrK&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_thr_copy_K&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">retile_D&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tCrK&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Retiling doesn&amp;rsquo;t change the underlying registers, it simply allows us to map the 32x4 LDSM load to the specific fragment registers. By default, the 32x4 LDSM instruction is unaware of the underlying tensor op. We retile the fragments so that these u32 map to half_t and align their tile shapes in order for the eventual copy to &amp;ldquo;make sense.&amp;rdquo;&lt;/p>
+&lt;h3 id="aync-proxy-and-smem-copying">Aync Proxy and SMEM Copying&lt;/h3>
+&lt;p>Now, we need to figure out what our SMEM layout should look like. If we simply stored them in the same format as our GMEM, we would quickly run into serious memory-bound issues due to &lt;strong>bank conflicts.&lt;/strong> If you&amp;rsquo;ve made it this far, you hopefully know what these are already. But, if you don&amp;rsquo;t:&lt;/p>
+&lt;blockquote>
+&lt;p>Bank Conflict: when multiple threads in a warp simultaneously request memory within the same bank in shared memory but across distinct addresses, we say there is a bank conflict. &lt;a class="link" href="https://modal.com/gpu-glossary/perf/bank-conflict" target="_blank" rel="noopener"
+>Source&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;p>In order to enable highly parallel bandwidth in shared memory, NVIDIA stores the underlying data in 32-banks. It&amp;rsquo;s a hardware design choice influenced by power consumption, wiring, latency, and speed. If you somehow figured out how to access any piece of data in SMEM concurrently for free, then you should instantly nominated for the Turing Prize or sent straight to a psychiatric ward. Unfortunately, dealing with bank conflicts is just a part of GPU programming.&lt;/p>
+&lt;p>Each of these 32 banks are 4-bytes wide&amp;ndash;consecutive 4-byte chunks are stored in consecutive banks. For example, in a fp32 array: &lt;code>float x[] = [0.f, 1.f, 2.f, 3.f]&lt;/code>, 0 would be in bank 0, 1 in bank 1, etc. If you had 32 threads in a warp simulatenously accessing 32 float32s in tandem, then you&amp;rsquo;d be accessing all 32 banks separately at a time, which is conflict-free. This &amp;ldquo;ideal&amp;rdquo; use case is by design.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="kt">int&lt;/span> &lt;span class="n">bank&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">byte_address&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">%&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>In FA2, we have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes or 128 words&lt;sup id="fnref:1">&lt;a href="#fn:1" class="footnote-ref" role="doc-noteref">1&lt;/a>&lt;/sup> or 4x32 bank accesses. This doesn&amp;rsquo;t cause a 4-way bank conflict since the async proxy issues the load/store in 4 phases using quarter-warps, or 8 threads at a time.&lt;sup id="fnref:2">&lt;a href="#fn:2" class="footnote-ref" role="doc-noteref">2&lt;/a>&lt;/sup> In phase 1, threads 0-7 load the first 8 128-bit chunks. In phase 2, threads 8-15 do the next 8, and so on and so forth. In each phase, each quarter warp issues a contiguous 8x128-bit or 128-byte coalesced copy, which targets all 32 banks. Hurrah, no bank conflict. So by design, our async copies perfectly copies our data using the full HBM bandwidth.&lt;/p>
+&lt;p>Don&amp;rsquo;t celebrate early, because the bank conflicts don&amp;rsquo;t arise from writing to SMEM but rather our subequent &lt;em>reads&lt;/em> from SMEM during the SMEM-&amp;gt;register copy&lt;/p>
+&lt;p>My AI learning guide had led me astray more times than I could count, but somehow I still had faith that somehow it wouldn&amp;rsquo;t disappoint me this time.&lt;/p>
+&lt;h1 id="appendix">Appendix&lt;/h1>
+&lt;div class="footnotes" role="doc-endnotes">
+&lt;hr>
+&lt;ol>
+&lt;li id="fn:1">
+&lt;p>a word is 4 bytes&amp;#160;&lt;a href="#fnref:1" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
+&lt;/li>
+&lt;li id="fn:2">
+&lt;p>&lt;a class="link" href="https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html" target="_blank" rel="noopener"
+>https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html&lt;/a>&amp;#160;&lt;a href="#fnref:2" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
+&lt;/li>
+&lt;/ol>
+&lt;/div></description></item><item><title>Eat with the Rich</title><link>https://blog.echen.io/p/eat-with-the-rich/</link><pubDate>Wed, 05 Nov 2025 00:00:00 +0000</pubDate><guid>https://blog.echen.io/p/eat-with-the-rich/</guid><description>&lt;img src="https://blog.echen.io/p/eat-with-the-rich/thumbnail.webp" alt="Featured image of post Eat with the Rich" />&lt;p>I’ve been wanting to make fun of a specific breed of people I’ve seen becoming more and more popular over the past decade: the rich person who hates billionaires.&lt;/p>
 &lt;p>Picture the scene. One camp: a streamer in his Hollywood mansion in the bright glow of his halo ring light, ranting about wealth inequality as his most loyal viewers donate their last five bucks so he can “let Bezos have it.” Other camp: Ms. Politicián in her gentrified luxury apartment, in silk robes, thundering against capitalism as her yearly 200k in royalties for her 5th book cashes in. Same spiel, different stage.&lt;/p>
 &lt;p>Don’t get me wrong, I wasn’t paid off by Big Billionaire so I could suckle out the remaining drops left in their diamond goblets. I’m not here to defend them or really say anything about them. You can project whatever you want onto me and take this article however you like. I’m more so here to poke a little fun at these grifters by taking their arguments to the logical extreme. Will I be fair? Not really, but it’s not like any of these people are, either.&lt;/p>
 &lt;h1 id="the-twitch-streamer">The Twitch Streamer&lt;/h1>
