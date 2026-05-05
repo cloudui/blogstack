@@ -1,2 +1,6 @@
 **/*.DS_Store
 **/.DS_Store
+
+# Hugo build output and asset cache
+/public/
+/resources/_gen/
