@@ -97,7 +97,7 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// this is the shape of a torch.tensor([[0]*8 for _ in range(16)]).T
 &lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>A shape of (8, 16) with stride (1, 8). Pretty simple. Both declarations are identical. So what&amp;rsquo;s with the freaky underscore numbers?&lt;/p>
+&lt;/div>&lt;p>A shape of (8, 16) with stride (1, 8). Pretty simple. Both declarations are identical. So what&amp;rsquo;s with the freaky underscores?&lt;/p>
 &lt;h2 id="statically-vs-dynamically-typed">Statically vs. Dynamically Typed&lt;/h2>
 &lt;p>Any standard C++ integer passed into a layout, shape, or stride is dynamically typed, i.e. its value is only known at runtime (e.g. int, const int, static int). Even CUDA&amp;rsquo;s &lt;code>constexpr int&lt;/code> is treated as such by CuTe. Any time you index into a tensor, the library will compute&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
@@ -285,7 +285,7 @@ O &amp;amp;= S \cdot V
 &lt;h3 id="copy-atoms">Copy Atoms&lt;/h3>
 &lt;p>There is a boatload of copy PTX instructions in CUDA. You can fetch 32 bytes, 64 bytes, one byte, synchronous or asynchronous alike. CuTe neatly packages these copy instructions into a core piece called an &lt;code>Atom&lt;/code>. These &amp;ldquo;atomic&amp;rdquo; pieces are the core hardware instructions that you eventually pass to the &lt;code>copy&lt;/code> function so it knows what instruction to use to copy your data.&lt;/p>
 &lt;p>Ampere has a specific asynchronous &lt;code>Copy_Atom&lt;/code> with the architecture name &lt;code>SM_80&lt;/code>: &lt;code>SM80_CP_ASYNC_CACHEGLOBAL&amp;lt;bit_size&amp;gt;&lt;/code> or &lt;code>SM80_CP_ASYNC_CACHEALWAYS&amp;lt;bit_size&amp;gt;&lt;/code>. The &lt;code>cache_global&lt;/code> and &lt;code>cache_always&lt;/code> map to the PTX instructions &lt;code>ld.global.cg.u32&lt;/code> and &lt;code>ld.global.ca.u32&lt;/code>; &lt;code>cache_global&lt;/code> loads straight from L2 to the destination, skipping over L1 cache, while &lt;code>cache_always&lt;/code> also loads the data into L1. Most kernels will use &lt;code>cache_always&lt;/code> by default because of improved spatial and temporal locality across threads. But, in FA2, we never reference Q, K, or V again once they are loaded into SMEM&amp;ndash;therefore, we can bypass the L2 cache, which is slightly faster. It also reduces thrashing at the L1 level and allows more important data to stay in-cache. In practice, this is a micro-optimization and relatively not that important.&lt;/p>
-&lt;p>The &lt;code>bit_size&lt;/code> supports up to 128-bit loads. &lt;strong>Bits&lt;/strong>, not bytes, as these atoms are &lt;strong>per-thread&lt;/strong>. The memory controller indeed loves sending the full fat 128-bytes per warp, but CUDA views all transactions at the thread-level. Hence, our atom loads a total of $128\dot 32 / 8 = 512$ bytes. This means each 128-bit fetch across the 32 threads in a warp takes $512/128 =4$ memory transactions in 4 &amp;ldquo;phases&amp;rdquo; (more on this later). For our purposes, we want that full coaslesced 128-bit power using &lt;code>cache_global&lt;/code>. We can define the &lt;code>Copy_Atom&lt;/code> with the following syntax:&lt;/p>
+&lt;p>The &lt;code>bit_size&lt;/code> supports up to 128-bit loads. &lt;strong>Bits&lt;/strong>, not bytes, as these atoms are &lt;strong>per-thread&lt;/strong>. The memory controller indeed loves sending the full fat 128-bytes per warp, but CUDA views all transactions at the thread-level. Hence, our atom loads a total of $128 \cdot 32 / 8 = 512$ bytes. This means each 128-bit fetch across the 32 threads in a warp takes $512/128 =4$ memory transactions in 4 &amp;ldquo;phases&amp;rdquo; (more on this later). For our purposes, we want that full coaslesced 128-bit power using &lt;code>cache_global&lt;/code>. We can define the &lt;code>Copy_Atom&lt;/code> with the following syntax:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -299,6 +299,7 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>We use the cute namespace types for robustness, and our source data type is fp16 (&lt;code>cute::half_t&lt;/code>). Each thread therefore loads $128/16=8$ halfs.&lt;/p>
+&lt;p>We have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes or 128 words&lt;sup id="fnref:1">&lt;a href="#fn:1" class="footnote-ref" role="doc-noteref">1&lt;/a>&lt;/sup> or 4x32 bank accesses (see bank conflicts section below). The async proxy issues the load/store in 4 phases using quarter-warps, or 8 threads at a time.&lt;sup id="fnref:2">&lt;a href="#fn:2" class="footnote-ref" role="doc-noteref">2&lt;/a>&lt;/sup> In phase 1, threads 0-7 load the first 8 128-bit chunks. In phase 2, threads 8-15 do the next 8, and so on and so forth. In each phase, each quarter warp issues a contiguous 8x128-bit or 128-byte coalesced copy, which targets all 32 banks without any conflicts. So by design, our async copies perfectly copies our data using the full HBM bandwidth.&lt;/p>
 &lt;h3 id="tiled_copy">Tiled_Copy&lt;/h3>
 &lt;p>Even though each thread copies 128 bits, each thread block is usually working with a variable amount of threads/warps. Given the 4 tensor cores per SM, 4 warps per block is typically a good choice for FA2. This means we have to determine how to copy each Q,K,V tile using these 128-bit async copies.&lt;/p>
 &lt;p>CuTe uses &lt;code>Tiled_Copy&lt;/code>, which &amp;ldquo;tiles&amp;rdquo; the memory you are trying to copy (in this case, GMEM) in a structured way over your entire memory region. It outlines the &amp;ldquo;tiling strategy&amp;rdquo; that your threads will follow.&lt;/p>
@@ -502,13 +503,20 @@ O &amp;amp;= S \cdot V
 &lt;p>First, we create the register fragments for each thread according to the tiled mma:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
-&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
-&lt;/span>&lt;span class="lnt">2
-&lt;/span>&lt;span class="lnt">3
-&lt;/span>&lt;span class="lnt">4
-&lt;/span>&lt;span class="lnt">5
-&lt;/span>&lt;span class="lnt">6
-&lt;/span>&lt;span class="lnt">7
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
 &lt;/span>&lt;/code>&lt;/pre>&lt;/td>
 &lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// create tiled mma
@@ -518,6 +526,13 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">thr_mma&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">tiled_mma&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">get_thread_slice&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tid&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tSrQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">thr_mma&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_fragment_A&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sQ&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tSrK&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">thr_mma&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_fragment_B&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sK&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// C does not need a slice of memory since
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// it is write-only. We can skip all the thread slicing
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// and partitioning and just get the fragments in
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// one go
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">Tensor&lt;/span> &lt;span class="n">acc_s&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">partition_fragment_C&lt;/span>&lt;span class="p">(&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">tiled_mma&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockM&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockN&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{}));&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>Next, we create the tiled copy and partition SMEM for the copy transaction.&lt;/p>
@@ -534,6 +549,7 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;span class="lnt"> 9
 &lt;/span>&lt;span class="lnt">10
 &lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
 &lt;/span>&lt;/code>&lt;/pre>&lt;/td>
 &lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// create Q, K tiled copy
@@ -545,6 +561,7 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">smem_thr_copy_K&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_tiled_copy_K&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">get_thread_slice&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tid&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// partition SMEM
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// tSsQ = thread Score smem Q
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">tSsQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_thr_copy_Q&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_S&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sQ&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">tSsK&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_thr_copy_K&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_S&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sK&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
@@ -560,14 +577,58 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tXrK&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_thr_copy_K&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">retile_D&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tCrK&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>Retiling doesn&amp;rsquo;t change the underlying registers, it simply allows us to map the 32x4 LDSM load to the specific fragment registers. By default, the 32x4 LDSM instruction is unaware of the underlying tensor op. We retile the fragments so that these u32 map to half_t and align their tile shapes in order for the eventual copy to &amp;ldquo;make sense.&amp;rdquo;&lt;/p>
-&lt;h3 id="aync-proxy-and-smem-copying">Aync Proxy and SMEM Copying&lt;/h3>
-&lt;p>Now, we need to figure out what our SMEM layout should look like. If we simply stored them in the same format as our GMEM, we would quickly run into serious memory-bound issues due to &lt;strong>bank conflicts.&lt;/strong> If you&amp;rsquo;ve made it this far, you hopefully know what these are already. But, if you don&amp;rsquo;t:&lt;/p>
+&lt;/div>&lt;p>Retiling doesn&amp;rsquo;t change the underlying registers, it simply allows us to map the 32x4 LDSM load to the specific fragment registers. By default, the 32x4 LDSM instruction is unaware of the underlying tensor op. We retile the fragments so that these u32 map to half_t and align their tile shapes to ensure the eventual copy is correct. (TODO: image). In the final writeback of our output, we&amp;rsquo;ll see how we have to retile the register source when moving data from registers-&amp;gt;SMEM.&lt;/p>
+&lt;h2 id="register-copy-and-mma">Register Copy and MMA&lt;/h2>
+&lt;p>Unlike the GMEM-&amp;gt;SMEM transaction where we copy the whole tile in one go, we can pseudo-pipeline the fragment loads while doing the GEMM loop across dimension K. For the TiledMMA, we MMA over dim-K, loading the next tile fragment every iteration. This interleaves the &lt;code>LDMATRIX&lt;/code> instruction with some compute and probably saves a bit of time due to mem controller and tensor core overlap (functional units can execute indepdently). But mainly, by explicitly telling the compiler when it needs to have certain fragments ready, we can conserve register pressure by only having them available when they are needed. In our case, if we prefetch the next block every iteration, we only really need two register fragments availble at any time.&lt;/p>
+&lt;h3 id="mma-shape">MMA Shape&lt;/h3>
+&lt;p>The tiled MMA tensors (&lt;code>tSsQ&lt;/code>, &lt;code>tSsK&lt;/code>) have shape (MMA, MMA_M, MMA_N) (TODO: atom layout).&lt;/p>
+&lt;ul>
+&lt;li>MMA: shape/number of elements per thread. For our tiled MMA, it&amp;rsquo;s 8 elements per thread for Q and 4 elements per thread for K, V, and the accumulator. The output of our SM80 16x8x16 atom has &lt;code>MMA=(2,2)&lt;/code>, which means each thread holds 4 values in the shape $(2, 2)$. MMA_M is the number of tiles along M and &lt;code>MMA_N&lt;/code> is the number of tiles along N for tensor with shape (M, N). In this case, &lt;code>M=kBlockM&lt;/code> and &lt;code>N=K=kHeadDim&lt;/code> for &lt;code>tSsQ&lt;/code>. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.&lt;/li>
+&lt;/ul>
+&lt;p>We index these K-tiles via &lt;code>register(_, _, i)&lt;/code> to grab the relevant K-fragment per loop iteration. The TiledMMA handles the the M and N dimension. (TODO: image)&lt;/p>
+&lt;p>Here&amp;rsquo;s the full GEMM block:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// load initial Q, K fragments (0)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">copy&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">smem_tiled_copy_Q&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tSsQ&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_0&lt;/span>&lt;span class="p">{}),&lt;/span> &lt;span class="n">tXrQ&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_0&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">copy&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">smem_tiled_copy_K&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tSsK&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_0&lt;/span>&lt;span class="p">{}),&lt;/span> &lt;span class="n">tXrK&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_0&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// compile-time static, registers only live per iteration
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="cp">#pragma unroll
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span>&lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tSrQ&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="o">++&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1">// prefetch next Q, K block
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">i&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tCrA&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">-&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">copy&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">smem_tiled_copy_A&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tSsQ&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">tXrQ&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">copy&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">smem_tiled_copy_B&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tSsK&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">tXrK&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1">// MMA on frags
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">gemm&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tiled_mma&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tSrQ&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">tSrK&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">acc&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;h2 id="bank-conflicts-and-smem-layout">Bank Conflicts and SMEM Layout&lt;/h2>
+&lt;p>Ok, we have to address the elephant in the room. I&amp;rsquo;ve gone this far without talking about the SMEM layout, which is critical if we don&amp;rsquo;t want to kill all of our performance from suboptimal SMEM access patterns. If we simply stored data in SMEM in the same format as GMEM, we would quickly run into serious memory-bound issues due to &lt;strong>bank conflicts.&lt;/strong> If you&amp;rsquo;ve made it this far, you hopefully know what these are already. However, if you don&amp;rsquo;t:&lt;/p>
 &lt;blockquote>
-&lt;p>Bank Conflict: when multiple threads in a warp simultaneously request memory within the same bank in shared memory but across distinct addresses, we say there is a bank conflict. &lt;a class="link" href="https://modal.com/gpu-glossary/perf/bank-conflict" target="_blank" rel="noopener"
+&lt;p>Bank Conflict: when &lt;strong>multiple threads in the same warp&lt;/strong> simultaneously request memory within the same bank in shared memory but across distinct addresses, we say there is a bank conflict. &lt;a class="link" href="https://modal.com/gpu-glossary/perf/bank-conflict" target="_blank" rel="noopener"
 >Source&lt;/a>&lt;/p>
 &lt;/blockquote>
-&lt;p>In order to enable highly parallel bandwidth in shared memory, NVIDIA stores the underlying data in 32-banks. It&amp;rsquo;s a hardware design choice influenced by power consumption, wiring, latency, and speed. If you somehow figured out how to access any piece of data in SMEM concurrently for free, then you should instantly nominated for the Turing Prize or sent straight to a psychiatric ward. Unfortunately, dealing with bank conflicts is just a part of GPU programming.&lt;/p>
+&lt;p>In order to enable highly parallel bandwidth in shared memory, NVIDIA stores the underlying data in 32-banks. For each warp, only one thread can ask for a value from the same bank per cycle. If two or more threads try to access the same bank at the same time, the memory controller has no choice but to serialize the transactions, i.e. each thread takes turn reading from memory. If 5 threads access bank 13 at the same time, this means the memory transaction will take &lt;em>5 times as long&lt;/em> as if they read 5 different banks.&lt;/p>
+&lt;p>It&amp;rsquo;s a hardware design choice influenced by power consumption, wiring, latency, and speed. If you somehow figured out how to access any piece of data in SMEM concurrently for free, then you should instantly nominated for the Turing Prize or sent straight to a psychiatric ward. Unfortunately, dealing with bank conflicts is just a part of GPU programming.&lt;/p>
 &lt;p>Each of these 32 banks are 4-bytes wide&amp;ndash;consecutive 4-byte chunks are stored in consecutive banks. For example, in a fp32 array: &lt;code>float x[] = [0.f, 1.f, 2.f, 3.f]&lt;/code>, 0 would be in bank 0, 1 in bank 1, etc. If you had 32 threads in a warp simulatenously accessing 32 float32s in tandem, then you&amp;rsquo;d be accessing all 32 banks separately at a time, which is conflict-free. This &amp;ldquo;ideal&amp;rdquo; use case is by design.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -577,8 +638,184 @@ O &amp;amp;= S \cdot V
 &lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="kt">int&lt;/span> &lt;span class="n">bank&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">byte_address&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">%&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="p">;&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>In FA2, we have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes or 128 words&lt;sup id="fnref:1">&lt;a href="#fn:1" class="footnote-ref" role="doc-noteref">1&lt;/a>&lt;/sup> or 4x32 bank accesses. This doesn&amp;rsquo;t cause a 4-way bank conflict since the async proxy issues the load/store in 4 phases using quarter-warps, or 8 threads at a time.&lt;sup id="fnref:2">&lt;a href="#fn:2" class="footnote-ref" role="doc-noteref">2&lt;/a>&lt;/sup> In phase 1, threads 0-7 load the first 8 128-bit chunks. In phase 2, threads 8-15 do the next 8, and so on and so forth. In each phase, each quarter warp issues a contiguous 8x128-bit or 128-byte coalesced copy, which targets all 32 banks. Hurrah, no bank conflict. So by design, our async copies perfectly copies our data using the full HBM bandwidth.&lt;/p>
-&lt;p>Don&amp;rsquo;t celebrate early, because the bank conflicts don&amp;rsquo;t arise from writing to SMEM but rather our subequent &lt;em>reads&lt;/em> from SMEM during the SMEM-&amp;gt;register copy&lt;/p>
+&lt;/div>&lt;p>However, much of the time, we aren&amp;rsquo;t just linearly traversing our data. Sometimes, threads work across rows, columns, or both. Let&amp;rsquo;s go back to our fp32 example. Imagine we have a 32x32 row-major float matrix and we want to add 1 to each of the elements for some reason, one reasonable way to do this would be by having one warp traverse the columns in lock-step.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="cp">#pragma unroll
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span>&lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">j&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">j&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">j&lt;/span>&lt;span class="o">++&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1">// each thread traverses one row
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="c1">// each warp is hence one column per cycle
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">smem&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="n">thread_idx&lt;/span>&lt;span class="p">][&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">+=&lt;/span> &lt;span class="mf">1.0f&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>In this example, at &lt;code>j=0&lt;/code>, thread 0 accesses &lt;code>(0, 0)&lt;/code>, thread 1 accesses &lt;code>(1, 0)&lt;/code>, &amp;hellip;, and thread 31 accesses (31, 0). Since our smem array is 32x32, the row stride increments by 32 floats, 32 words/4-byte numbers, or 32 banks. This means all 32 threads access bank N on the same cycle for all 32 elements in a row. This is the ultimate 32-way bank conflict that causes a 32x slowdown. It doesn&amp;rsquo;t even matter how optimized the rest of your kernel is, this access pattern will absolutely destroy your performance.&lt;/p>
+&lt;p>In this case, the fix is simple. We can have the warp iterate over one row per cycle, which is 32 contiguous elements = 32 conseuctive banks&amp;ndash;no conflict, no problems.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="cp">#pragma unroll
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span>&lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="o">++&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">smem&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">][&lt;/span>&lt;span class="n">thread_idx&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">+=&lt;/span> &lt;span class="mf">1.0f&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>If for some reason you cannot simply just &amp;ldquo;traverse the rows&amp;rdquo;, there are two other common patterns.&lt;/p>
+&lt;h3 id="padding">Padding&lt;/h3>
+&lt;p>If you&amp;rsquo;ve ever worked with any image processing pipeline or CNNs in your day, this kind of padding is precisely the same concept. If you&amp;rsquo;ve ever worked with non-power of twos in deep learning at all, I&amp;rsquo;m sure you have padded your weights or inputs because power of twos are nicer to the kernels.&lt;/p>
+&lt;p>Funnily enough, with SMEM padding, we often try to break these power of two symmetries to improve our bank access patterns.&lt;/p>
+&lt;p>Going back to our example, the reason we end up with bank conflicts is because our row stride is a multiple of our 32, 4-byte bank cycle. Every address separated by 128 bytes maps to the same bank. So, a column-major bank access pattern for a 32x32 float array is an absolute death sentence. This wouldn&amp;rsquo;t be any better for 32x64, 32x96, or 32x1024 float arrays either, because the column width in each case is a multiple of 128 bytes.&lt;/p>
+&lt;p>We can break this 128-byte stride pattern simply by padding each row here with an extra float. So instead of 32x32, we now force our SMEM to have shape 32x33. Our SMEM chunk now occupies 32 more bytes with one dummy float per row, but our column access pattern no longer suffers from bank conflicts. If we look at our column access pattern from before, at &lt;code>j=0&lt;/code>, thread 0 still accesses (0, 0), thread 1 still accesses (1, 0), &amp;hellip;, and thread 31 still accesses (31, 0). But each row stride is now &amp;ldquo;33&amp;rdquo; banks apart, so thread 0 accesses memory address 0, but thread 1 now accesses address 33, not 32. So in one cycle, thread 0 accesses bank 0, thread 1 accesses bank 1, &amp;hellip;, and thread 31 accesses bank 31. The next iteration, we shift by 1 bank where thread 0 accesses bank 1 and thread 1 accesses bank 2. We are now conflict-free, at the expense of 32 &amp;ldquo;empty&amp;rdquo; floats.&lt;/p>
+&lt;p>When you aren&amp;rsquo;t constrained by SMEM limits, padding is often a very simple and worthwhile tradeoff. It&amp;rsquo;s easy to implement, as long as you make sure you match your strides correctly and load and write from SMEM following your new padding rules. However, if you&amp;rsquo;re dealing with complex memory access patterns, different data types (a long is 2 banks wide, 2 halfs fit in one bank), then padding might be too complicated or completely insufficient for your use case.&lt;/p>
+&lt;h3 id="swizzling">Swizzling&lt;/h3>
+&lt;p>This is precisely the problem for FA2. We have some copy atom- and MMA-specific read/write access patterns and we are working with 16-bit halfs, which make padding unattractive if not impossible. Swizzling comes to the rescue.&lt;/p>
+&lt;p>Swizzling is your answer to the brilliant thought: &amp;ldquo;what if our access patterns magically happened to use different banks?&amp;rdquo; Using some bit magic, swizzling rearranges the mapping of data elements in shared memory to avoid bank conflicts.&lt;/p>
+&lt;p>Back to our example. For our column access pattern of the 32x32 array, we &amp;ldquo;reinterpret&amp;rdquo; our SMEM so that address 0 is bank N, address 32 is bank 1, &amp;hellip;, and address 31*32 is bank 31. It&amp;rsquo;s a scrambler (or swizzler, if you will) that maps your (i, j) to a true address under the hood such that your bank conflicts magically disappear. Before each write and read to SMEM, we swizzle the incoming access (i, j) and translate it to a physical address or vice versa, so that even though we think we&amp;rsquo;re writing (1, 3) to memory location $32\cdot 1 + c$, we&amp;rsquo;re actually writing it to some swizzled address under the hood. The writer and consumer is none the wiser. As long as it writes (1, 3) and gets back the same (1, 3), it doesn&amp;rsquo;t care.&lt;/p>
+&lt;blockquote>
+&lt;p>Think about it like a valet attendant. You give your keys to the guy up front, he parks it for you somewhere randomly in the garage. When you come back from your day of disappointing your family, you simply ask for your car back. They fetch your car, you get in, and you leave. You don&amp;rsquo;t care whether it was on floor 1 or floor 9001, you just care that you got your car back.&lt;/p>
+&lt;/blockquote>
+&lt;p>There are likely an infinite amount of ways of scrambling addresses, but we have to meet a few criteria:&lt;/p>
+&lt;ol>
+&lt;li>Addresses or indices must have a 1-1 mapping. Each (i, j) has to have a unique physical location in memory.&lt;/li>
+&lt;li>It must be fast and deterministic.&lt;/li>
+&lt;li>If you are reading or writing N-bytes, then those N-bytes still have to be contiguous in memory. Your data might be fp16, but you might be reading 8 fp16s at once. Those 128 bits/addresses must still be contiguous in the swizzled domain. Even you could technically split those 128 bits into 4-byte bank chunks and distribute them throughout memory, the logic becomes way more convoluted and you likely lose vectorization or cache performance.&lt;/li>
+&lt;/ol>
+&lt;p>Swizzling accomplishes this with a bit of clever bit arithmetic. It uses the XOR operation, which satisfies the three conditions above in the following way:&lt;/p>
+&lt;ol>
+&lt;li>&lt;code>a xor b&lt;/code> is bijective. For any &lt;code>a xor b&lt;/code>, changing either a or b changes the output.&lt;/li>
+&lt;li>XOR bit instructions are as fast as you can get and is fully deterministic. Also XOR preserves the cardinality, so any a and b of n-bits cannot give an output greater than n-bits.&lt;/li>
+&lt;li>We can ignore the LSB bits that hold the contiguous chunks and XOR the &amp;ldquo;contiguous addresses&amp;rdquo; on top. For example, if we are loading 8 fp16s, we can treat bytes 0-15 as address 0, since we are copying those bytes in one go.&lt;/li>
+&lt;/ol>
+&lt;table>
+&lt;thead>
+&lt;tr>
+&lt;th style="text-align:center">Input A&lt;/th>
+&lt;th style="text-align:center">Input B&lt;/th>
+&lt;th style="text-align:center">Output (A ⊕ B)&lt;/th>
+&lt;/tr>
+&lt;/thead>
+&lt;tbody>
+&lt;tr>
+&lt;td style="text-align:center">0&lt;/td>
+&lt;td style="text-align:center">0&lt;/td>
+&lt;td style="text-align:center">0&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:center">0&lt;/td>
+&lt;td style="text-align:center">1&lt;/td>
+&lt;td style="text-align:center">1&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:center">1&lt;/td>
+&lt;td style="text-align:center">0&lt;/td>
+&lt;td style="text-align:center">1&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:center">1&lt;/td>
+&lt;td style="text-align:center">1&lt;/td>
+&lt;td style="text-align:center">0&lt;/td>
+&lt;/tr>
+&lt;/tbody>
+&lt;/table>
+&lt;p>So how do we actually apply this XOR? It&amp;rsquo;s actually miraculously simple:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="n">Swizzle&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">row&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">col&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">row&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">row&lt;/span> &lt;span class="o">^&lt;/span> &lt;span class="n">col&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Why does this work? Let&amp;rsquo;s examine our float example. We access &lt;code>(0...31, 0)&lt;/code> then &lt;code>(0...31, 1)&lt;/code> and so on and so forth. For column 0, &lt;code>0 ^ n&lt;/code> = &lt;code>n&lt;/code>. This means our outputs map to (0&amp;hellip;31, 0&amp;hellip;31). Since each row starts at bank N, then we adequately diversify to all 32 banks. For the other columns, we&amp;rsquo;ve shown that &lt;code>a ^ b&lt;/code> is unique for some fixed &lt;code>b=col&lt;/code>, so we are guaranteed to hit all 32 banks for all 32 threads. Neat! If you&amp;rsquo;re unconvinced, try doing a few examples for columns yourself.&lt;/p>
+&lt;p>Let&amp;rsquo;s visualize where each float ends up. The number of each square represents the column it originally belonged to. The color points to where it was originally.&lt;/p>
+&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32.png"
+width="3114"
+height="1577"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32_hu6596b57894f6490cbf0e273c8793060d_380231_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32_hu6596b57894f6490cbf0e273c8793060d_380231_1024x0_resize_box_3.png 1024w"
+loading="lazy"
+alt="32x32 swizzle pattern"
+class="gallery-image"
+data-flex-grow="197"
+data-flex-basis="473px"
+>
+&lt;/p>
+&lt;p>Ok, this is kind of hard to look at. Let&amp;rsquo;s look at an 8x8 example for more clarity of where each column ends up:&lt;/p>
+&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-8x8.png"
+width="1749"
+height="980"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-8x8_hu6a7db30d722cbb431d4322770efc8b0b_91421_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-8x8_hu6a7db30d722cbb431d4322770efc8b0b_91421_1024x0_resize_box_3.png 1024w"
+loading="lazy"
+alt="8x8 swizzle pattern"
+class="gallery-image"
+data-flex-grow="178"
+data-flex-basis="428px"
+>
+&lt;/p>
+&lt;p>We can now see that each element of each column ends up in a different bank. XOR interleaves our elements with this beautiful diagonal butterfly pattern, which you can see the best in the 32x32 grid.&lt;/p>
+&lt;blockquote>
+&lt;p>This XOR technique works great, but it&amp;rsquo;s not exactly trivial as to why it is the default option. Part of it seems like divine benevolence, which is probably true, but the short answer is that it&amp;rsquo;s fast, it works, and it&amp;rsquo;s an access pattern that no normal kernel engineer would use for almost any situation. It isn&amp;rsquo;t foolproof and may be combined with padding or different access patterns, and more complex patterns for multidimensional kernels typically have to employ even more complex swizzling patterns. This article shows in more detail why XOR works: &lt;a class="link" href="https://leimao.github.io/blog/CuTe-Swizzle/" target="_blank" rel="noopener"
+>https://leimao.github.io/blog/CuTe-Swizzle/&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;h3 id="swizzling-fa2">Swizzling FA2&lt;/h3>
+&lt;p>The fp32 example was quite trivial. Our FA2 pattern is slightly more complex, as we have to deal with tiled copy patterns, MMA atom layouts, and vectorized loads. As a result, we have to redefine what &amp;ldquo;row&amp;rdquo; and &amp;ldquo;column&amp;rdquo; mean via the Swizzle Atom in CuTe.&lt;/p>
+&lt;p>We have two interactions with SMEM: GMEM-&amp;gt;SMEM write and SMEM-&amp;gt;Register read.&lt;/p>
+&lt;h4 id="gmem-smem-write-requirements">GMEM-&amp;gt;SMEM Write Requirements&lt;/h4>
+&lt;p>As we mentioned before, the GMEM-&amp;gt;SMEM copy transaction writes 4 128-byte transactions over 4 phases. Each phase writes 128-bytes (32 bank accesses) and must hit all 32 banks for optimal performance. Since the vectorized write of this 128-byte contiguous chunk is conflict-free by default, our swizzle must happen on top of the 128-byte contiguous chunks, which is 8 halfs. Everything else is fair game.&lt;/p>
+&lt;p>Since we have the flexibility to load 128-byte contiguous chunks, we don&amp;rsquo;t even need to swizzle this transacation. We just have to make sure if we do swizzle SMEM, we have to keep each 8-half block contiguous in memory.&lt;/p>
+&lt;h4 id="smem-registers-read-requirements">SMEM-&amp;gt;Registers Read Requirements&lt;/h4>
+&lt;p>Our SMEM-&amp;gt;register transaction occurs during our SMEM tiled copy. Each thread is still each loading 32-bits x 4 = 128 bits like in our GMEM atom. In our GMEM load, all we have to do is load the entire tile, so we can choose to load 128-byte contiguous chunks to avoid bank conflicts. We cannot do this for SMEM, as the read pattern depends on the shape of the MMA fragments.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">SmemCopyAtom&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Copy_Atom&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">SM75_U32x4_LDSM_N&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">TiledMmaAtom&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">MMA_Atom&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">SM80_16x8x16_F32F16F16F32_TN&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>If we don&amp;rsquo;t swizzle SMEM layout, we would simply have the layout &lt;code>(kBlockM, kHeadDim)&lt;/code>. Each &lt;code>MMA_Atom&lt;/code> would tile using a 16x16 chunk out of our SMEM per A-fragment (or 16x8 for B- or C-fragments). Let&amp;rsquo;s examine the bank conflict:&lt;/p>
+&lt;p>As before, banks cycle every 128-bytes, which is 32 consecutive floats or 64 halfs. If we have &lt;code>kHeadDim=64&lt;/code>, then we have conflicts for any threads that touch the same column in one load cycle. For a 16x16 fragment (per warp) load using a 32x4 copy atom (per thread), we notice that these byte sizes are equal, so each copy atom loads one 16x16 A-fragment. Similar to our vectorized GMEM load, it&amp;rsquo;s loading 512 bytes in four phases, this time loading over 16x16 instead of one contiguous block. In this case, threads 0-7 load the first 128-bytes. For 16 halfs per columns and 8 halfs per thread per load, that&amp;rsquo;s 2 threads per row, so 4 rows per 8-thread load. For 16x8, we have half the columns, so it becomes 8 rows per 8-thread load. This means for fragment A, we have a 4-way bank conflict, and for fragments B and C, we have an 8-way bank conflict.&lt;/p>
+&lt;p>We could use padding, but we&amp;rsquo;ll see how that becomes infeasible with our constraints. For the A fragment, we simply need to shift each row&amp;rsquo;s banks by 16 floats or 32 halfs, so row 0 accesses 0-15, row 1 accesses 16-31, and so on and so forth. This increases our memory footprint by &lt;code>32*kBlockM&lt;/code> halfs, which is a 50% increase over &lt;code>kHeadDim=64&lt;/code>. (CHECK)&lt;/p>
+&lt;p>So our best option is to swizzle. We know we have to keep the bottom 8 halfs in tact. This means for some fp16 address A, we mask out the bottom 3 bits since they must be contiguous for an aligned fp16 swizzle block. What are our row and column? The row is simply the row of SMEM. In our example, each row is 64 halfs, so for fp16 address A the row is simply all the bits beyond the first six, i.e. &lt;code>A &amp;gt;&amp;gt; 6&lt;/code>. The column is simply the bits in between our contiguous chunk and our row. With 64 columns and 8 halfs per column, we have 8 8-half columns, which becomes the 3 bits that sit bewteen the row bits and the bottom 3 chunk bits.&lt;/p>
+&lt;p>Cute defines this parameterization with the Swizzle struct:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">Swizzle&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">B&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">M&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">S&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="n">swizzle&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;ul>
+&lt;li>B: column bits; after we&amp;rsquo;ve removed the mask bits, how many bits represent the columns? For us, it&amp;rsquo;s 3.&lt;/li>
+&lt;li>M: mask of LSB bits you want to be contiguous. We want 8 contiguous halfs, so 3 LSB bits.&lt;/li>
+&lt;li>S: shift bits; how many bits to the &amp;ldquo;left&amp;rdquo; of the mask that represents which row we&amp;rsquo;re at? For our case, the row bits sit beyond bit 6, so &lt;code>S=6-M=6-3=3&lt;/code>.&lt;/li>
+&lt;/ul>
+&lt;blockquote>
+&lt;p>For our 32x32 float example, let&amp;rsquo;s compute B, M, S. In this case, we only look at one float at a time, &lt;code>M=0&lt;/code>. We have 32 columns/floats per row, so &lt;code>B=log2(32)=5&lt;/code>. And finally, our row bits are just all the bits above the columns, so &lt;code>S=B=5&lt;/code>. Since we only have 32 rows, we&amp;rsquo;ll only ever have 5 row bits as well, but Swizzle does not need to know since our swizzle pattern just computes the translation, we are just responsible for providing it the relevant SMEM pointers.&lt;/p>
+&lt;/blockquote>
+&lt;p>Notice how the B and S bits can actually overlap. For most scenarios, they do not. There is likely some behavior you can exploit with this overlap. For our case, our row and column bits are tangential, so they are the same here. For different strides because of padding or some weird layouts, this setup gives us flexibility to ensure our swizzles are affecting the correct bits. This setup is somewhat unintuitive, but it works for a variety of strange scenarios as well.&lt;/p>
+&lt;p>So funnily enough for our example, our swizzle atom is simply: &lt;code>Swizzle&amp;lt;3, 3, 3&amp;gt;{}&lt;/code>.&lt;/p>
+&lt;h4 id="kblocksmem">kBlockSmem&lt;/h4>
+&lt;p>You will see this swizzle pattern a lot for fp16, since the bank conflict repeat cycle occurs at 64-half intervals, so it often makes sense to structure your SMEM such that each row covers all 32 banks. For FA2, most kernels opt for &lt;code>hdim=32, 64, 128&lt;/code>. For &lt;code>hdim=128&lt;/code> we have to redo all of the swizzling math for this new column size, so instead, we can just set a &lt;code>kBlockSmem&lt;/code> to maximize at 64, which allows us to use one swizzle atom for everything. This makes it so we have less templating to do for kernel size definitions, nothing more. If you wanted to recompute the shapes and swizzling for larger hdims, you are perfectly welcome to.&lt;/p>
+&lt;p>For &lt;code>hdim=32&lt;/code>, you still have to redeclare some things, for example &lt;code>B=2&lt;/code> for the swizzle atom. I simply explain this stipulation because this is the path that the FA2 source code selected. It is not the only implementation and not even necessarily the best one. It just can be a point of confusion reading their &lt;code>kernel_traits.h&lt;/code> definition.&lt;/p>
+&lt;h4 id="swizzle-composition">Swizzle Composition&lt;/h4>
 &lt;p>My AI learning guide had led me astray more times than I could count, but somehow I still had faith that somehow it wouldn&amp;rsquo;t disappoint me this time.&lt;/p>
 &lt;h1 id="appendix">Appendix&lt;/h1>
 &lt;div class="footnotes" role="doc-endnotes">
