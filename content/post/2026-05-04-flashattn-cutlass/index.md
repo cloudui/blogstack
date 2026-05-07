@@ -103,7 +103,7 @@ print_layout(layout);
 // this is the shape of a torch.tensor([[0]*8 for _ in range(16)]).T
 ```
 
-A shape of (8, 16) with stride (1, 8). Pretty simple. Both declarations are identical. So what's with the freaky underscore numbers?
+A shape of (8, 16) with stride (1, 8). Pretty simple. Both declarations are identical. So what's with the freaky underscores?
 
 ## Statically vs. Dynamically Typed
 Any standard C++ integer passed into a layout, shape, or stride is dynamically typed, i.e. its value is only known at runtime (e.g. int, const int, static int). Even CUDA's `constexpr int` is treated as such by CuTe. Any time you index into a tensor, the library will compute
@@ -202,7 +202,7 @@ There is a boatload of copy PTX instructions in CUDA. You can fetch 32 bytes, 64
 
 Ampere has a specific asynchronous `Copy_Atom` with the architecture name `SM_80`: `SM80_CP_ASYNC_CACHEGLOBAL<bit_size>` or `SM80_CP_ASYNC_CACHEALWAYS<bit_size>`. The `cache_global` and `cache_always` map to the PTX instructions `ld.global.cg.u32` and `ld.global.ca.u32`; `cache_global` loads straight from L2 to the destination, skipping over L1 cache, while `cache_always` also loads the data into L1. Most kernels will use `cache_always` by default because of improved spatial and temporal locality across threads. But, in FA2, we never reference Q, K, or V again once they are loaded into SMEM--therefore, we can bypass the L2 cache, which is slightly faster. It also reduces thrashing at the L1 level and allows more important data to stay in-cache. In practice, this is a micro-optimization and relatively not that important.
 
-The `bit_size` supports up to 128-bit loads. **Bits**, not bytes, as these atoms are **per-thread**. The memory controller indeed loves sending the full fat 128-bytes per warp, but CUDA views all transactions at the thread-level. Hence, our atom loads a total of $128\dot 32 / 8 = 512$ bytes. This means each 128-bit fetch across the 32 threads in a warp takes $512/128 =4$ memory transactions in 4 "phases" (more on this later). For our purposes, we want that full coaslesced 128-bit power using `cache_global`. We can define the `Copy_Atom` with the following syntax:
+The `bit_size` supports up to 128-bit loads. **Bits**, not bytes, as these atoms are **per-thread**. The memory controller indeed loves sending the full fat 128-bytes per warp, but CUDA views all transactions at the thread-level. Hence, our atom loads a total of $128 \cdot 32 / 8 = 512$ bytes. This means each 128-bit fetch across the 32 threads in a warp takes $512/128 =4$ memory transactions in 4 "phases" (more on this later). For our purposes, we want that full coaslesced 128-bit power using `cache_global`. We can define the `Copy_Atom` with the following syntax:
 
 ```cpp
 #include <cute/atom/copy_atom.hpp>
@@ -210,6 +210,8 @@ using GmemCopyAtom = Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>,
     cute::half_t>;
 ```
 We use the cute namespace types for robustness, and our source data type is fp16 (`cute::half_t`). Each thread therefore loads $128/16=8$ halfs.
+
+We have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes or 128 words[^1] or 4x32 bank accesses (see bank conflicts section below). The async proxy issues the load/store in 4 phases using quarter-warps, or 8 threads at a time.[^2] In phase 1, threads 0-7 load the first 8 128-bit chunks. In phase 2, threads 8-15 do the next 8, and so on and so forth. In each phase, each quarter warp issues a contiguous 8x128-bit or 128-byte coalesced copy, which targets all 32 banks without any conflicts. So by design, our async copies perfectly copies our data using the full HBM bandwidth.
 
 ### Tiled_Copy
 Even though each thread copies 128 bits, each thread block is usually working with a variable amount of threads/warps. Given the 4 tensor cores per SM, 4 warps per block is typically a good choice for FA2. This means we have to determine how to copy each Q,K,V tile using these 128-bit async copies.
@@ -360,6 +362,13 @@ auto tiled_mma = TiledMma{};
 auto thr_mma = tiled_mma.get_thread_slice(tid);
 Tensor tSrQ = thr_mma.partition_fragment_A(sQ);
 Tensor tSrK = thr_mma.partition_fragment_B(sK);
+
+// C does not need a slice of memory since
+// it is write-only. We can skip all the thread slicing
+// and partitioning and just get the fragments in
+// one go
+Tensor acc_s = partition_fragment_C(
+    tiled_mma, make_shape(Int<kBlockM>{}, Int<kBlockN>{}));
 ```
 
 Next, we create the tiled copy and partition SMEM for the copy transaction.
@@ -374,6 +383,7 @@ auto smem_thr_copy_Q = smem_tiled_copy_Q.get_thread_slice(tid);
 auto smem_thr_copy_K = smem_tiled_copy_K.get_thread_slice(tid);
 
 // partition SMEM
+// tSsQ = thread Score smem Q
 auto tSsQ = smem_thr_copy_Q.partition_S(sQ);
 auto tSsK = smem_thr_copy_K.partition_S(sK);
 ```
@@ -385,14 +395,44 @@ Tensor tXrQ = smem_thr_copy_Q.retile_D(tCrQ);
 Tensor tXrK = smem_thr_copy_K.retile_D(tCrK);
 ```
 
-Retiling doesn't change the underlying registers, it simply allows us to map the 32x4 LDSM load to the specific fragment registers. By default, the 32x4 LDSM instruction is unaware of the underlying tensor op. We retile the fragments so that these u32 map to half_t and align their tile shapes in order for the eventual copy to "make sense."
+Retiling doesn't change the underlying registers, it simply allows us to map the 32x4 LDSM load to the specific fragment registers. By default, the 32x4 LDSM instruction is unaware of the underlying tensor op. We retile the fragments so that these u32 map to half_t and align their tile shapes to ensure the eventual copy is correct. (TODO: image). In the final writeback of our output, we'll see how we have to retile the register source when moving data from registers->SMEM.
 
-### Aync Proxy and SMEM Copying
-Now, we need to figure out what our SMEM layout should look like. If we simply stored them in the same format as our GMEM, we would quickly run into serious memory-bound issues due to **bank conflicts.** If you've made it this far, you hopefully know what these are already. But, if you don't:
+## Register Copy and MMA
+Unlike the GMEM->SMEM transaction where we copy the whole tile in one go, we can pseudo-pipeline the fragment loads while doing the GEMM loop across dimension K. For the TiledMMA, we MMA over dim-K, loading the next tile fragment every iteration. This interleaves the `LDMATRIX` instruction with some compute and probably saves a bit of time due to mem controller and tensor core overlap (functional units can execute indepdently). But mainly, by explicitly telling the compiler when it needs to have certain fragments ready, we can conserve register pressure by only having them available when they are needed. In our case, if we prefetch the next block every iteration, we only really need two register fragments availble at any time.
 
-> Bank Conflict: when multiple threads in a warp simultaneously request memory within the same bank in shared memory but across distinct addresses, we say there is a bank conflict. [Source](https://modal.com/gpu-glossary/perf/bank-conflict)
+### MMA Shape
+The tiled MMA tensors (`tSsQ`, `tSsK`) have shape (MMA, MMA_M, MMA_N) (TODO: atom layout).
+- MMA: shape/number of elements per thread. For our tiled MMA, it's 8 elements per thread for Q and 4 elements per thread for K, V, and the accumulator. The output of our SM80 16x8x16 atom has `MMA=(2,2)`, which means each thread holds 4 values in the shape $(2, 2)$. MMA_M is the number of tiles along M and `MMA_N` is the number of tiles along N for tensor with shape (M, N). In this case, `M=kBlockM` and `N=K=kHeadDim` for `tSsQ`. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.
 
-In order to enable highly parallel bandwidth in shared memory, NVIDIA stores the underlying data in 32-banks. It's a hardware design choice influenced by power consumption, wiring, latency, and speed. If you somehow figured out how to access any piece of data in SMEM concurrently for free, then you should instantly nominated for the Turing Prize or sent straight to a psychiatric ward. Unfortunately, dealing with bank conflicts is just a part of GPU programming.
+We index these K-tiles via `register(_, _, i)` to grab the relevant K-fragment per loop iteration. The TiledMMA handles the the M and N dimension. (TODO: image)
+
+Here's the full GEMM block:
+
+```cpp
+// load initial Q, K fragments (0)
+cute::copy(smem_tiled_copy_Q, tSsQ(_, _, _0{}), tXrQ(_, _, _0{}));
+cute::copy(smem_tiled_copy_K, tSsK(_, _, _0{}), tXrK(_, _, _0{}));
+// compile-time static, registers only live per iteration
+#pragma unroll
+for (int i = 0; i < size<2>(tSrQ); i++) {
+    // prefetch next Q, K block
+    if (i < size<2>(tCrA) - 1) {
+      cute::copy(smem_tiled_copy_A, tSsQ(_, _, i + 1), tXrQ(_, _, i + 1));
+      cute::copy(smem_tiled_copy_B, tSsK(_, _, i + 1), tXrK(_, _, i + 1));
+    }
+    // MMA on frags
+    cute::gemm(tiled_mma, tSrQ(_, _, i), tSrK(_, _, i), acc);
+}
+```
+
+## Bank Conflicts and SMEM Layout
+Ok, we have to address the elephant in the room. I've gone this far without talking about the SMEM layout, which is critical if we don't want to kill all of our performance from suboptimal SMEM access patterns. If we simply stored data in SMEM in the same format as GMEM, we would quickly run into serious memory-bound issues due to **bank conflicts.** If you've made it this far, you hopefully know what these are already. However, if you don't:
+
+> Bank Conflict: when **multiple threads in the same warp** simultaneously request memory within the same bank in shared memory but across distinct addresses, we say there is a bank conflict. [Source](https://modal.com/gpu-glossary/perf/bank-conflict)
+
+In order to enable highly parallel bandwidth in shared memory, NVIDIA stores the underlying data in 32-banks. For each warp, only one thread can ask for a value from the same bank per cycle. If two or more threads try to access the same bank at the same time, the memory controller has no choice but to serialize the transactions, i.e. each thread takes turn reading from memory. If 5 threads access bank 13 at the same time, this means the memory transaction will take *5 times as long* as if they read 5 different banks.
+
+ It's a hardware design choice influenced by power consumption, wiring, latency, and speed. If you somehow figured out how to access any piece of data in SMEM concurrently for free, then you should instantly nominated for the Turing Prize or sent straight to a psychiatric ward. Unfortunately, dealing with bank conflicts is just a part of GPU programming.
 
 Each of these 32 banks are 4-bytes wide--consecutive 4-byte chunks are stored in consecutive banks. For example, in a fp32 array: `float x[] = [0.f, 1.f, 2.f, 3.f]`, 0 would be in bank 0, 1 in bank 1, etc. If you had 32 threads in a warp simulatenously accessing 32 float32s in tandem, then you'd be accessing all 32 banks separately at a time, which is conflict-free. This "ideal" use case is by design.
 
@@ -400,9 +440,138 @@ Each of these 32 banks are 4-bytes wide--consecutive 4-byte chunks are stored in
 int bank = (byte_address / 4) % 32;
 ```
 
-In FA2, we have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes or 128 words[^1] or 4x32 bank accesses. This doesn't cause a 4-way bank conflict since the async proxy issues the load/store in 4 phases using quarter-warps, or 8 threads at a time.[^2] In phase 1, threads 0-7 load the first 8 128-bit chunks. In phase 2, threads 8-15 do the next 8, and so on and so forth. In each phase, each quarter warp issues a contiguous 8x128-bit or 128-byte coalesced copy, which targets all 32 banks. Hurrah, no bank conflict. So by design, our async copies perfectly copies our data using the full HBM bandwidth.
+However, much of the time, we aren't just linearly traversing our data. Sometimes, threads work across rows, columns, or both. Let's go back to our fp32 example. Imagine we have a 32x32 row-major float matrix and we want to add 1 to each of the elements for some reason, one reasonable way to do this would be by having one warp traverse the columns in lock-step.
 
-Don't celebrate early, because the bank conflicts don't arise from writing to SMEM but rather our subequent *reads* from SMEM during the SMEM->register copy
+```cpp
+#pragma unroll
+for (int j = 0; j < 32; j++) {
+    // each thread traverses one row
+    // each warp is hence one column per cycle
+    smem[thread_idx][i] += 1.0f;
+}
+```
+
+In this example, at `j=0`, thread 0 accesses `(0, 0)`, thread 1 accesses `(1, 0)`, ..., and thread 31 accesses (31, 0). Since our smem array is 32x32, the row stride increments by 32 floats, 32 words/4-byte numbers, or 32 banks. This means all 32 threads access bank N on the same cycle for all 32 elements in a row. This is the ultimate 32-way bank conflict that causes a 32x slowdown. It doesn't even matter how optimized the rest of your kernel is, this access pattern will absolutely destroy your performance.
+
+In this case, the fix is simple. We can have the warp iterate over one row per cycle, which is 32 contiguous elements = 32 conseuctive banks--no conflict, no problems.
+
+```cpp
+#pragma unroll
+for (int i = 0; i < 32; i++) {
+    smem[i][thread_idx] += 1.0f;
+}
+```
+
+If for some reason you cannot simply just "traverse the rows", there are two other common patterns.
+
+### Padding
+If you've ever worked with any image processing pipeline or CNNs in your day, this kind of padding is precisely the same concept. If you've ever worked with non-power of twos in deep learning at all, I'm sure you have padded your weights or inputs because power of twos are nicer to the kernels.
+
+Funnily enough, with SMEM padding, we often try to break these power of two symmetries to improve our bank access patterns.
+
+Going back to our example, the reason we end up with bank conflicts is because our row stride is a multiple of our 32, 4-byte bank cycle. Every address separated by 128 bytes maps to the same bank. So, a column-major bank access pattern for a 32x32 float array is an absolute death sentence. This wouldn't be any better for 32x64, 32x96, or 32x1024 float arrays either, because the column width in each case is a multiple of 128 bytes.
+
+We can break this 128-byte stride pattern simply by padding each row here with an extra float. So instead of 32x32, we now force our SMEM to have shape 32x33. Our SMEM chunk now occupies 32 more bytes with one dummy float per row, but our column access pattern no longer suffers from bank conflicts. If we look at our column access pattern from before, at `j=0`, thread 0 still accesses (0, 0), thread 1 still accesses (1, 0), ..., and thread 31 still accesses (31, 0). But each row stride is now "33" banks apart, so thread 0 accesses memory address 0, but thread 1 now accesses address 33, not 32. So in one cycle, thread 0 accesses bank 0, thread 1 accesses bank 1, ..., and thread 31 accesses bank 31. The next iteration, we shift by 1 bank where thread 0 accesses bank 1 and thread 1 accesses bank 2. We are now conflict-free, at the expense of 32 "empty" floats.
+
+When you aren't constrained by SMEM limits, padding is often a very simple and worthwhile tradeoff. It's easy to implement, as long as you make sure you match your strides correctly and load and write from SMEM following your new padding rules. However, if you're dealing with complex memory access patterns, different data types (a long is 2 banks wide, 2 halfs fit in one bank), then padding might be too complicated or completely insufficient for your use case.
+
+### Swizzling
+This is precisely the problem for FA2. We have some copy atom- and MMA-specific read/write access patterns and we are working with 16-bit halfs, which make padding unattractive if not impossible. Swizzling comes to the rescue.
+
+Swizzling is your answer to the brilliant thought: "what if our access patterns magically happened to use different banks?" Using some bit magic, swizzling rearranges the mapping of data elements in shared memory to avoid bank conflicts.
+
+Back to our example. For our column access pattern of the 32x32 array, we "reinterpret" our SMEM so that address 0 is bank N, address 32 is bank 1, ..., and address 31*32 is bank 31. It's a scrambler (or swizzler, if you will) that maps your (i, j) to a true address under the hood such that your bank conflicts magically disappear. Before each write and read to SMEM, we swizzle the incoming access (i, j) and translate it to a physical address or vice versa, so that even though we think we're writing (1, 3) to memory location $32\cdot 1 + c$, we're actually writing it to some swizzled address under the hood. The writer and consumer is none the wiser. As long as it writes (1, 3) and gets back the same (1, 3), it doesn't care.
+
+> Think about it like a valet attendant. You give your keys to the guy up front, he parks it for you somewhere randomly in the garage. When you come back from your day of disappointing your family, you simply ask for your car back. They fetch your car, you get in, and you leave. You don't care whether it was on floor 1 or floor 9001, you just care that you got your car back.
+
+There are likely an infinite amount of ways of scrambling addresses, but we have to meet a few criteria:
+1. Addresses or indices must have a 1-1 mapping. Each (i, j) has to have a unique physical location in memory.
+2. It must be fast and deterministic.
+3. If you are reading or writing N-bytes, then those N-bytes still have to be contiguous in memory. Your data might be fp16, but you might be reading 8 fp16s at once. Those 128 bits/addresses must still be contiguous in the swizzled domain. Even you could technically split those 128 bits into 4-byte bank chunks and distribute them throughout memory, the logic becomes way more convoluted and you likely lose vectorization or cache performance.
+
+Swizzling accomplishes this with a bit of clever bit arithmetic. It uses the XOR operation, which satisfies the three conditions above in the following way:
+1. `a xor b` is bijective. For any `a xor b`, changing either a or b changes the output.
+2. XOR bit instructions are as fast as you can get and is fully deterministic. Also XOR preserves the cardinality, so any a and b of n-bits cannot give an output greater than n-bits.
+3. We can ignore the LSB bits that hold the contiguous chunks and XOR the "contiguous addresses" on top. For example, if we are loading 8 fp16s, we can treat bytes 0-15 as address 0, since we are copying those bytes in one go.
+
+| Input A | Input B | Output (A ⊕ B) |
+| :---: | :---: | :---: |
+| 0 | 0 | 0 |
+| 0 | 1 | 1 |
+| 1 | 0 | 1 |
+| 1 | 1 | 0 |
+
+So how do we actually apply this XOR? It's actually miraculously simple:
+
+```python
+Swizzle(row, col) = (row, row ^ col)
+```
+
+Why does this work? Let's examine our float example. We access `(0...31, 0)` then `(0...31, 1)` and so on and so forth. For column 0, `0 ^ n` = `n`. This means our outputs map to (0...31, 0...31). Since each row starts at bank N, then we adequately diversify to all 32 banks. For the other columns, we've shown that `a ^ b` is unique for some fixed `b=col`, so we are guaranteed to hit all 32 banks for all 32 threads. Neat! If you're unconvinced, try doing a few examples for columns yourself.
+
+Let's visualize where each float ends up. The number of each square represents the column it originally belonged to. The color points to where it was originally.
+
+![32x32 swizzle pattern](swizzle-32x32.png)
+
+Ok, this is kind of hard to look at. Let's look at an 8x8 example for more clarity of where each column ends up:
+
+![8x8 swizzle pattern](swizzle-8x8.png)
+
+We can now see that each element of each column ends up in a different bank. XOR interleaves our elements with this beautiful diagonal butterfly pattern, which you can see the best in the 32x32 grid.
+
+> This XOR technique works great, but it's not exactly trivial as to why it is the default option. Part of it seems like divine benevolence, which is probably true, but the short answer is that it's fast, it works, and it's an access pattern that no normal kernel engineer would use for almost any situation. It isn't foolproof and may be combined with padding or different access patterns, and more complex patterns for multidimensional kernels typically have to employ even more complex swizzling patterns. This article shows in more detail why XOR works: https://leimao.github.io/blog/CuTe-Swizzle/
+
+### Swizzling FA2
+The fp32 example was quite trivial. Our FA2 pattern is slightly more complex, as we have to deal with tiled copy patterns, MMA atom layouts, and vectorized loads. As a result, we have to redefine what "row" and "column" mean via the Swizzle Atom in CuTe.
+
+We have two interactions with SMEM: GMEM->SMEM write and SMEM->Register read.
+
+#### GMEM->SMEM Write Requirements
+As we mentioned before, the GMEM->SMEM copy transaction writes 4 128-byte transactions over 4 phases. Each phase writes 128-bytes (32 bank accesses) and must hit all 32 banks for optimal performance. Since the vectorized write of this 128-byte contiguous chunk is conflict-free by default, our swizzle must happen on top of the 128-byte contiguous chunks, which is 8 halfs. Everything else is fair game.
+
+Since we have the flexibility to load 128-byte contiguous chunks, we don't even need to swizzle this transacation. We just have to make sure if we do swizzle SMEM, we have to keep each 8-half block contiguous in memory.
+
+#### SMEM->Registers Read Requirements
+Our SMEM->register transaction occurs during our SMEM tiled copy. Each thread is still each loading 32-bits x 4 = 128 bits like in our GMEM atom. In our GMEM load, all we have to do is load the entire tile, so we can choose to load 128-byte contiguous chunks to avoid bank conflicts. We cannot do this for SMEM, as the read pattern depends on the shape of the MMA fragments.
+
+```cpp
+using SmemCopyAtom = Copy_Atom<SM75_U32x4_LDSM_N, cute::half_t>;
+using TiledMmaAtom = MMA_Atom<SM80_16x8x16_F32F16F16F32_TN>
+```
+
+If we don't swizzle SMEM layout, we would simply have the layout `(kBlockM, kHeadDim)`. Each `MMA_Atom` would tile using a 16x16 chunk out of our SMEM per A-fragment (or 16x8 for B- or C-fragments). Let's examine the bank conflict:
+
+As before, banks cycle every 128-bytes, which is 32 consecutive floats or 64 halfs. If we have `kHeadDim=64`, then we have conflicts for any threads that touch the same column in one load cycle. For a 16x16 fragment (per warp) load using a 32x4 copy atom (per thread), we notice that these byte sizes are equal, so each copy atom loads one 16x16 A-fragment. Similar to our vectorized GMEM load, it's loading 512 bytes in four phases, this time loading over 16x16 instead of one contiguous block. In this case, threads 0-7 load the first 128-bytes. For 16 halfs per columns and 8 halfs per thread per load, that's 2 threads per row, so 4 rows per 8-thread load. For 16x8, we have half the columns, so it becomes 8 rows per 8-thread load. This means for fragment A, we have a 4-way bank conflict, and for fragments B and C, we have an 8-way bank conflict.
+
+We could use padding, but we'll see how that becomes infeasible with our constraints. For the A fragment, we simply need to shift each row's banks by 16 floats or 32 halfs, so row 0 accesses 0-15, row 1 accesses 16-31, and so on and so forth. This increases our memory footprint by `32*kBlockM` halfs, which is a 50% increase over `kHeadDim=64`. (CHECK)
+
+So our best option is to swizzle. We know we have to keep the bottom 8 halfs in tact. This means for some fp16 address A, we mask out the bottom 3 bits since they must be contiguous for an aligned fp16 swizzle block. What are our row and column? The row is simply the row of SMEM. In our example, each row is 64 halfs, so for fp16 address A the row is simply all the bits beyond the first six, i.e. `A >> 6`. The column is simply the bits in between our contiguous chunk and our row. With 64 columns and 8 halfs per column, we have 8 8-half columns, which becomes the 3 bits that sit bewteen the row bits and the bottom 3 chunk bits.
+
+Cute defines this parameterization with the Swizzle struct:
+
+```cpp
+Swizzle<B, M, S> swizzle;
+```
+
+- B: column bits; after we've removed the mask bits, how many bits represent the columns? For us, it's 3.
+- M: mask of LSB bits you want to be contiguous. We want 8 contiguous halfs, so 3 LSB bits.
+- S: shift bits; how many bits to the "left" of the mask that represents which row we're at? For our case, the row bits sit beyond bit 6, so `S=6-M=6-3=3`.
+
+> For our 32x32 float example, let's compute B, M, S. In this case, we only look at one float at a time, `M=0`. We have 32 columns/floats per row, so `B=log2(32)=5`. And finally, our row bits are just all the bits above the columns, so `S=B=5`. Since we only have 32 rows, we'll only ever have 5 row bits as well, but Swizzle does not need to know since our swizzle pattern just computes the translation, we are just responsible for providing it the relevant SMEM pointers.
+
+Notice how the B and S bits can actually overlap. For most scenarios, they do not. There is likely some behavior you can exploit with this overlap. For our case, our row and column bits are tangential, so they are the same here. For different strides because of padding or some weird layouts, this setup gives us flexibility to ensure our swizzles are affecting the correct bits. This setup is somewhat unintuitive, but it works for a variety of strange scenarios as well.
+
+So funnily enough for our example, our swizzle atom is simply: `Swizzle<3, 3, 3>{}`.
+
+#### kBlockSmem
+You will see this swizzle pattern a lot for fp16, since the bank conflict repeat cycle occurs at 64-half intervals, so it often makes sense to structure your SMEM such that each row covers all 32 banks. For FA2, most kernels opt for `hdim=32, 64, 128`. For `hdim=128` we have to redo all of the swizzling math for this new column size, so instead, we can just set a `kBlockSmem` to maximize at 64, which allows us to use one swizzle atom for everything. This makes it so we have less templating to do for kernel size definitions, nothing more. If you wanted to recompute the shapes and swizzling for larger hdims, you are perfectly welcome to.
+
+For `hdim=32`, you still have to redeclare some things, for example `B=2` for the swizzle atom. I simply explain this stipulation because this is the path that the FA2 source code selected. It is not the only implementation and not even necessarily the best one. It just can be a point of confusion reading their `kernel_traits.h` definition.
+
+#### Swizzle Composition
+
+
+
 
 
 
