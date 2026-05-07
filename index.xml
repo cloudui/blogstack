@@ -814,8 +814,35 @@ data-flex-basis="428px"
 &lt;p>So funnily enough for our example, our swizzle atom is simply: &lt;code>Swizzle&amp;lt;3, 3, 3&amp;gt;{}&lt;/code>.&lt;/p>
 &lt;h4 id="kblocksmem">kBlockSmem&lt;/h4>
 &lt;p>You will see this swizzle pattern a lot for fp16, since the bank conflict repeat cycle occurs at 64-half intervals, so it often makes sense to structure your SMEM such that each row covers all 32 banks. For FA2, most kernels opt for &lt;code>hdim=32, 64, 128&lt;/code>. For &lt;code>hdim=128&lt;/code> we have to redo all of the swizzling math for this new column size, so instead, we can just set a &lt;code>kBlockSmem&lt;/code> to maximize at 64, which allows us to use one swizzle atom for everything. This makes it so we have less templating to do for kernel size definitions, nothing more. If you wanted to recompute the shapes and swizzling for larger hdims, you are perfectly welcome to.&lt;/p>
-&lt;p>For &lt;code>hdim=32&lt;/code>, you still have to redeclare some things, for example &lt;code>B=2&lt;/code> for the swizzle atom. I simply explain this stipulation because this is the path that the FA2 source code selected. It is not the only implementation and not even necessarily the best one. It just can be a point of confusion reading their &lt;code>kernel_traits.h&lt;/code> definition.&lt;/p>
+&lt;p>For &lt;code>hdim=32&lt;/code>, you still have to redeclare some things, for example &lt;code>B=2&lt;/code> for the swizzle atom. I simply explain this stipulation because this is the path that the FA2 source code selected. It is not the only implementation and not even necessarily the best one. It just might be a point of confusion when reading their &lt;code>kernel_traits.h&lt;/code> definition.&lt;/p>
 &lt;h4 id="swizzle-composition">Swizzle Composition&lt;/h4>
+&lt;p>Now, let&amp;rsquo;s actually make the SMEM layout. Since we have a swizzle and the actual SMEM dimensions, our resulting &lt;code>SmemLayout&lt;/code> is actually a tiled layout, as we have to tile the swizzle on top of the underlying memory. We can first create our tile atom and then tile the atom to our SMEM shape.&lt;/p>
+&lt;p>The swizzle atom relies on a composition of a swizzle and the layout underneath. The layout provides the raw coordinates/address to the swizzler, so the B, M, S actually mean something. Our swizzle atom is &lt;code>Swizzle&amp;lt;3, 3, 3&amp;gt;&lt;/code>, and our layout underneath is the SMEM subsection we are actually scrambling. From our analysis earlier, it is 8 rows and spans the entire columns, so that each 32x4 &lt;code>LDSM_N&lt;/code>/16x8x16 MMA tile load becomes bank conflict free. Therefore, the layout is has shape &lt;code>(8, kBlockSmem)&lt;/code> and stride &lt;code>(kBlockSmem, 1)&lt;/code>.&lt;/p>
+&lt;p>We use the &lt;code>composition(f1, f2)&lt;/code> function, which composes the layouts as &lt;code>f1(f2(x))&lt;/code>. The raw coordinates are translated into the unswizzled address, which gets fed to the swizzler&amp;ndash;therefore the &lt;code>f1=Swizzle&lt;/code> and &lt;code>f2=Layout&lt;/code>. We apply this atom to our overall SMEM shape; for Q, this is &lt;code>(kBlockM, kBlockSmem)&lt;/code>.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;span class="lnt">7
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">SmemLayoutAtomQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="k">decltype&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">composition&lt;/span>&lt;span class="p">(&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Swizzle&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockKSmem&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockKSmem&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{})&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">SmemLayoutQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">tile_to_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">SmemLayoutAtomQ&lt;/span>&lt;span class="p">{},&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockM&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockSmem&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>We can finally replace the layout we used to make &lt;code>sQ&lt;/code> above. &lt;code>sK&lt;/code> can &lt;code>sV&lt;/code> is an exercise left to the reader.&lt;/p>
+&lt;h2 id="dealing-with-v-copies">Dealing with V Copies&lt;/h2>
+&lt;p>V is a slightly different beast, since it doesn&amp;rsquo;t follow the row-major loading pattern of Q and K. When we compute our attention scores S, our resulting shape is &lt;code>(kBlockM, kBlockN)&lt;/code>.Since V is of shape &lt;code>(kBlockN, kHeadDim)&lt;/code>, we have to transpose V, as our original copy/MMA pattern expects the concatenation dim to be the the second shape dimension. As a result, we have to make two more tensors for V&amp;rsquo;s SMEM layouts in order to make sure the copies and fragments are correct.&lt;/p>
+&lt;h1 id="online-softmax-time">Online Softmax Time&lt;/h1>
 &lt;p>My AI learning guide had led me astray more times than I could count, but somehow I still had faith that somehow it wouldn&amp;rsquo;t disappoint me this time.&lt;/p>
 &lt;h1 id="appendix">Appendix&lt;/h1>
 &lt;div class="footnotes" role="doc-endnotes">
