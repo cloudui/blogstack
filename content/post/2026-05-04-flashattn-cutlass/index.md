@@ -41,7 +41,7 @@ We're going to make some basic design choices to make this learning exercise sim
 - We expect $Q, K, V$ to be in row-major order.
 
 ## Some Naming Conventions
-If you look at DaoLab's source code, you might notice they have some weird naming conventions. Some of them are standard CuTe/CUTLASS some carry over from other things. Here are some patterns:
+If you look at Dao Lab's source code, you might notice they have some weird naming conventions. Some of them are standard CuTe/CUTLASS some carry over from other things. Here are some patterns:
 - Starts with k: compile-time constant, e.g. kBlockM, kHeadDim
 - $M, N, K$: All of general matrix-multiply (GEMM) parameters are in this order for a $(M, K) \times (K, N)$ matrix-multiply. Hence, the shape of Q is (kBlockM, kHeadDim) and the shape of K, V is (kBlockN, kHeadDim).
 
@@ -233,8 +233,10 @@ A rule of thumb is to have approximately **150-200 FLOPs per byte loaded from HB
 
 Memory coalescing is also extremely important here. GPUs never fetch just one byte at a time; they can fetch a whole 32, 64, or 128-byte chunk at a time. Ideally, a warp fetching a full 128-byte contiguous block allows the GPU to issue one instruction to clear this entire block of data. Furthermore, this block fully saturates a L2 cache line, making any subsequent cache accesses more efficient. If all 32 threads in the warp are each fetching some random chunk scattered across memory, then the memory controller would issue 32 separate transactions, immediately crushing your performance, hopes, and dreams. So in principle, we would love for all 32 threads to "coalesce" by fetching 128-byte contiguous blocks of data. Let's introduce how we do that in CuTe.
 
+> Memory coalescing is a hardware mechanism specifically for GMEM/HBM. **It does not apply to SMEM**. As long as the load *from* GMEM or a store *to* GMEM is a consecutive 128-bytes, we benefit from memory
+
 ### Copy Atoms
-There is a boatload of copy PTX instructions in CUDA. You can fetch 32 bytes, 64 bytes, one byte, synchronous or asynchronous alike. CuTe neatly packages these copy instructions into a core piece called an `Atom`. These "atomic" pieces are the core hardware instructions that you eventually pass to the `copy` function so it knows what instruction to use to copy your data.
+There are a boatload of copy PTX instructions in CUDA. You can fetch 32 bytes, 64 bytes, one byte, synchronous or asynchronous alike. CuTe neatly packages these copy instructions into a core piece called an `Atom`. These "atomic" pieces are the core hardware instructions that you eventually pass to the `copy` function so it knows what instruction to use to copy your data.
 
 Ampere has a specific asynchronous `Copy_Atom` with the architecture name `SM_80`: `SM80_CP_ASYNC_CACHEGLOBAL<bit_size>` or `SM80_CP_ASYNC_CACHEALWAYS<bit_size>`. The `cache_global` and `cache_always` map to the PTX instructions `ld.global.cg.u32` and `ld.global.ca.u32`; `cache_global` loads straight from L2 to the destination, skipping over L1 cache, while `cache_always` also loads the data into L1. Most kernels will use `cache_always` by default because of improved spatial and temporal locality across threads. But, in FA2, we never reference Q, K, or V again once they are loaded into SMEM--therefore, we can bypass the L2 cache, which is slightly faster. It also reduces thrashing at the L1 level and allows more important data to stay in-cache. In practice, this is a micro-optimization and relatively not that important.
 
@@ -318,6 +320,9 @@ Saved the easiest step for last. Let's define the `gX` and `sX` tensors for GMEM
 CuTe provides us with a convenient API to retrieve the proper tensor tile from the source. It has the unfortunate side effect of being somewhat convoluted and ugly, but hey, it works.
 
 ```cpp
+// Assume we have a params struct that contains our source parameters
+// like pointers, dims, and strides
+
 // gmem
 Tensor mQ = make_tensor(
     make_gmem_ptr(reinterpret_cast<const cute::half_t *>(params.q_ptr) +
@@ -388,10 +393,10 @@ We chose 128 threads or 4 warps because each SM has 4 resident tensor cores, a s
 ### Tiled_Copy A, B, and C
 This time, we need to make a different tiled copy for A, B, and C since the fragment registers are specific to each component per atom. The code patterns is mostly the same, with some SMEM->register specifics.
 
-First, we create the register fragments for each thread according to the tiled mma:
+First, we create the register fragments for each thread according to the tiled MMA:
 
 ```cpp
-// create tiled mma
+// create tiled MMA
 auto tiled_mma = TiledMma{};
 
 // partition the fragments
@@ -959,14 +964,149 @@ __device__ __forceinline__ void normalize_softmax(Tensor0 &acc_o) {
 }
 ```
 
-This function is called in the epilogue after the main loop before we store the output back to GMEM. Overall, the softmax step is not particularly complicated. There's some funky confusing layout reshaping and learning warp reduce primitives but everything else pieces together nicely once you understand the thread layout.
+This function is called in the epilogue after the main loop before we store the output back to GMEM. Overall, the softmax step is not particularly complicated. There's some funky confusing layout reshaping and learning warp reduce primitives but everything else pieces together nicely once you understand the MMA thread layout.
 
+# Epilogue: Output->GMEM
+We now have our output stored in fragments across all of the warps, and we want to write them back to a `o_ptr` in our GMEM. The optimal way to perform our write-back is:
+
+```
+Registers->SMEM->Registers->GMEM
+```
+
+You might be wondering: if we're going go from SMEM back to registers why don't we just write it back from the fragments? The answer is n-fold:
+
+1. **No GMEM->SMEM instructions**: Ampere has the nice async GMEM->SMEM pipeline, but there is no direct SMEM->GMEM pipeline. Therefore, we have to stage the SMEM blocks in registers before writing back to HBM.
+2. **Vectorization**: The fragments are in stored as per-thread shapes, which are scattered halfs across all the registers. To write back to gmem, each thread writes one fp32 at a time across a bunch of scattered memory addresses. Given what we know about the memory bus and vectorization, this is excrutiatingly inefficient and slow. By staging through SMEM, each thread can write a full 128-bit block in one instruction like before.
+3. **Coalescing**: Furthermore, we can group all 32 threads into a contiguous block to coalesce the store into the 512-byte memory transaction like before.
+
+> **Note**: Vectorization is per-thread, Coalescing is across threads (per-warp).
+
+Compared to doing a terrible amount of uncoalesced and unvectorized stores, the SMEM staging is pretty much free compared to the efficiency gains from the optimized stores. Like before, the Registers->SMEM and SMEM->Registers->GMEM steps will each require their own `Tiled_Copy`, but it should be a lot quicker to figure out what they should be this time around. Before we begin the copy, we should convert the output back to fp16 using the same `convert_type()` we used for `acc_s` before the `O = SV` MMA`.
+
+```cpp
+// Epilogue
+
+// final output scale
+softmax.normalize_softmax(acc_o);
+
+// convert o from float back to fp16
+Tensor o_fp16 = FLASH::convert_type<cute::half_t>(acc_o);
+```
+
+## Registers->SMEM
+We can now begin our register->SMEM write. Since we never sliced a portion of SMEM for O, we can simply reuse the Q's SMEM portion; it has the exact same shape and size as O, and it isn't being used for anything anymore. We can also reuse its layout, since the write access pattern has the same bank conflict problem as the read, so our swizzled layout before is perfect.
+
+```cpp
+Tensor sO = make_tensor(sQ.data(), SmemLayoutQ{});
+```
+
+The next step is to define the tiled copy. Even though Ampere supports the `SM75` (Turing) `LDSM` instructions for loading MMA fragments, there is no analogous store instruction. The `STSM` instructions were actually introduced for the H100 Hopper architecture (`SM90`), but only God knows why they didn't have them earlier. Instead, we can just do a typical vectorized copy back to SMEM.
+
+Funnily enough, Dao Lab takes the lazy route and uses:
+
+```cpp
+using SmemCopyAtomO =
+    Copy_Atom<AutoVectorizingCopyWithAssumedAlignment<128>, cute::half_t>;
+```
+
+Why is this lazy? It's because `AutoVectorizing...` just tells the compiler to find the largest vectorized chunk it can store in one go according to the tiled MMA and fragment layouts. Since 128-bit loads/stores are the maximum size, we're just telling the kernel: oh yeah, you optimize it for me. Reading this bit of FA2 source code can lead you into thinking this 128-bit vectorized store is possible, but it unfortunately is not. Let's examine why:
+
+Recall that in the output fragment, each thread holds 4 values per tile. In our [thread reduce](#thread-reduce) section, we saw how thread 0 holds `(0, 0), (0, 1), (8, 0), (8, 1)`. Although these fragments have a layout, registers do not behave as memory--you cannot address them. Rather, it's a mapping between an "address" and its phyiscal register name/location. So even though our fragment layout is "column-major", there is no physical column-major memory anywhere. The limitation to our vectorized store relies on how many values each thread can store contiguously in the *output SMEM*--"contiguous" registers don't exist. For example, the hardware PTX `st.shared.v2.b16` takes in any two registers with fp16s and stores it in one fp32 address. We can see that each thread holds 2 contiguous halfs, so the max vectorization we can get is 32-bits. This is a hardware limitation, so we can't simply optimize this any more. Given that this is the final store and that we can vectorize SMEM->GMEM, this isn't a huge problem and by far not the worst bottleneck.
+
+If you wanted to be exact, you can replace the copy atom above with this below for superior clarity:
+
+```cpp
+using SmemCopyAtomO =
+    Copy_Atom<UniversalCopy<cute::uint32_t>, cute::half_t>;
+```
+
+This is technically more accurate than what the source code specifies. The way you can check is by compiling the full kernel with fixed-size universal copies until it compiles--if it's not compatible, it'll throw an error. Other ways to verify include printing the shapes per thread to see the strides, looking at the raw PTX instructions, or unfortunately, using your brain.
+
+### Tiled Copy
+Let's make our tiled copy object. To let CuTe know we're working with an output MMA thread layout, we can use the function `make_tiled_copy_C()`, using `C` version instead of the `A/B` that we used for Q, K, and V.
+
+```cpp
+auto smem_tiled_copy_O =
+    make_tiled_copy_C(SmemCopyAtomO{}, tiled_mma);
+auto smem_thr_copy_O = smem_tiled_copy_O.get_thread_slice(tid);
+```
+
+This time, we have to retile the registers (this time, a source) to fit this new copy atom, and partition the SMEM destination. Then, we can issue our copy.
+
+```cpp
+// retile_S this time, since it's the source
+auto trO = smem_thr_copy_O.retile_S(o_fp16);
+auto tsO = smem_thr_copy_O.partition_D(sO);
+// copy, and we're done!
+cute::copy(smem_tiled_copy_O, trO, tsO);
+```
+
+## SMEM->Register->GMEM
+
+We create the gmem output tile the same way we created the Q, K, V source tiles. It has exactly the same layout as Q. The only difference is that is not a `const` as we are modifying its contents:
+
+```cpp
+Tensor mO =
+    make_tensor(make_gmem_ptr(reinterpret_cast<cute::half_t *>(params.o_ptr) +
+                batch_idx * params.o_batch_stride +
+                head_idx * params.o_head_stride),
+        make_shape(params.seqlen_q, params.head_dim),
+        make_stride(params.q_row_stride, _1{}));
+Tensor gO = local_tile(mO, make_shape(Int<kBlockM>{}, Int<kHeadDim>{}),
+                make_coord(m_block, 0));
+```
+
+### SMEM->GMEM Tiled Copy
+
+Our tiled copy atom is pretty much exactly the same as the one for Q, except we use a standard synchronous 128-bit copy atom instead of the `cp.async` we used for GMEM->SMEM copies. This time, our 128-bit `AutoVectorizing` cheat is fine, since we are doing the full 128-bit vectorized loads, although you can explicitly declare a 128-bit `UniversalCopy` instead for clarity. As with the GMEM->SMEM load, we still benefit from memory coalescing because the blocks written *TO* GMEM are contiguous in memory. Even though blocks may not be contiguous in SMEM, they are when we store to GMEM.
+
+> **Note**: Remember, memory coalescing is a GMEM optimization. The swizzle is our valet attendant, it stores and retrieves our car on the thread's behalf, and we don't really care *where* it puts it. Once each thread retrieves its "car", they each park them contiguously in GMEM, which is all that matters for coalescing.
+
+```cpp
+// can reuse the 128-bit auto vectorized SMEM copy
+// if you used 32-bit universal, then you'll have to redefine it here
+using SmemCopyAtomO =
+    Copy_Atom<UniversalCopy<cute::uint128_t>, cute::half_t>;
+// Copy_Atom<AutoVectorizingCopyWithAssumedAlignment<128>, cute::half_t>;
+
+// same gmem layout as QKV
+auto gmem_tiled_copy_O = make_tiled_copy(
+    SmemCopyAtomO{}, GmemLayout{}, Layout<Shape<_1, _8>>{});
+```
+
+Now, we can create our thread slice and partition our source and destination memory.
+
+```cpp
+// thread Output _ Output
+auto gmem_thr_copy_O = gmem_tiled_copy_O.get_thread_slice(tid);
+Tensor tOsO = gmem_thr_copy_O.partition_S(sO);
+Tensor tOgO = gmem_thr_copy_O.partition_D(gO);
+```
+
+Since there is no instruction for SMEM->GMEM directly, we cannot simply `copy(..., tOsO, tOgO)`. Instead, we stage it through a register of the same shape. This is pretty much free since we aren't using any of the registers at this stage. The tiled copy doesn't know or care whether our source/dest is GMEM or SMEM or a register, so we just make a `tOgO` clone and issue two copies using the same `Tiled_Copy`:
+
+```cpp
+// register buffer
+Tensor tOrO = make_fragment_like(tOgO);
+// smem->registers
+cute::copy(gmem_tiled_copy_O, tOsO, tOrO);
+// registers->gmem
+cute::copy(gmem_tiled_copy_O, tOrO, tOgO);
+```
+
+Voila! Al Fin.
+
+### Sync Threads
+
+Haha, not quite yet. There is a slight bug in our epilogue as-is. Between the register->SMEM and SMEM->GMEM copy, the threads control different parts of SMEM. We set up async waits earlier, but since we are sychronous for the O store, we simply have to call `__syncthreads()` sometime between the two copy stages. The FA2 production code opts to put it right before the final two `copy()` invocations to overlap the gmem tiled copy work with the register->SMEM copy, but practically it probably doesn't make much of a difference--you can just put the sync right after the r->S copy.
+
+# Wrapping up
 
 
 My AI learning guide had led me astray more times than I could count, but somehow I still had faith that somehow it wouldn't disappoint me this time.
 
 # Appendix
-[^1]: a word is 4 bytes
+[^1]: A word is 4 bytes (32-bits). This term is slightly ambiguous based on architecture or context, e.g. a word for a n-bit CPU processor means n-bits. But in CUDA, it almost always means 32-bits. Other alternatives include scalars, floats, or bank-widths, but we will stick to the word "word" when discussing bank conflicts.
 [^2]: https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html
 [^3]: https://developer.nvidia.com/blog/using-cuda-warp-level-primitives/
 [^4]: Oxford shuffle lecture notes, p. 6 for xor shuffle: https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf
