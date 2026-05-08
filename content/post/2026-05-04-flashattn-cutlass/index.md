@@ -165,7 +165,43 @@ In row-major formats, data is stored column-contiguous (Fortran, CUBLAS style), 
 
 The way to tell is by the stride; for any 2D matrix with stride $(a, b)$, the matrix is row-major if $b=1$ and column-major if $a=1$. In CuTe, any layout without a provided stride is **column-major** by default.
 
-For FA2, we assume Q, K, and V are all **row-major.** Although somewhat arbitrary, most consumer applications or libraries like Pytorch or JAX are row-major by default, so this is the most obvious configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it's also a choice in simplicity.
+For FA2, Q, K, and V are all **row-major.** Although somewhat arbitrary, most consumer applications or libraries like Pytorch or JAX are row-major by default, so this is the most obvious configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it's also a choice in simplicity.
+
+## Composed/Hierarchical Layouts
+The last bit of confusing layout algebra is hierarchical layouts. CuTe let's us compose layouts into multiple dimensions. For example, a layout of shape `Shape<_8>` can be composed to be `Shape<_4, _2>` or `Shape<_2, _4>`. We can iterate over the 8 block in groups of 1, 2, 4, or 8. The strides determine which direction we do so (row or column major). This is no different than normal layout re-interpretation from the [tensor section above](#tensors), but CuTe allows us to nest layouts for extremely granular layout interpretation.
+
+```cpp
+// (_8, _4): (_1, _8)
+auto l1 = make_layout(make_shape(_8{}, _4{}));
+// ((_2, _4), _4):((_1, _2), _8)
+auto l2 = make_layout(make_shape(make_shape(_2{}, _4{}), _4{}));
+```
+
+In `l2`, we iterate through the inner (left) shape in groups of 2, column major by default. In this case, the composed layout is purely decorative. We can still address a tensor with layout `l1` or `l2` with two coordinates `(i, j)`. CuTe maps the translation underneath. However, you can split a for loop on the inner dimension of `l2` into a nested for loop, but otherwise, it's not accomplishing much in terms of utility. However, we'll see it become a powerful tool during the [MMA tiling reshape](#fragment-reshape), where we cannot simply flatten a 3D tensor into a non-composed 2D tensor.
+
+```cpp
+int *a = {0, ..., 31};
+// [0, 1, 2, 3, ..., 7]
+// [8, 9, 10, 11, ..., 15]
+// [16, 17, 18, 19, ..., 23]
+// [18, 19, 20, 21, ..., 31]
+Tensor t1 = make_tensor(a, l1);
+Tensor t2 = make_tensor(a, l2);
+
+int v1 = t1(3, 2); // 19
+int v2 = t2(3, 2); // 19
+int v3 = t2(make_coord(1, 1), 2);
+```
+
+## Colex Indexing
+CuTe uses column-major indexing, which is their way of consistenly enforcing 1D->N-dimensional indexing across layout algebra. If we index tensor `t(idx)` for a tensor of shape `(M, N)`, the index split becomes:
+
+```python
+i = idx % M
+j = idx / M
+```
+
+Again, this is the opposite of the C/C++/Pytorch row-major standard. As long as you remember this column-major indexing system, everything will be fine. If not, then you'll probably end up scratching your head for hours. This means for many composed layouts, you'll likely have to flip the order for composed shapes for the indices to be row-major adjacent. If you think this sucks, I agree. This is probably *the* most annoying part of learning CuTe because things do not make align with your expectations. Unfortunately, the only way to learn is via trial by fire.
 
 # CuTe, Copy, then Cry
 ## A100 (Ampere) Specs
@@ -570,12 +606,360 @@ For `hdim=32`, you still have to redeclare some things, for example `B=2` for th
 
 #### Swizzle Composition
 
+# Main Loop
 
+# Online Softmax
+After $QK^T$, we now deal with the online softmax. Fortunately, this step isn't terribly difficult because of the way we set up the threads. To review, the softmax portion has a couple of steps:
 
+1. Calculate new per-row max: `m_new = max(scores, dim=-1)`
+2. Apply max rescale and exponentiation on scores: `scores_exp = exp(scores - m_new)`
+3. Calculate correction factor: `correction = exp(m_old - m_new)`
+4. Apply correction to output/accumulator: `acc *= correction`
+5. Apply correction and compute new expsum denominator: `l = l*correction + scores_exp.sum(dim=-1)`
 
+To track the softmax state, Dao opts for an organized softmax struct that keeps track of the rolling max and expsum registers per thread:
 
+```cpp
+template <int kNRows> struct Softmax {
+  using TensorT = decltype(make_tensor<float>(Shape<Int<kNRows>>{}));
 
+  TensorT row_max; // running per-row max (m)
+  TensorT row_sum; // running per-row sum (l)
+}
+```
 
+You can opt for other equally valid ways, but a softmax struct allows us to keep the code clean and separate.
+
+## Loop: Scale Softmax
+At each loop iteration, after we've computed `S = Q@K.T`, we have to compute the online softmax on resulting tensor S and update our max and sum. We define the method `rescale_softmax_o` that is invoked after `S` is first computed:
+
+```cpp
+template <bool Is_first, typename Tensor0, typename Tensor1>
+__device__ __forceinline__ void
+softmax_rescale_o(Tensor0 &acc_s, // (MMA, MMA_M, MMA_N) score block, fp32
+                Tensor1 &acc_o, // (MMA, MMA_M, MMA_K) output acc, fp32
+                float softmax_scale_log2) {}
+```
+
+So what actually goes into computing the max and the sum?
+
+## Row Reduce
+If we structured our MMA in a way where threads across multiple warps had each tiles output data, we would have to stage information through SMEM for cross-warp reduction, which would be significantly slower and more complicated. With miraculous foresight, we set up our MMA fragments where each warp holds an entire row's output for each tile. With 128 threads, we have 4 warps each owning 16 rows per MMA tile (see our `TiledMma` to refresh), each spanning the entire row. This allows us to use **warp reduction**, which is a "highly efficient CUDA parallel reduction technique that aggregates data across 32 threads within a single GPU warp."[^3] CUDA provides us with warp primitives such as `__shfl_down_sync()` or `__shfl_down_sync()`, which allow us to easily shuffle data across all threads in a warp without any load/stores or staging through shared memory. As a result, there is zero memory latency or synchronization barriers, which makes our max/sum step ultra fast.
+
+> Warp reduction is the primary and fastest way to perform intra-warp communication.
+
+However, warp reduction is actually step 2, because it finds the max/sum *between threads.* We first have to find the max/sum *per-thread*.
+
+### Thread Reduce
+In every 16x8 MMA output fragment, each thread holds $16\cdot 8 / 32=4$ output values. In order to find the thread's row max or row sum, we have to find the max/sum of all of the elements the thread owns per row, across all the rows each thread touches. If you're confused, don't worry. It will make sense once we examine the MMA Atom's thread layout.
+
+![MMA Atom thread layout](mma_atom.png)
+
+Let's look at the bottom right output fragment C this time. Let's look at thread 0. We can see it owns output elements: `(0, 0), (0, 1), (8, 0), (8, 1)`. If we examine all other threads, we see that they each own 4 elements across two rows. Let's clarify the math a bit:
+
+Previously, we saw that the TiledMma has shape `(MMA, MMA_M, MMA_N)`. We showed that `MMA = (2, 2)`, which refers to the 2 rows, and 2 columns per row each thread holds in the output tile. `MMA_M` and `MMA_N` can be calculated by how many `16x8` tiles fit across the output shape: `(kBlockM, kBlockN)`. We can easily see that `MMA_M = kBlockM / 16` and `MMA_N = kBlockN / 8`. We can see that each thread's values span `MMA_M * 2` rows and `MMA_N * 2` columns.
+
+> **Note**: even though we think of tiled MMA in terms of tiles, we must remember that CUDA is still written in the **thread view**. The CuTe abstractions make this confusing, as the only code we write where we explicitly see this thread-view is via the `thread_slice`, which is only like 5 lines of code total. Whenever we look at a fragment tensor, remember this fragment tensor holds each **thread's elements**, not an entire tile. That is why MMA has shape `(2, 2)`. It is often very confusing to mentally switch between this tile view and the thread view.
+
+In order to make computation more straightforward, Dao opts to reshape the output fragment into a standard row-major layout, which simplifies the thread reduction to a standard 2D array traversal. Since our block sizes are fixed in our template, we can simply just do a layout reinterpretation using a CuTe layout reshape for free by using static dimensions. You can simply iterate over the slightly more convoluted MMA shape--the output PTX is identical. **This reshape is fully just a code quality and readability trick.**
+
+#### Fragment Reshape
+We can create an inline function for this reshape. The CuTe methods are not super important to know as long as you understand the mechanism behind it; CuTe provides some out-of-the-box methods that make this layout algebra slightly easier for us. Let's understand some shapes first with an example: `kBlockM=kBlockN=128, kNWarps=1`.
+
+```cpp
+// acc_s is the accumulator for Q@K.T
+print(acc_s.layout());
+// ((_2,_2),_8,_16):((_1,_2),_4,_32)
+
+// Target output shape: (16, 32)
+```
+
+We want our output shape to be `(2*MMA_M, 2*MMA_N)` to mirror standard 2D row-major format, which means we have to distribute this `(2, 2)` MMA atom shape across our tile dimensions. The Atom standard is actually column-major, which means the `(2,2)=(j, i)`. This is a choice by the hardware layout, which can be an area of confusion. We can verify this by printing the C fragment thread layout:
+
+```cpp
+// TV = thread value
+print_layout(tiled_mma.get_layoutC_TV());
+```
+
+![MMA C fragment thread value layout](mma_thread_value_layout.png)
+
+> The row labels are the thread numbers and the columns are the thread values. I truncated it at threads 0-7 for brevity, but the full print shows all 32 threads. There are 8 thread values instead of 4 because this is the full output C tile which is two 16x8 atoms to form the 16x16 output; this is equivalent to the values in two adjacent N-tiles in `acc_s`.
+
+We can see that thread 0's values `(0, 0)` and `(0, 1)` (values 0 and 1) are at memory locations 0 and 16 while `(8, 0)` and `(8, 1)` are at 8 and 24. Since it's 0th column row 8 is at mem location 8, we see that the thread values are column-major. Therefore, to grab the 2nd row 1st element (`i=1, j=0)`) at tile `(4, 3)`, we would index `((0, 1), 4, 3)` in the original layout. For our reshaped layout, we cannot simply reinterpret the shape to be `(2*MMA_M, 2*MMA_N)` because neither the rows nor columns are contiguous in memory in our tiled fragment. Instead, we have to rely on our handy-dandy hiearchical layouts. We know each `MMA_M` and `MMA_N` has two values, so we can actually map them to 2D via a composed 2D layout: `((MMA_M, 2), (MMA_N, 2)`. Since CuTe is column major, `(MMA_M, 2)` iterates over the `MMA_M` dimension first (every other row, since each M tile is two rows). In our row-major orientation, we want adjacent indices to be adjacent rows, so we can remedy this by flipping the dims: `((2, MMA_M), (2, MMA_N))`. Fixing the strides is easy; we just map each old stride to the new location in the new shape, and that's it:
+
+```python
+# pseudo code
+old_layout = ((2, 2), 8, 16):((1, 2), 4, 32)
+new_layout = ((2, 8), (2, 16)):((2, 4), (1, 32))
+```
+
+This composed layout can be addressed as shape `(16, 32)` even though it has sub-layouts. We can index it via `(i, j)` and CuTe figures out the math under the hood. The stride math is identical: we match each layout dimension with its original stride but redistribute the dimensions so our final output shape is `(2*MMA_M, 2*MMA_N)`. We can verify with our example:
+
+```python
+# IDX = ((0, 1), 4, 3) = ((col, row), m_tile, n_tile)
+# left value is index, right is stride
+original_address = (0*1 + 1*2) + 4*4 + 32*3 = 114
+
+# compute i, j for IDX
+# m_tile * 2 rows/tile + 1st row
+i = 4*2 + 1 = 9
+# n_tile * 2 cols/tile + 0th col
+j = 3*2 + 0 = 6
+
+# Remember, colex indexing
+# convert i=9 to layout (2, 8)
+i_tuple = (9 mod 2, 9/2 mod 8) = (1, 4)
+# convert i=9 to layout (2, 16)
+j_tuple = (6 mod 2, 6/2 mod 16) = (0, 3)
+
+final_address = (1*2 + 4*4) + (0*1 + 3*32) = 114
+```
+
+All of this row-major column-major conversion is extremely confusing and annoying and was a huge source of unbelievable headache. All of this work simply for a reshape in code. You could have kept the column major ordering or not reshaped at all, but at least you can now understand the FA2 production source code. Dao Lab implements this approach as such:
+
+```cpp
+template <typename Layout>
+__forceinline__ __device__ auto convert_layout_rowcol(Layout const &in) {
+  // (MMA, MMA_M, MMA_N), MMA=4 -> (2,2)
+  auto sl = logical_divide(in, Shape<_2>{}); // ((2, MMA/2), MMA_M, MMA_N)
+  return make_layout(make_layout(get<0, 1>(sl), get<1>(sl)),
+                     make_layout(get<0, 0>(sl), get<2>(sl)));
+}
+```
+
+In this code, the `logical_divide` is actually a no-op. CuTe already gives us `acc_s` as `((2, 2), MMA_M, MMA_N)`. This bit of code ensures that if we were somehow given `MMA=4` instead of `(2, 2)`, the function would column divide the shape to give us what we expect. I'm not sure why the `logical_divide` is here, but it doesn't break anything. Since it has a static divide, the compiler optimizes everything to the same PTX regardless.
+
+#### Back to the Actual Reduce
+Having the threads values in row-major format trivializes the loops for the remainder of the softmax functions. Each thread can simply iterate through all of its values and compute the max and the sum. This happens at the per-thread register level and is very fast.
+
+We have two reduction operations: `max` and `sum`, and it's common to define them as a functional struct for portability:
+
+```cpp
+struct MaxOp {
+  __device__ __forceinline__ float operator()(float a, float b) const {
+    return a > b ? a : b;
+  }
+};
+
+struct SumOp {
+  __device__ __forceinline__ float operator()(float a, float b) const {
+    return a + b;
+  }
+};
+```
+
+Next, we define the actual thread reduce function. It's just a nested for loop that keeps track of the per-row max and sum in a register tensor. Just like pretty much all other loops in our kernel, this one has kernel-constant iterations and plenty of register reuse, we can fully unroll it.
+
+```cpp
+template <bool zero_init = true, typename Engine0, typename Layout0,
+          typename Engine1, typename Layout1, typename Op>
+__device__ __forceinline__ void thread_reduce_(
+    Tensor<Engine0, Layout0> const &tensor, // (M, N)
+    Tensor<Engine1, Layout1> &dst,          // (kNRows,) per-row scratch
+    Op op) {
+#pragma unroll
+  for (int row = 0; row < size<0>(tensor); row++) {
+    dst(row) = (zero_init) ? tensor(row, 0) : op(dst(row), tensor(row, 0));
+#pragma unroll
+    for (int col = 1; col < size<1>(tensor); col++) {
+      dst(row) = op(tensor(row, col), dst(row));
+    }
+  }
+}
+```
+
+We use the `size<>` declarator to get the row and column sizes, and we add a `zero_init` template variable to initialize the first softmax call. That's it!
+
+### Warp Reduce
+Now, each thread has its max and sum, so we now warp-find the max and sum between all threads. CUDA and GPUs all follow a tree-reduce paradigm; instead of looping over all threads in $O(n)$ time, pairs of threads reduce among each other at each step, single elimination bracket-style. Each iteration, we reduce half the threads so at the end, we only require $O(\log(n))$ iterations to find the final max.
+
+The simplest strategy is where each thread pairs up with the thread $N/2$ above it. Thread 0 pairs with 16, 1 with 17, until 15 with 31. Threads 0-15 have the max. Then Thread 0 pairs with 8, 1 with 9, until 7 and 15. At each step, we half the step (16->8->4->2->1), until thread 0 has the final max. CUDA calls this reduction `__shuffle_down_sync()`, which would be good enough except that only one thread ends up with the final value at the end. However, in our case, each thread needs to know the max/sum in order to calculate the final softmax. Instead, we use the primitive `__shuffle_xor_sync()` instead. You might tense up at the idea of XOR again, but I'm not going to explain it this time. But like in swizzling, the primitive creates a bit sharing mask where all the threads pair up in a way where they all end up with the final value at the end.[^4]
+
+Most shuffle primitives takes in a bitmask of all participating threads, a value, and a stride:
+
+```cpp
+__shuffle_xor_sync(uint b_32bit_mask, T value, uint stride);
+```
+
+Most of the time, all 32 threads participate, so the mask is all 1s (`0xffffffff`). The stride is how many threads apart we look. With 32 threads, this starts at 16 and goes until 1. This means we loop over all possible strides until the value is fully reduced:
+
+```cpp
+// try cleaned up
+template <int N, typename T, typename Op>
+__device__ __forceinline__ T allreduce(T x, Op op) {
+#pragma unroll
+  for (int stride = N / 2; stride > 0; stride /= 2) {
+    x = op(x, __shfl_xor_sync(0xffffffff, x, stride));
+  }
+  return x;
+}
+```
+
+#### Quad Reduce
+The reason we provide `allreduce` a template variable `N` is because we're not actually reducing across all 32 threads. We only need to reduce over the number of threads that own each row. In the [MMA Atom Layout image](#thread-reduce) from earlier, we see that four adjacent threads collectively own each row. Therefore, `N=4`, hence, "quad" reduce. The xor primitive automatically reduces between participating threads, so we don't have to iterate in groups of four--the sync instruction waits for each four-thread group to enter the reduction. Our quad reduce function is therefore quite simple:
+
+```cpp
+template <typename Engine0, typename Layout0, typename Engine1,
+          typename Layout1, typename Op>
+__device__ __forceinline__ void
+quad_allreduce_(Tensor<Engine0, Layout0> &dst, // (kNRows,) per-row reduced
+        Tensor<Engine1, Layout1> &src, // (kNRows,) per-row local
+        Op op) {
+#pragma unroll
+  for (int row = 0; row < size(src); row++) {
+    dst(row) = allreduce<4>(src(row), op);
+  }
+}
+```
+
+Now, we can create some functions to wrap the thread and the quad reduce to get our max and sum.
+
+#### Reduce Sum and Max
+For `reduce_max()`, all we need to do is call thread reduce followed by quad reduce. The sync during `quad_allreduce()` handles the thread sync:
+
+```cpp
+template <bool zero_init = true, typename Engine0, typename Layout0,
+          typename Engine1, typename Layout1>
+__forceinline__ __device__ void
+reduce_max(Tensor<Engine0, Layout0> const &tensor,
+           Tensor<Engine1, Layout1> &max) {
+  thread_reduce_<zero_init>(tensor, dst, MaxOp{});
+  quad_allreduce_(dst, dst, MaxOp{});
+}
+```
+
+For `reduce_sum()`, we actually don't have to quad reduce the final sum until the very end. FA2 brought a slight optimization where the final expsum division only needs to happen after the final softmax rescale. This saves us quite a few sums and multiplications per iteration.
+
+All we need to do is update the thread sums along the way and scale by the correction factor.
+
+```cpp
+template <bool zero_init = true, typename Engine0, typename Layout0,
+          typename Engine1, typename Layout1>
+__forceinline__ __device__ void
+reduce_sum(Tensor<Engine0, Layout0> const &tensor,
+           Tensor<Engine1, Layout1> &sum) {
+  // we defer allreduce only after all iterations are completed
+  // so we only do curr_sum * correction + new_sum until final
+  // iteration. Saves unneccessary aggregation/registers
+  thread_reduce_<zero_init>(tensor, sum, SumOp{});
+}
+```
+
+At each step, we have the rowsum per thread. After each rescale, we multiply by the correction factor (to be covered): `rowsum *= correction`. Then, we call the reduction: `rowsum += sum(v for v in thread_row)`.
+
+> **Note**: we cannot reduce max and sum at the same time. Although it seems like it would be more efficient, we need the full row max to compute the exp2 sum, not just the per-thread max.
+
+## Exp2, and Calculating Exp(Row)
+We make a function to compute `exp(Q@K.T)`. Cuda has functional primitives for exponentiation, including `exp`, `expf`, and `__expf`, but we won't use any of them. Since LLMs can tolerate a decent error margin, we can instead use the faster `exp2f` primitive instead. Most NVIDIA GPUs have native hardware support for power of two exponentiation, which is often 10-15% more faster than `expf`.
+
+> `__expf()` is a lower-precision and siginificantly faster version of `expf()`, and it might even use `exp2f` under the hood. But since the FA2 source code uses `exp2f` we will opt for that as well.
+
+In order to use `exp2f(x)`, we have to scale `x` by `log2(e)`, as $2^{\log_2(e)x} = \exp(x)$. Instead of computing $\log_2(e)$, we can simply just store it as a float constant, which saves us from computing it again and again, which would limit our performance gain.
+
+For the exp loop, we just iterate over the rows again, scaling the max and each value by the log2 scale factor before `exp2f`:
+
+```cpp
+template <typename Engine0, typename Layout0, typename Engine1,
+          typename Layout1>
+__forceinline__ __device__ void
+scale_apply_exp2(Tensor<Engine0, Layout0> &tensor,
+                 Tensor<Engine1, Layout1> const &max,
+                 const float softmax_scale_log2) {
+#pragma unroll
+  for (int r = 0; r < size<0>(tensor); r++) {
+    float adj_max = max(r) * softmax_scale_log2;
+#pragma unroll
+    for (int c = 0; c < size<1>(tensor); c++) {
+      // compiler often does a*b + c in one instruction
+      // called FMA (fused multiply-add)
+      tensor(r, c) = exp2f(tensor(r, c) * softmax_scale_log2 - adj_max);
+    }
+  }
+}
+```
+
+## Full Softmax Call: Rescale
+It's time to piece all our previous functions together in one function call that each main loop iteration in our kernel will invoke after computing $QK^T$. It will do the following steps:
+- Reshape our accumulators to the expected layout
+- Compute the `max`
+- Apply the correction to previous output and expsum
+- Call `scale_apply_exp2`
+- Reduce the sum
+
+In the `Softmax{}` struct we declared at the beginning of [this section](#online-softmax), we add the following function:
+
+```cpp
+template <bool Is_first, typename Tensor0, typename Tensor1>
+__device__ __forceinline__ void
+softmax_rescale_o(Tensor0 &acc_s, // (MMA, MMA_M, MMA_N) score block, fp32
+        Tensor1 &acc_o, // (MMA, MMA_M, MMA_K) output acc, fp32
+        float softmax_scale_log2) {}
+```
+
+We first reshape `acc_s` to our row/column view. If this rescale call is the first call, we don't have to do any rescaling, so we can template this call on the boolean `Is_first`.
+
+```cpp
+softmax_rescale_o(...) {
+  Tensor scores =
+  make_tensor(acc_s.data(),
+        convert_layout_rowcol(acc_s.layout()));
+  if (Is_first) { // first block, no prevs
+    FLASH::reduce_max<true>(scores, row_max);
+    FLASH::scale_apply_exp2(scores, row_max, softmax_scale_log2);
+    FLASH::reduce_sum<true>(scores, row_sum);
+  }
+...
+}
+```
+
+For the standard call, we first have to reduce the max and apply the correction on the previous output (which we reshape as well). Then, we can call `scale_apply_exp2` and reduce the sum.
+
+```cpp
+softmax_rescale_o(...) {
+  ...
+  else {
+    FLASH::reduce_max<false>(scores, row_max);
+    Tensor output = make_tensor(acc_o.data(),
+        FLASH::convert_layout_rowcol(acc_o.layout()));
+// apply correction to output
+#pragma unroll
+    for (int r = 0; r < size<0>(output); r++) {
+      // exp(m_old-m_new)
+      float correction =
+        exp2f((row_max_old(r) - row_max(r)) * softmax_scale_log2);
+      row_sum(r) *= correction;
+#pragma unroll
+      for (int c = 0; c < size<1>(output); c++) {
+        output(r, c) *= correction;
+      }
+    }
+    // exp2(scores-m_new)
+    FLASH::scale_apply_exp2(scores, row_max, softmax_scale_log2);
+    // sum(scores_exp), per thread, full reduce at end of main kernel
+    FLASH::reduce_sum<false>(scores, row_sum);
+  }
+}
+```
+
+Everything is coming together nicely now. One simple reshape, and everything is what you always imagined CUDA coding to be. If only it could always be this easy. All we need now is the final normalization at the end where we compute our final expsum denominator and perform one last output scale.
+
+```cpp
+template <typename Tensor0>
+__device__ __forceinline__ void normalize_softmax(Tensor0 &acc_o) {
+  // final expsum reduce
+  quad_allreduce_(row_sum, row_sum, SumOp{});
+  Tensor output =
+    make_tensor(acc_o.data(), FLASH::convert_layout_rowcol(acc_o.layout()));
+  for (int r = 0; r < size<0>(output); r++) {
+    float row_sum_i = 1.f / row_sum(r);
+    for (int c = 0; c < size<1>(output); c++) {
+      output(r, c) *= row_sum_i;
+    }
+  }
+}
+```
+
+This function is called in the epilogue after the main loop before we store the output back to GMEM. Overall, the softmax step is not particularly complicated. There's some funky confusing layout reshaping and learning warp reduce primitives but everything else pieces together nicely once you understand the thread layout.
 
 
 
@@ -584,3 +968,5 @@ My AI learning guide had led me astray more times than I could count, but someho
 # Appendix
 [^1]: a word is 4 bytes
 [^2]: https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html
+[^3]: https://developer.nvidia.com/blog/using-cuda-warp-level-primitives/
+[^4]: Oxford shuffle lecture notes, p. 6 for xor shuffle: https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf
