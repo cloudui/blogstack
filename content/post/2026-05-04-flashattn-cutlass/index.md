@@ -607,11 +607,31 @@ So funnily enough for our example, our swizzle atom is simply: `Swizzle<3, 3, 3>
 #### kBlockSmem
 You will see this swizzle pattern a lot for fp16, since the bank conflict repeat cycle occurs at 64-half intervals, so it often makes sense to structure your SMEM such that each row covers all 32 banks. For FA2, most kernels opt for `hdim=32, 64, 128`. For `hdim=128` we have to redo all of the swizzling math for this new column size, so instead, we can just set a `kBlockSmem` to maximize at 64, which allows us to use one swizzle atom for everything. This makes it so we have less templating to do for kernel size definitions, nothing more. If you wanted to recompute the shapes and swizzling for larger hdims, you are perfectly welcome to.
 
-For `hdim=32`, you still have to redeclare some things, for example `B=2` for the swizzle atom. I simply explain this stipulation because this is the path that the FA2 source code selected. It is not the only implementation and not even necessarily the best one. It just can be a point of confusion reading their `kernel_traits.h` definition.
+For `hdim=32`, you still have to redeclare some things, for example `B=2` for the swizzle atom. I simply explain this stipulation because this is the path that the FA2 source code selected. It is not the only implementation and not even necessarily the best one. It just might be a point of confusion when reading their `kernel_traits.h` definition.
 
 #### Swizzle Composition
+Now, let's actually make the SMEM layout. Since we have a swizzle and the actual SMEM dimensions, our resulting `SmemLayout` is actually a tiled layout, as we have to tile the swizzle on top of the underlying memory. We can first create our tile atom and then tile the atom to our SMEM shape.
 
-# Main Loop
+The swizzle atom relies on a composition of a swizzle and the layout underneath. The layout provides the raw coordinates/address to the swizzler, so the B, M, S actually mean something. Our swizzle atom is `Swizzle<3, 3, 3>`, and our layout underneath is the SMEM subsection we are actually scrambling. From our analysis earlier, it is 8 rows and spans the entire columns, so that each 32x4 `LDSM_N`/16x8x16 MMA tile load becomes bank conflict free. Therefore, the layout is has shape `(8, kBlockSmem)` and stride `(kBlockSmem, 1)`.
+
+We use the `composition(f1, f2)` function, which composes the layouts as `f1(f2(x))`. The raw coordinates are translated into the unswizzled address, which gets fed to the swizzler--therefore the `f1=Swizzle` and `f2=Layout`. We apply this atom to our overall SMEM shape; for Q, this is `(kBlockM, kBlockSmem)`.
+
+```cpp
+using SmemLayoutAtomQ = decltype(composition(
+    Swizzle<3, 3, 3>{},
+    Layout<Shape<_8, Int<kBlockKSmem>>, Stride<Int<kBlockKSmem>, _1>>{})
+);
+auto SmemLayoutQ = tile_to_shape(SmemLayoutAtomQ{},
+    Shape<Int<kBlockM>, Int<kBlockSmem>>{}
+);
+```
+
+We can finally replace the layout we used to make `sQ` above. `sK` can `sV` is an exercise left to the reader.
+
+## Dealing with V Copies
+V is a slightly different beast, since it doesn't follow the row-major loading pattern of Q and K. When we compute our attention scores S, our resulting shape is `(kBlockM, kBlockN)`.Since V is of shape `(kBlockN, kHeadDim)`, we have to transpose V, as our original copy/MMA pattern expects the concatenation dim to be the the second shape dimension. As a result, we have to make two more tensors for V's SMEM layouts in order to make sure the copies and fragments are correct.
+
+TODO: finish this section:
 
 # Online Softmax
 After $QK^T$, we now deal with the online softmax. Fortunately, this step isn't terribly difficult because of the way we set up the threads. To review, the softmax portion has a couple of steps:
@@ -1103,6 +1123,7 @@ Haha, not quite yet. There is a slight bug in our epilogue as-is. Between the re
 # Wrapping up
 
 
+My AI learning guide had led me astray more times than I could count, but somehow I still had faith that somehow it wouldn't disappoint me this time.
 My AI learning guide had led me astray more times than I could count, but somehow I still had faith that somehow it wouldn't disappoint me this time.
 
 # Appendix
