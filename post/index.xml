@@ -1,15 +1,15 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Posts on echen's blog</title><link>https://blog.echen.io/post/</link><description>Recent content in Posts on echen's blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Mon, 04 May 2026 00:00:00 +0000</lastBuildDate><atom:link href="https://blog.echen.io/post/index.xml" rel="self" type="application/rss+xml"/><item><title>FlashAttention, but the Actual Details</title><link>https://blog.echen.io/p/flashattention-but-the-actual-details/</link><pubDate>Mon, 04 May 2026 00:00:00 +0000</pubDate><guid>https://blog.echen.io/p/flashattention-but-the-actual-details/</guid><description>&lt;img src="https://blog.echen.io/thumbnail.webp" alt="Featured image of post FlashAttention, but the Actual Details" />&lt;p>I made the unfortunate decision to read through the FlashAttention-v2 paper maybe a month or two back. Its name was tossed around work enough to pique my curiosity, and I found myself forking through the details one lazy afternoon. It read similar to one of those simple yet foundational ML papers back in the day&amp;ndash;something like ResNet or BatchNorm. The math was almost trivially understandable to anyone who has even touched a few models in the last decade, and the algorithm seemed relatively understandable to my untrained eye. I had not even touched a GPU kernel before, and I felt some semblance of hubris given that my naive computer engineering degree allowed me to understand an algorithm of such importance.&lt;/p>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Posts on echen's blog</title><link>https://blog.echen.io/post/</link><description>Recent content in Posts on echen's blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Mon, 04 May 2026 00:00:00 +0000</lastBuildDate><atom:link href="https://blog.echen.io/post/index.xml" rel="self" type="application/rss+xml"/><item><title>FlashAttention, but the Actual Details</title><link>https://blog.echen.io/p/flashattention-but-the-actual-details/</link><pubDate>Mon, 04 May 2026 00:00:00 +0000</pubDate><guid>https://blog.echen.io/p/flashattention-but-the-actual-details/</guid><description>&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/thumbnail.png" alt="Featured image of post FlashAttention, but the Actual Details" />&lt;p>I made the unfortunate decision to read through the FlashAttention-v2 paper maybe a month or two back. Its name was tossed around work enough to pique my curiosity, and I found myself forking through the details one lazy afternoon. It read similar to one of those simple yet foundational ML papers back in the day&amp;ndash;something like ResNet or BatchNorm. The math was almost trivially understandable to anyone who has even touched a few models in the last decade, and the algorithm seemed relatively understandable to my untrained eye. I had not even touched a GPU kernel before, and I felt some semblance of hubris given that my naive computer engineering degree allowed me to understand an algorithm of such importance.&lt;/p>
 &lt;p>I made the unfortunate mistake of thinking I actually understood the algorithm in its entirety. At a surface level, sure, but such triviality only exists in the abstract. It was akin to me thinking that I could build a microwave simply because I know how it works. However, I was not amateur enough as to simply read the paper, I wanted to implement it myself like the engineer that I am. I had heard Triton was making waves in the GPU sea, and I decided to take a venture into its wake. I started by making some simple kernels: a softmax here, a SwiGLU there. One or two hours of barely any code, and I was done. Easy peasy. In fact, I wrote the full flash attention kernel within two or three days during the work week and achieved similar-ish performance to pytorch&amp;rsquo;s native implementation on smaller sequence lengths within this time. I replicated Tri Dao&amp;rsquo;s work in a fraction of the time, and I didn&amp;rsquo;t even optimize my kernel that much along the way. I was feeling unstoppable.&lt;/p>
-&lt;p>I made the unfortunate oversight of trying to rewrite the kernel using CUDA. Obviously, two days of work with only a few sweats of confusion wasn&amp;rsquo;t enough to satiate my hunger. I felt as though Triton had taught me nothing of GPU programming, and I wanted more. In the throne room of luxury and convenience, I sought the caves and the jungles. With a few more drops of sweat and maybe a few tears, I finished a few elementary kernels in CUDA. Piece of two-layer cake. But, I wanted that 12-layer wedding cake. I sought to recreate flash attention in its fully glory, and it seemed like I was equipped to do so. Over the course of the next week or two, I would complete a first draft iteration of FlashAttention-v2 using a somewhat outdated WMMA API, achieving&amp;hellip;only 20% of native FA2 performance. Clearly, this old WMMA abstraction wouldn&amp;rsquo;t cut it. I looked at Dao lab&amp;rsquo;s source code, and it looked nothing like the verbose mess of for loops and somewhat-understandable code in my repository.&lt;/p>
-&lt;p>I made the unfortunate blunder of rewriting my kernel with CuTe in C++. As with any performance library, I had to rewrite the entire using a poorly documented library with complex syntax and abstracted BS that somehow is way faster. What I thought would be a somewhat simple task turned out to be a nightmare in understanding. It&amp;rsquo;s as path I&amp;rsquo;m sure any low-level developer had to cross at some point in their journey, and I am certain they have seen the fear in the eyes of the avoiders and the stockpile of bodies along the way. After many pools of sweat, many hairs pulled, and many neurons disintegrated, I finally found success. But, I was not filled with glory, confidence, or peace. In the end, I could only feel relief and a massive sense of responsibility to aid any traveler who dare wish to traverse this same path.&lt;/p>
+&lt;p>I made the unfortunate oversight of trying to rewrite the kernel using CUDA. Obviously, two days of work with only a few sweats of confusion wasn&amp;rsquo;t enough to satiate my hunger. I felt as though Triton had taught me nothing of GPU programming, and I wanted more. In the throne room of luxury and convenience, I sought the caves and the jungles. With a few more drops of sweat and maybe a few tears, I finished a few elementary kernels in CUDA. Piece of two-layer cake. But, I wanted that 12-layer wedding cake. I sought to recreate flash attention in its full glory, and it seemed like I was equipped to do so. Over the course of the next week or two, I would complete a first draft iteration of FlashAttention-v2 using a somewhat outdated WMMA API, achieving&amp;hellip;only 20% of native FA2 performance. Clearly, this old WMMA abstraction wouldn&amp;rsquo;t cut it. I looked at Dao Lab&amp;rsquo;s source code, and it looked nothing like the verbose mess of for loops and somewhat-understandable code in my repository.&lt;/p>
+&lt;p>I made the unfortunate blunder of rewriting my kernel with CuTe in C++. As with any performance library, I had to rewrite the entire kernel using a poorly documented library with complex syntax and abstracted BS that somehow is way faster. What I thought would be a somewhat simple task turned out to be a nightmare in understanding. It&amp;rsquo;s a path I&amp;rsquo;m sure any low-level developer had to cross at some point in their journey, and I am certain they have seen the fear in the eyes of the avoiders and the stockpile of bodies along the way. After many pools of sweat, many hairs pulled, and many neurons disintegrated, I finally found success. But, I was not filled with glory, confidence, or peace. In the end, I could only feel relief and a massive sense of responsibility to aid any traveler who dare wish to traverse this same path.&lt;/p>
 &lt;h1 id="flashattention-v2">FlashAttention-v2&lt;/h1>
 &lt;p>If you&amp;rsquo;re reading this, I will assume you already have a solid understanding of the attention mechanism and at least the basics of the FlashAttention algorithm itself. If not, I recommend reading Tri Dao&amp;rsquo;s original paper to build your understanding of the algorithm before coming back. Or, you could just read the article as is, because you will probably piece it together through the struggle of trying to understand. It would be helpful for you to at least know the pseudocode/baseline algorithm for FA2, and it would be even better if you have maybe tried simulating it in pytorch (or your framework of choice) or maybe even implemented it in Triton.&lt;/p>
-&lt;p>If you&amp;rsquo;ve never touched CUDA, you should at least try to understand it&amp;rsquo;s SIMT programming nature and maybe implement some basic level kernels using this thread-level view. Try to build your understanding of how CUDA works and a solid understanding of NVIDIA&amp;rsquo;s GPU architecture, from threads to warps to thread blocks to SMs and beyond. I will talk about a lot of these concepts as if you at least have a basic understanding of them. I will be as comprehensive as I can, but it will be an uphill battle should you try to read this blog in its entirety without some background knowledge.&lt;/p>
-&lt;p>Most of this blog will concern how high-level concepts like &amp;ldquo;online softmax&amp;rdquo; or &amp;ldquo;gemm&amp;rdquo; actually translate to production-grade code. The algorithm itself is not particularly difficult, but the implementation details at the CUDA level can become a nightmare, particularly to beginners. Tri Dao originally wrote FA2 using CuTe (CUDA Templates), a core component within NVIDIA&amp;rsquo;s CUTLASS library that abstracts away tensor layouts and thread-data mapping for high-performance GPU computing. Although this may seem nicer than doing it from scratch, there are a lot of intracacies and difficult to understand design choices that make reading it somewhat of a nightmare. It&amp;rsquo;s higher-level than your typical C program with normal for loops and variables, but it&amp;rsquo;s still practically as close to bare metal as most people will ever get. So, even though you will understand CUDA and FlashAttention much better, honestly it will mostly allow you to understand CuTe, why it exists, and how people actually use it.&lt;/p>
+&lt;p>If you&amp;rsquo;ve never touched CUDA, you should at least try to understand its SIMT programming nature and maybe implement some basic level kernels using this thread-level view. Try to build your understanding of how CUDA works and a solid understanding of NVIDIA&amp;rsquo;s GPU architecture, from threads to warps to thread blocks to SMs and beyond. I will talk about a lot of these concepts as if you at least have a basic understanding of them. I will be as comprehensive as I can, but it will be an uphill battle should you try to read this blog in its entirety without some background knowledge.&lt;/p>
+&lt;p>Most of this blog will concern how high-level concepts like &amp;ldquo;online softmax&amp;rdquo; or &amp;ldquo;gemm&amp;rdquo; actually translate to production-grade code. The algorithm itself is not particularly difficult, but the implementation details at the CUDA level can become a nightmare, particularly to beginners. Tri Dao originally wrote FA2 using CuTe (CUDA Templates), a core component within NVIDIA&amp;rsquo;s CUTLASS library that abstracts away tensor layouts and thread-data mapping for high-performance GPU computing. Although this may seem nicer than doing it from scratch, there are a lot of intricacies and difficult-to-understand design choices that make reading it somewhat of a nightmare. It&amp;rsquo;s higher-level than your typical C program with normal for loops and variables, but it&amp;rsquo;s still practically as close to bare metal as most people will ever get. So, even though you will understand CUDA and FlashAttention much better, honestly it will mostly allow you to understand CuTe, why it exists, and how people actually use it.&lt;/p>
 &lt;p>Fortunately, since the release of Blackwell (B200), NVIDIA released CuTe&amp;rsquo;s Python DSL&amp;ndash;a python library you can use to write the same code without all the annoying crap that&amp;rsquo;s baggaged with C++. The use case is pretty much unchanged, but it makes debugging and templating much more palatable, and the compile times are enormously faster. Moving forward, CuTe 3.X in C++ will probably be somewhat of a relic of the past, but as a learning exercise, nothing beats the absolute struggle of working with the most annoying and explicit version of whatever you&amp;rsquo;re trying to learn. Let&amp;rsquo;s get started.&lt;/p>
 &lt;h1 id="overview">Overview&lt;/h1>
 &lt;h2 id="design-choices">Design Choices&lt;/h2>
-&lt;p>We&amp;rsquo;re going to make some basic design choices to make this learning exercise simpler on the implementation side. A lot of the source code involves edge cases and optional configuration settings (RoPe, QK smem sharing, etc.) that aren&amp;rsquo;t practical for learning the fundamentals of FA2 and CuTe. Our choices are as follows:&lt;/p>
+&lt;p>We&amp;rsquo;re going to make some basic design choices to make this learning exercise simpler on the implementation side. A lot of the source code involves edge cases and optional configuration settings (RoPE, QK smem sharing, etc.) that aren&amp;rsquo;t practical for learning the fundamentals of FA2 and CuTe. Our choices are as follows:&lt;/p>
 &lt;ul>
 &lt;li>A100: the GPU I had access to and the industry standard when FA2 was released. Hopper and Blackwell have even more complicated algorithms due to hardware improvements and optimizations&lt;/li>
 &lt;li>fp16: supported on A100 tensor cores, pretty basic default for most kernel ops for training
@@ -17,16 +17,16 @@
 &lt;li>fp32 accumulation, reduces precision drift, more accurate FLOPs for softmax and scale&lt;/li>
 &lt;/ul>
 &lt;/li>
-&lt;li>Clean basic out-of-the-box attention mechanism: no causal masking, RoPe, dropout, etc.&lt;/li>
+&lt;li>Clean basic out-of-the-box attention mechanism: no causal masking, RoPE, dropout, etc.&lt;/li>
 &lt;li>head_dim: focus on 64 and 128 block size, although 32 may be covered, though I didn&amp;rsquo;t specifically check&lt;/li>
 &lt;li>Assume sequence length is a power of two, more specifically a multiple of the Q block size.&lt;/li>
 &lt;li>We expect $Q, K, V$ to be in row-major order.&lt;/li>
 &lt;/ul>
 &lt;h2 id="some-naming-conventions">Some Naming Conventions&lt;/h2>
-&lt;p>If you look at DaoLab&amp;rsquo;s source code, you might notice they have some weird naming conventions. Some of them are standard CuTe/CUTLASS some carry over from other things. Here are some patterns:&lt;/p>
+&lt;p>If you look at Dao Lab&amp;rsquo;s source code, you might notice they have some weird naming conventions. Some of them are standard CuTe/CUTLASS, some carry over from other things. Here are some patterns:&lt;/p>
 &lt;ul>
-&lt;li>Starts with k: compile-time constant, e.g. kBlockM, kHeadDim&lt;/li>
-&lt;li>$M, N, K$: All of general matrix-multiply (GEMM) parameters are in this order for a $(M, K) \times (K, N)$ matrix-multiply. Hence, the shape of Q is (kBlockM, kHeadDim) and the shape of K, V is (kBlockN, kHeadDim).&lt;/li>
+&lt;li>Starts with k: compile-time constant, e.g. &lt;code>kBlockM&lt;/code>, &lt;code>kHeadDim&lt;/code>&lt;/li>
+&lt;li>$M, N, K$: All of general matrix-multiply (GEMM) parameters are in this order for a $(M, K) \times (K, N)$ matrix-multiply. Hence, the shape of Q is &lt;code>(kBlockM, kHeadDim)&lt;/code> and the shape of K, V is &lt;code>(kBlockN, kHeadDim)&lt;/code>.&lt;/li>
 &lt;/ul>
 &lt;h2 id="basic-structure">Basic Structure&lt;/h2>
 &lt;p>First, attention itself:&lt;/p>
@@ -51,7 +51,7 @@ O &amp;amp;= S \cdot V
 &lt;/div>&lt;p>Let&amp;rsquo;s establish the specifics of the FA2 algorithm at a high level.&lt;/p>
 &lt;ul>
 &lt;li>Our grid is &lt;code>batch/head&lt;/code> x &lt;code>q_tile&lt;/code>. The batch/head dimensions are independent and can be grouped. The &lt;code>q_tile&lt;/code> determines which tile of Q we get, and we make it the last dimension for better cache locality between thread blocks.&lt;/li>
-&lt;li>Q is of shape (kBlockM, kHeadDim). The main computation on any thread block revolves around the Q tile. This Q tile does not change for the duration of the thread block. We iterate over the relevant K, V tile per thread block to get an output tile. Each q tile maps to exactly the same size output tile, which is necessary as we need to manifest a whole row of P to do the softmax.&lt;/li>
+&lt;li>Q is of shape &lt;code>(kBlockM, kHeadDim)&lt;/code>. The main computation on any thread block revolves around the Q tile. This Q tile does not change for the duration of the thread block. We iterate over the relevant K, V tile per thread block to get an output tile. Each q tile maps to exactly the same size output tile, which is necessary as we need to manifest a whole row of P to do the softmax.&lt;/li>
 &lt;li>We load each tile from global memory (GMEM) to shared memory (SMEM) for staging. When we need to do our GEMM, we load from SMEM to the register file as we loop over K and V.&lt;/li>
 &lt;li>Our GMEM-&amp;gt;SMEM copying are all async (&lt;code>cp.async&lt;/code> on Ampere). Q technically doesn&amp;rsquo;t really have to since it doesn&amp;rsquo;t overlap that much compute but is a micro-optimization.&lt;/li>
 &lt;/ul>
@@ -90,7 +90,7 @@ O &amp;amp;= S \cdot V
 &lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="cp">#include&lt;/span> &lt;span class="cpf">&amp;lt;cute/tensor.hpp&amp;gt;&lt;/span>&lt;span class="cp">
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span>&lt;span class="c1">// runnable just like this without GPU
-&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">layout&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_16&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">layout&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_16&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">layout_1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">8&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">16&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{}),&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="p">{}));&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">print_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">layout&lt;/span>&lt;span class="p">);&lt;/span>
@@ -108,7 +108,7 @@ O &amp;amp;= S \cdot V
 &lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">A&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">][&lt;/span>&lt;span class="n">j&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="n">stride_row&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">j&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="n">stride_column&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>Each index operation is a multiply and add, which can be quite costly. Instead, when we can, we opt to use for statics: type wrappers used by CUTLASS to allow the value to be known at compile time. It&amp;rsquo;s just a C++ compiler trick that allows CuTe to compute all indexing during compilation rather at runtime, saving the GPU from having to do so while its running. Obviously, you can only do this if sizes are predetermined, either because they are definite, templated, or constant. So instead of passing in &lt;code>make_stride(2, 4)&lt;/code>, we can pass in &lt;code>make_stride(make_Int&amp;lt;2&amp;gt;{}, _4{})&lt;/code>. Functionally, these are the same, but any subsequent indexing done will be done at compile time for the latter.&lt;/p>
+&lt;/div>&lt;p>Each index operation is a multiply and add, which can be quite costly. Instead, when we can, we opt to use for statics: type wrappers used by CUTLASS to allow the value to be known at compile time. It&amp;rsquo;s just a C++ compiler trick that allows CuTe to compute all indexing during compilation rather at runtime, saving the GPU from having to do so while its running. Obviously, you can only do this if sizes are predetermined, either because they are definite, templated, or constant. So instead of passing in &lt;code>make_stride(2, 4)&lt;/code>, we can pass in &lt;code>make_stride(Int&amp;lt;2&amp;gt;{}, _4{})&lt;/code>. Functionally, these are the same, but any subsequent indexing done will be done at compile time for the latter.&lt;/p>
 &lt;p>Layouts &lt;em>do&lt;/em> take in dynamic integers as well. They should be used &lt;em>if they are only known at runtime&lt;/em>.&lt;/p>
 &lt;p>Some syntax quirks:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
@@ -173,12 +173,12 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">l_row_major&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}),&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_4&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="p">{}));&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// row major view
-&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">t_row_major&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">l_row_major&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">t_row_major&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">l_row_major&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// column major view
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">l_col_major&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}),&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}));&lt;/span>
-&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">t_col_major&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">l_col_major&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">t_col_major&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">l_col_major&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// tensor indexing
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// i, j = 2, 3
@@ -188,9 +188,67 @@ O &amp;amp;= S \cdot V
 &lt;/div>
 &lt;/div>&lt;h2 id="row-and-column-major">Row and Column Major&lt;/h2>
 &lt;p>In row-major formats, data is stored row-contiguous (C, C++ style), i.e. &lt;code>A[0][1]&lt;/code> and &lt;code>A[0][2]&lt;/code> are contiguous in memory.&lt;/p>
-&lt;p>In row-major formats, data is stored column-contiguous (Fortran, CUBLAS style), i.e. &lt;code>A[0][1]&lt;/code> and &lt;code>A[1][1]&lt;/code> are contiguous in memory.&lt;/p>
+&lt;p>In column-major formats, data is stored column-contiguous (Fortran, CUBLAS style), i.e. &lt;code>A[0][1]&lt;/code> and &lt;code>A[1][1]&lt;/code> are contiguous in memory.&lt;/p>
 &lt;p>The way to tell is by the stride; for any 2D matrix with stride $(a, b)$, the matrix is row-major if $b=1$ and column-major if $a=1$. In CuTe, any layout without a provided stride is &lt;strong>column-major&lt;/strong> by default.&lt;/p>
-&lt;p>For FA2, we assume Q, K, and V are all &lt;strong>row-major.&lt;/strong> Although somewhat arbitrary, most consumer applications or libraries like Pytorch or JAX are row-major by default, so this is the most obvious configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it&amp;rsquo;s also a choice in simplicity.&lt;/p>
+&lt;p>For FA2, Q, K, and V are all &lt;strong>row-major.&lt;/strong> Although somewhat arbitrary, most consumer applications or libraries like Pytorch or JAX are row-major by default, so this is the most obvious configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it&amp;rsquo;s also a choice in simplicity.&lt;/p>
+&lt;h2 id="composedhierarchical-layouts">Composed/Hierarchical Layouts&lt;/h2>
+&lt;p>The last bit of confusing layout algebra is hierarchical layouts. CuTe lets us compose layouts into multiple dimensions. For example, a layout of shape &lt;code>Shape&amp;lt;_8&amp;gt;&lt;/code> can be composed to be &lt;code>Shape&amp;lt;_4, _2&amp;gt;&lt;/code> or &lt;code>Shape&amp;lt;_2, _4&amp;gt;&lt;/code>. We can iterate over the 8 block in groups of 1, 2, 4, or 8. The strides determine which direction we do so (row or column major). This is no different than normal layout re-interpretation from the &lt;a class="link" href="#tensors" >tensor section above&lt;/a>, but CuTe allows us to nest layouts for extremely granular layout interpretation.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// (_8, _4): (_1, _8)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">l1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// ((_2, _4), _4):((_1, _2), _8)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">l2&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}),&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>In &lt;code>l2&lt;/code>, we iterate through the inner (left) shape in groups of 2, column major by default. In this case, the composed layout is purely decorative. We can still address a tensor with layout &lt;code>l1&lt;/code> or &lt;code>l2&lt;/code> with two coordinates &lt;code>(i, j)&lt;/code>. CuTe maps the translation underneath. However, you can split a for loop on the inner dimension of &lt;code>l2&lt;/code> into a nested for loop, but otherwise, it&amp;rsquo;s not accomplishing much in terms of utility. However, we&amp;rsquo;ll see it become a powerful tool during the &lt;a class="link" href="#fragment-reshape" >MMA tiling reshape&lt;/a>, where we cannot simply flatten a 3D tensor into a non-composed 2D tensor.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="kt">int&lt;/span> &lt;span class="o">*&lt;/span>&lt;span class="n">a&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">{&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="p">...,&lt;/span> &lt;span class="mi">31&lt;/span>&lt;span class="p">};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// [0, 1, 2, 3, ..., 7]
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// [8, 9, 10, 11, ..., 15]
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// [16, 17, 18, 19, ..., 23]
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// [18, 19, 20, 21, ..., 31]
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">Tensor&lt;/span> &lt;span class="n">t1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">a&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">l1&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">t2&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">a&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">l2&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kt">int&lt;/span> &lt;span class="n">v1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">t1&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="c1">// 19
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">v2&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">t2&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="c1">// 19
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">v3&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">t2&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_coord&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;h2 id="colex-indexing">Colex Indexing&lt;/h2>
+&lt;p>CuTe uses column-major indexing, which is their way of consistenly enforcing 1D-&amp;gt;N-dimensional indexing across layout algebra. If we index tensor &lt;code>t(idx)&lt;/code> for a tensor of shape &lt;code>(M, N)&lt;/code>, the index split becomes:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="n">i&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">idx&lt;/span> &lt;span class="o">%&lt;/span> &lt;span class="n">M&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">j&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">idx&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="n">M&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Again, this is the opposite of the C/C++/Pytorch row-major standard. As long as you remember this column-major indexing system, everything will be fine. If not, then you&amp;rsquo;ll probably end up scratching your head for hours. This means for many composed layouts, you&amp;rsquo;ll likely have to flip the order for composed shapes for the indices to be row-major adjacent. If you think this sucks, I agree. This is probably &lt;em>the&lt;/em> most annoying part of learning CuTe because things do not align with your expectations. Unfortunately, the only way to learn is via trial by fire.&lt;/p>
 &lt;h1 id="cute-copy-then-cry">CuTe, Copy, then Cry&lt;/h1>
 &lt;h2 id="a100-ampere-specs">A100 (Ampere) Specs&lt;/h2>
 &lt;p>The entire point of FA2 or even GPU optimization in general is to maximize compute by overlapping it with memory loads. Here are the memory and card specs of A100 GPU (Ampere):&lt;/p>
@@ -282,10 +340,13 @@ O &amp;amp;= S \cdot V
 &lt;h2 id="gmem-smem-async-copying">GMEM-&amp;gt;SMEM (Async Copying)&lt;/h2>
 &lt;p>A rule of thumb is to have approximately &lt;strong>150-200 FLOPs per byte loaded from HBM&lt;/strong>. On Ampere, we can take advantage of asynchronous copies from GMEM-&amp;gt;SMEM that can help us overlap a meaningful amount of the tile fetches with compute. This means our threads can do other stuff without having to immediately stall for memory fetches.&lt;/p>
 &lt;p>Memory coalescing is also extremely important here. GPUs never fetch just one byte at a time; they can fetch a whole 32, 64, or 128-byte chunk at a time. Ideally, a warp fetching a full 128-byte contiguous block allows the GPU to issue one instruction to clear this entire block of data. Furthermore, this block fully saturates a L2 cache line, making any subsequent cache accesses more efficient. If all 32 threads in the warp are each fetching some random chunk scattered across memory, then the memory controller would issue 32 separate transactions, immediately crushing your performance, hopes, and dreams. So in principle, we would love for all 32 threads to &amp;ldquo;coalesce&amp;rdquo; by fetching 128-byte contiguous blocks of data. Let&amp;rsquo;s introduce how we do that in CuTe.&lt;/p>
+&lt;blockquote>
+&lt;p>Memory coalescing is a hardware mechanism specifically for GMEM/HBM. &lt;strong>It does not apply to SMEM&lt;/strong>. As long as the load &lt;em>from&lt;/em> GMEM or a store &lt;em>to&lt;/em> GMEM is a consecutive 128-bytes, we benefit from memory coalescing.&lt;/p>
+&lt;/blockquote>
 &lt;h3 id="copy-atoms">Copy Atoms&lt;/h3>
-&lt;p>There is a boatload of copy PTX instructions in CUDA. You can fetch 32 bytes, 64 bytes, one byte, synchronous or asynchronous alike. CuTe neatly packages these copy instructions into a core piece called an &lt;code>Atom&lt;/code>. These &amp;ldquo;atomic&amp;rdquo; pieces are the core hardware instructions that you eventually pass to the &lt;code>copy&lt;/code> function so it knows what instruction to use to copy your data.&lt;/p>
+&lt;p>There are a boatload of copy PTX instructions in CUDA. You can fetch 32 bytes, 64 bytes, one byte, synchronous or asynchronous alike. CuTe neatly packages these copy instructions into a core piece called an &lt;code>Atom&lt;/code>. These &amp;ldquo;atomic&amp;rdquo; pieces are the core hardware instructions that you eventually pass to the &lt;code>copy&lt;/code> function so it knows what instruction to use to copy your data.&lt;/p>
 &lt;p>Ampere has a specific asynchronous &lt;code>Copy_Atom&lt;/code> with the architecture name &lt;code>SM_80&lt;/code>: &lt;code>SM80_CP_ASYNC_CACHEGLOBAL&amp;lt;bit_size&amp;gt;&lt;/code> or &lt;code>SM80_CP_ASYNC_CACHEALWAYS&amp;lt;bit_size&amp;gt;&lt;/code>. The &lt;code>cache_global&lt;/code> and &lt;code>cache_always&lt;/code> map to the PTX instructions &lt;code>ld.global.cg.u32&lt;/code> and &lt;code>ld.global.ca.u32&lt;/code>; &lt;code>cache_global&lt;/code> loads straight from L2 to the destination, skipping over L1 cache, while &lt;code>cache_always&lt;/code> also loads the data into L1. Most kernels will use &lt;code>cache_always&lt;/code> by default because of improved spatial and temporal locality across threads. But, in FA2, we never reference Q, K, or V again once they are loaded into SMEM&amp;ndash;therefore, we can bypass the L2 cache, which is slightly faster. It also reduces thrashing at the L1 level and allows more important data to stay in-cache. In practice, this is a micro-optimization and relatively not that important.&lt;/p>
-&lt;p>The &lt;code>bit_size&lt;/code> supports up to 128-bit loads. &lt;strong>Bits&lt;/strong>, not bytes, as these atoms are &lt;strong>per-thread&lt;/strong>. The memory controller indeed loves sending the full fat 128-bytes per warp, but CUDA views all transactions at the thread-level. Hence, our atom loads a total of $128 \cdot 32 / 8 = 512$ bytes. This means each 128-bit fetch across the 32 threads in a warp takes $512/128 =4$ memory transactions in 4 &amp;ldquo;phases&amp;rdquo; (more on this later). For our purposes, we want that full coaslesced 128-bit power using &lt;code>cache_global&lt;/code>. We can define the &lt;code>Copy_Atom&lt;/code> with the following syntax:&lt;/p>
+&lt;p>The &lt;code>bit_size&lt;/code> supports up to 128-bit loads. &lt;strong>Bits&lt;/strong>, not bytes, as these atoms are &lt;strong>per-thread&lt;/strong>. The memory controller indeed loves sending the full fat 128-bytes per warp, but CUDA views all transactions at the thread-level. Hence, our atom loads a total of $128 \cdot 32 / 8 = 512$ bytes. This means each 128-bit fetch across the 32 threads in a warp takes $512/128 =4$ memory transactions in 4 &amp;ldquo;phases&amp;rdquo; (more on this later). For our purposes, we want that full coalesced 128-bit power using &lt;code>cache_global&lt;/code>. We can define the &lt;code>Copy_Atom&lt;/code> with the following syntax:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -299,12 +360,12 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>We use the cute namespace types for robustness, and our source data type is fp16 (&lt;code>cute::half_t&lt;/code>). Each thread therefore loads $128/16=8$ halfs.&lt;/p>
-&lt;p>We have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes or 128 words&lt;sup id="fnref:1">&lt;a href="#fn:1" class="footnote-ref" role="doc-noteref">1&lt;/a>&lt;/sup> or 4x32 bank accesses (see bank conflicts section below). The async proxy issues the load/store in 4 phases using quarter-warps, or 8 threads at a time.&lt;sup id="fnref:2">&lt;a href="#fn:2" class="footnote-ref" role="doc-noteref">2&lt;/a>&lt;/sup> In phase 1, threads 0-7 load the first 8 128-bit chunks. In phase 2, threads 8-15 do the next 8, and so on and so forth. In each phase, each quarter warp issues a contiguous 8x128-bit or 128-byte coalesced copy, which targets all 32 banks without any conflicts. So by design, our async copies perfectly copies our data using the full HBM bandwidth.&lt;/p>
+&lt;p>We have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes or 128 words&lt;sup id="fnref:1">&lt;a href="#fn:1" class="footnote-ref" role="doc-noteref">1&lt;/a>&lt;/sup> or 4x32 bank accesses (see bank conflicts section below). The async proxy issues the load/store in 4 phases using quarter-warps, or 8 threads at a time.&lt;sup id="fnref:2">&lt;a href="#fn:2" class="footnote-ref" role="doc-noteref">2&lt;/a>&lt;/sup> In phase 1, threads 0-7 load the first 8 128-bit chunks. In phase 2, threads 8-15 do the next 8, and so on and so forth. In each phase, each quarter warp issues a contiguous 8x128-bit or 128-byte coalesced copy, which targets all 32 banks without any conflicts. So by design, our async copies perfectly copy our data using the full HBM bandwidth.&lt;/p>
 &lt;h3 id="tiled_copy">Tiled_Copy&lt;/h3>
-&lt;p>Even though each thread copies 128 bits, each thread block is usually working with a variable amount of threads/warps. Given the 4 tensor cores per SM, 4 warps per block is typically a good choice for FA2. This means we have to determine how to copy each Q,K,V tile using these 128-bit async copies.&lt;/p>
+&lt;p>Even though each thread copies 128 bits, each thread block is usually working with a variable amount of threads/warps. Given the 4 tensor cores per SM, 4 warps per block is typically a good choice for FA2. This means we have to determine how to copy each Q, K, V tile using these 128-bit async copies.&lt;/p>
 &lt;p>CuTe uses &lt;code>Tiled_Copy&lt;/code>, which &amp;ldquo;tiles&amp;rdquo; the memory you are trying to copy (in this case, GMEM) in a structured way over your entire memory region. It outlines the &amp;ldquo;tiling strategy&amp;rdquo; that your threads will follow.&lt;/p>
 &lt;blockquote>
-&lt;p>Note that the &amp;ldquo;tiling&amp;rdquo; here is not the same tile as the Q,K,V tile. It&amp;rsquo;s tiling the memory layout, while our Q,K,V are tiles of our algorithm. Unfortunately in our case, it&amp;rsquo;s tiling&amp;hellip;our tiles.&lt;/p>
+&lt;p>Note that the &amp;ldquo;tiling&amp;rdquo; here is not the same tile as the Q, K, V tile. It&amp;rsquo;s tiling the memory layout, while our Q, K, V are tiles of our algorithm. Unfortunately in our case, it&amp;rsquo;s tiling&amp;hellip;our tiles.&lt;/p>
 &lt;/blockquote>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -325,7 +386,7 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>The tiled copy function &lt;code>make_tiled_copy&lt;/code> takes in the atom, the thread layout, and the values given to each thread. Our &lt;code>Copy_Atom&lt;/code> is 128-bit wide chunk of 8 fp16 numbers, which is 8 values per thread. Given our row-major inputs, the output layout has to be: &lt;code>Layout&amp;lt;Shape&amp;lt;_1, _8&amp;gt;&amp;gt;{}&lt;/code>. The layout is the thread layout, i.e. how you want to distribute your threads per tile. Assuming &lt;code>kNThreads=128&lt;/code>, we have to give each thread a 128-bit chunk. The stride determines which 128-thread tile of memory comes next. The easiest strategy is to simply spread the tiles across along columns and then the rows, essentially filling it from the top like an upside-down cup.&lt;/p>
-&lt;p>Funnily enough, it gets slightly tricky here because of bank conflict optimization. Dao uses the same tiled copy setup for Q, K, V despite them having slightly different dimensions. We&amp;rsquo;ll revsit this when we talk about bank conflicts, but for now, assume our smem block is of shape &lt;code>(_, kBlockKSmem)&lt;/code>, where &lt;code>kBlockKSmem&lt;/code> is the column width for all 3 tensors. We can compute the layout as:&lt;/p>
+&lt;p>Funnily enough, it gets slightly tricky here because of bank conflict optimization. Dao uses the same tiled copy setup for Q, K, V despite them having slightly different dimensions. We&amp;rsquo;ll revisit this when we talk about bank conflicts, but for now, assume our smem block is of shape &lt;code>(_, kBlockKSmem)&lt;/code>, where &lt;code>kBlockKSmem&lt;/code> is the column width for all 3 tensors. We can compute the layout as:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -365,7 +426,7 @@ O &amp;amp;= S \cdot V
 &lt;/div>
 &lt;/div>&lt;p>The way to think about this is that this &lt;code>Tiled_Copy&lt;/code> is the tiling strategy for your source memory (GMEM in this case). All 128 threads load the first 128 contiguous 128-bit chunks, finish, then move onto the next 128 chunks until the entire GMEM section is copied. Even though this example is for a GMEM source, &lt;code>Tiled_Copy&lt;/code> works between GMEM, SMEM, and per-thread registers. It doesn&amp;rsquo;t know what anything is, it&amp;rsquo;s just the floorplan, and we&amp;rsquo;re responsible for providing the expected input.&lt;/p>
 &lt;h3 id="tiled_copy-source-and-destination">Tiled_Copy, Source and Destination&lt;/h3>
-&lt;p>Our &lt;code>Tiled_Copy&lt;/code> determines how our source is tiled, but we now have to configure the destination. The layout of the destination is determined by the destination tensor&amp;rsquo;s tensor layout. The &lt;code>Tiled_Copy&lt;/code> simply places the threads data in the &amp;ldquo;same place&amp;rdquo; it was loaded from. The destination layout can essentially be anything as long as it is compatible with the &lt;code>Copy_Atom&lt;/code>. Since we have 128-bit loads/stores, we hope the destination tensor layout must accept aligned 8-half blocks (more on this in swizzling). For now, we can ignore what the output tensor is. &lt;code>Tiled_Copy&lt;/code> has a specific pattern for copying between a source and a destination: a thread view, partitioning step, and then finally, the copy.&lt;/p>
+&lt;p>Our &lt;code>Tiled_Copy&lt;/code> determines how our source is tiled, but we now have to configure the destination. The layout of the destination is determined by the destination tensor&amp;rsquo;s tensor layout. The &lt;code>Tiled_Copy&lt;/code> simply places the threads data in the &amp;ldquo;same place&amp;rdquo; it was loaded from. The destination layout can essentially be anything as long as it is compatible with the &lt;code>Copy_Atom&lt;/code>. Since we have 128-bit loads/stores, the destination tensor layout must accept aligned 8-half blocks (more on this in swizzling). For now, we can ignore what the output tensor is. &lt;code>Tiled_Copy&lt;/code> has a specific pattern for copying between a source and a destination: a thread view, partitioning step, and then finally, the copy.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
@@ -417,9 +478,15 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;span class="lnt">12
 &lt;/span>&lt;span class="lnt">13
 &lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;span class="lnt">15
+&lt;/span>&lt;span class="lnt">16
+&lt;/span>&lt;span class="lnt">17
 &lt;/span>&lt;/code>&lt;/pre>&lt;/td>
 &lt;td class="lntd">
-&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// gmem
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// Assume we have a params struct that contains our source parameters
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// like pointers, dims, and strides
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// gmem
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">Tensor&lt;/span> &lt;span class="n">mQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_gmem_ptr&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="k">reinterpret_cast&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="k">const&lt;/span> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span> &lt;span class="o">*&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">q_ptr&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">+&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">batch_idx&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">q_batch_stride&lt;/span> &lt;span class="o">+&lt;/span>
@@ -436,7 +503,7 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>This looks awful but the mechanism is quite simple. Each thread block operates on a unique block Q for some unique batch/head. We compute the batch and head index and offset into the Q tensor by the batch and head stride, arriving at that particular batch/head&amp;rsquo;s Q tensor. CuTe has primitives like &lt;code>make_gmem_ptr&lt;/code> and &lt;code>make_smem_ptr&lt;/code> to tell the underlying engine to issue the correct PTX instructions for copying between GMEM, SMEM, and the register file. We provide it a layout so we can easily call &lt;code>local_tile(tensor, tile_layout, coord)&lt;/code> to retrieve the tile of interest, in this case, the &lt;code>mth&lt;/code> block of Q. It takes in a &lt;code>Coord&lt;/code> which is the &lt;code>(i, j)&lt;/code>-th tile according to &lt;code>tile_layout&lt;/code>.&lt;/p>
-&lt;p>We could easily have made the mQ pointer point to the the start of the batch/head dimension and local tile into BH as well as &lt;code>m_block&lt;/code>. The output PTX would be exactly the same&amp;ndash;it&amp;rsquo;s simply a matter of personal preference. The K and V gmem tensors iterate over all blocks along the d_h dimension, so their coord is given an underscore &lt;code>_&lt;/code> to signal this to the compiler.&lt;/p>
+&lt;p>We could easily have made the mQ pointer point to the start of the batch/head dimension and local tile into BH as well as &lt;code>m_block&lt;/code>. The output PTX would be exactly the same&amp;ndash;it&amp;rsquo;s simply a matter of personal preference. The K and V gmem tensors iterate over all blocks along the d_h dimension, so their coord is given an underscore &lt;code>_&lt;/code> to signal this to the compiler.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -496,11 +563,11 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Tile&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">16&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">kNWarps&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_16&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_16&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>We chose 128 threads or 4 warps because each SM has 4 resident tensor cores, a sensible choice in order to maximize MMA throughput. For the layout, we tile across the M-dimension, which we take a slice from the left column of Q, and move across the K dimension. This allows each warp to compute a full output row. This makes it easy and efficient to warp-sychronize the online softmax statistics, such as the max and the expsum later down the line. Each tile is &lt;code>kNWarps&lt;/code> stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$. $N$ is 16, not 8, because we must aggregate across adjacent N-atoms to produce one $16x16$ output tile due to the 16x8 assymetry (TODO: image).&lt;/p>
+&lt;/div>&lt;p>We chose 128 threads or 4 warps because each SM has 4 resident tensor cores, a sensible choice in order to maximize MMA throughput. For the layout, we tile across the M-dimension, which we take a slice from the left column of Q, and move across the K dimension. This allows each warp to compute a full output row. This makes it easy and efficient to warp-synchronize the online softmax statistics, such as the max and the expsum later down the line. Each tile is &lt;code>kNWarps&lt;/code> stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$. $N$ is 16, not 8, because we must aggregate across adjacent N-atoms to produce one $16x16$ output tile due to the 16x8 asymmetry (TODO: image).&lt;/p>
 &lt;p>(TODO: MMA layout, shape)&lt;/p>
 &lt;h3 id="tiled_copy-a-b-and-c">Tiled_Copy A, B, and C&lt;/h3>
 &lt;p>This time, we need to make a different tiled copy for A, B, and C since the fragment registers are specific to each component per atom. The code patterns is mostly the same, with some SMEM-&amp;gt;register specifics.&lt;/p>
-&lt;p>First, we create the register fragments for each thread according to the tiled mma:&lt;/p>
+&lt;p>First, we create the register fragments for each thread according to the tiled MMA:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
@@ -519,7 +586,7 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;span class="lnt">14
 &lt;/span>&lt;/code>&lt;/pre>&lt;/td>
 &lt;td class="lntd">
-&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// create tiled mma
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// create tiled MMA
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">tiled_mma&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">TiledMma&lt;/span>&lt;span class="p">{};&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// partition the fragments
@@ -579,7 +646,7 @@ O &amp;amp;= S \cdot V
 &lt;/div>
 &lt;/div>&lt;p>Retiling doesn&amp;rsquo;t change the underlying registers, it simply allows us to map the 32x4 LDSM load to the specific fragment registers. By default, the 32x4 LDSM instruction is unaware of the underlying tensor op. We retile the fragments so that these u32 map to half_t and align their tile shapes to ensure the eventual copy is correct. (TODO: image). In the final writeback of our output, we&amp;rsquo;ll see how we have to retile the register source when moving data from registers-&amp;gt;SMEM.&lt;/p>
 &lt;h2 id="register-copy-and-mma">Register Copy and MMA&lt;/h2>
-&lt;p>Unlike the GMEM-&amp;gt;SMEM transaction where we copy the whole tile in one go, we can pseudo-pipeline the fragment loads while doing the GEMM loop across dimension K. For the TiledMMA, we MMA over dim-K, loading the next tile fragment every iteration. This interleaves the &lt;code>LDMATRIX&lt;/code> instruction with some compute and probably saves a bit of time due to mem controller and tensor core overlap (functional units can execute indepdently). But mainly, by explicitly telling the compiler when it needs to have certain fragments ready, we can conserve register pressure by only having them available when they are needed. In our case, if we prefetch the next block every iteration, we only really need two register fragments availble at any time.&lt;/p>
+&lt;p>Unlike the GMEM-&amp;gt;SMEM transaction where we copy the whole tile in one go, we can pseudo-pipeline the fragment loads while doing the GEMM loop across dimension K. For the TiledMMA, we MMA over dim-K, loading the next tile fragment every iteration. This interleaves the &lt;code>LDMATRIX&lt;/code> instruction with some compute and probably saves a bit of time due to mem controller and tensor core overlap (functional units can execute independently). But mainly, by explicitly telling the compiler when it needs to have certain fragments ready, we can conserve register pressure by only having them available when they are needed. In our case, if we prefetch the next block every iteration, we only really need two register fragments available at any time.&lt;/p>
 &lt;h3 id="mma-shape">MMA Shape&lt;/h3>
 &lt;p>The tiled MMA tensors (&lt;code>tSsQ&lt;/code>, &lt;code>tSsK&lt;/code>) have shape (MMA, MMA_M, MMA_N) (TODO: atom layout).&lt;/p>
 &lt;ul>
@@ -628,8 +695,8 @@ O &amp;amp;= S \cdot V
 >Source&lt;/a>&lt;/p>
 &lt;/blockquote>
 &lt;p>In order to enable highly parallel bandwidth in shared memory, NVIDIA stores the underlying data in 32-banks. For each warp, only one thread can ask for a value from the same bank per cycle. If two or more threads try to access the same bank at the same time, the memory controller has no choice but to serialize the transactions, i.e. each thread takes turn reading from memory. If 5 threads access bank 13 at the same time, this means the memory transaction will take &lt;em>5 times as long&lt;/em> as if they read 5 different banks.&lt;/p>
-&lt;p>It&amp;rsquo;s a hardware design choice influenced by power consumption, wiring, latency, and speed. If you somehow figured out how to access any piece of data in SMEM concurrently for free, then you should instantly nominated for the Turing Prize or sent straight to a psychiatric ward. Unfortunately, dealing with bank conflicts is just a part of GPU programming.&lt;/p>
-&lt;p>Each of these 32 banks are 4-bytes wide&amp;ndash;consecutive 4-byte chunks are stored in consecutive banks. For example, in a fp32 array: &lt;code>float x[] = [0.f, 1.f, 2.f, 3.f]&lt;/code>, 0 would be in bank 0, 1 in bank 1, etc. If you had 32 threads in a warp simulatenously accessing 32 float32s in tandem, then you&amp;rsquo;d be accessing all 32 banks separately at a time, which is conflict-free. This &amp;ldquo;ideal&amp;rdquo; use case is by design.&lt;/p>
+&lt;p>It&amp;rsquo;s a hardware design choice influenced by power consumption, wiring, latency, and speed. If you somehow figured out how to access any piece of data in SMEM concurrently for free, then you should be instantly nominated for the Turing Prize or sent straight to a psychiatric ward. Unfortunately, dealing with bank conflicts is just a part of GPU programming.&lt;/p>
+&lt;p>Each of these 32 banks are 4-bytes wide&amp;ndash;consecutive 4-byte chunks are stored in consecutive banks. For example, in a fp32 array: &lt;code>float x[] = [0.f, 1.f, 2.f, 3.f]&lt;/code>, 0 would be in bank 0, 1 in bank 1, etc. If you had 32 threads in a warp simultaneously accessing 32 float32s in tandem, then you&amp;rsquo;d be accessing all 32 banks separately at a time, which is conflict-free. This &amp;ldquo;ideal&amp;rdquo; use case is by design.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -653,12 +720,12 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span>&lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">j&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">j&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">j&lt;/span>&lt;span class="o">++&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1">// each thread traverses one row
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="c1">// each warp is hence one column per cycle
-&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">smem&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="n">thread_idx&lt;/span>&lt;span class="p">][&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">+=&lt;/span> &lt;span class="mf">1.0f&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">smem&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="n">thread_idx&lt;/span>&lt;span class="p">][&lt;/span>&lt;span class="n">j&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">+=&lt;/span> &lt;span class="mf">1.0f&lt;/span>&lt;span class="p">;&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>In this example, at &lt;code>j=0&lt;/code>, thread 0 accesses &lt;code>(0, 0)&lt;/code>, thread 1 accesses &lt;code>(1, 0)&lt;/code>, &amp;hellip;, and thread 31 accesses (31, 0). Since our smem array is 32x32, the row stride increments by 32 floats, 32 words/4-byte numbers, or 32 banks. This means all 32 threads access bank N on the same cycle for all 32 elements in a row. This is the ultimate 32-way bank conflict that causes a 32x slowdown. It doesn&amp;rsquo;t even matter how optimized the rest of your kernel is, this access pattern will absolutely destroy your performance.&lt;/p>
-&lt;p>In this case, the fix is simple. We can have the warp iterate over one row per cycle, which is 32 contiguous elements = 32 conseuctive banks&amp;ndash;no conflict, no problems.&lt;/p>
+&lt;p>In this case, the fix is simple. We can have the warp iterate over one row per cycle, which is 32 contiguous elements = 32 consecutive banks&amp;ndash;no conflict, no problems.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -691,7 +758,7 @@ O &amp;amp;= S \cdot V
 &lt;ol>
 &lt;li>Addresses or indices must have a 1-1 mapping. Each (i, j) has to have a unique physical location in memory.&lt;/li>
 &lt;li>It must be fast and deterministic.&lt;/li>
-&lt;li>If you are reading or writing N-bytes, then those N-bytes still have to be contiguous in memory. Your data might be fp16, but you might be reading 8 fp16s at once. Those 128 bits/addresses must still be contiguous in the swizzled domain. Even you could technically split those 128 bits into 4-byte bank chunks and distribute them throughout memory, the logic becomes way more convoluted and you likely lose vectorization or cache performance.&lt;/li>
+&lt;li>If you are reading or writing N-bytes, then those N-bytes still have to be contiguous in memory. Your data might be fp16, but you might be reading 8 fp16s at once. Those 128 bits/addresses must still be contiguous in the swizzled domain. Even though you could technically split those 128 bits into 4-byte bank chunks and distribute them throughout memory, the logic becomes way more convoluted and you likely lose vectorization or cache performance.&lt;/li>
 &lt;/ol>
 &lt;p>Swizzling accomplishes this with a bit of clever bit arithmetic. It uses the XOR operation, which satisfies the three conditions above in the following way:&lt;/p>
 &lt;ol>
@@ -776,7 +843,7 @@ data-flex-basis="428px"
 &lt;p>We have two interactions with SMEM: GMEM-&amp;gt;SMEM write and SMEM-&amp;gt;Register read.&lt;/p>
 &lt;h4 id="gmem-smem-write-requirements">GMEM-&amp;gt;SMEM Write Requirements&lt;/h4>
 &lt;p>As we mentioned before, the GMEM-&amp;gt;SMEM copy transaction writes 4 128-byte transactions over 4 phases. Each phase writes 128-bytes (32 bank accesses) and must hit all 32 banks for optimal performance. Since the vectorized write of this 128-byte contiguous chunk is conflict-free by default, our swizzle must happen on top of the 128-byte contiguous chunks, which is 8 halfs. Everything else is fair game.&lt;/p>
-&lt;p>Since we have the flexibility to load 128-byte contiguous chunks, we don&amp;rsquo;t even need to swizzle this transacation. We just have to make sure if we do swizzle SMEM, we have to keep each 8-half block contiguous in memory.&lt;/p>
+&lt;p>Since we have the flexibility to load 128-byte contiguous chunks, we don&amp;rsquo;t even need to swizzle this transaction. We just have to make sure if we do swizzle SMEM, we have to keep each 8-half block contiguous in memory.&lt;/p>
 &lt;h4 id="smem-registers-read-requirements">SMEM-&amp;gt;Registers Read Requirements&lt;/h4>
 &lt;p>Our SMEM-&amp;gt;register transaction occurs during our SMEM tiled copy. Each thread is still each loading 32-bits x 4 = 128 bits like in our GMEM atom. In our GMEM load, all we have to do is load the entire tile, so we can choose to load 128-byte contiguous chunks to avoid bank conflicts. We cannot do this for SMEM, as the read pattern depends on the shape of the MMA fragments.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
@@ -790,10 +857,10 @@ data-flex-basis="428px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>If we don&amp;rsquo;t swizzle SMEM layout, we would simply have the layout &lt;code>(kBlockM, kHeadDim)&lt;/code>. Each &lt;code>MMA_Atom&lt;/code> would tile using a 16x16 chunk out of our SMEM per A-fragment (or 16x8 for B- or C-fragments). Let&amp;rsquo;s examine the bank conflict:&lt;/p>
-&lt;p>As before, banks cycle every 128-bytes, which is 32 consecutive floats or 64 halfs. If we have &lt;code>kHeadDim=64&lt;/code>, then we have conflicts for any threads that touch the same column in one load cycle. For a 16x16 fragment (per warp) load using a 32x4 copy atom (per thread), we notice that these byte sizes are equal, so each copy atom loads one 16x16 A-fragment. Similar to our vectorized GMEM load, it&amp;rsquo;s loading 512 bytes in four phases, this time loading over 16x16 instead of one contiguous block. In this case, threads 0-7 load the first 128-bytes. For 16 halfs per columns and 8 halfs per thread per load, that&amp;rsquo;s 2 threads per row, so 4 rows per 8-thread load. For 16x8, we have half the columns, so it becomes 8 rows per 8-thread load. This means for fragment A, we have a 4-way bank conflict, and for fragments B and C, we have an 8-way bank conflict.&lt;/p>
-&lt;p>We could use padding, but we&amp;rsquo;ll see how that becomes infeasible with our constraints. For the A fragment, we simply need to shift each row&amp;rsquo;s banks by 16 floats or 32 halfs, so row 0 accesses 0-15, row 1 accesses 16-31, and so on and so forth. This increases our memory footprint by &lt;code>32*kBlockM&lt;/code> halfs, which is a 50% increase over &lt;code>kHeadDim=64&lt;/code>. (CHECK)&lt;/p>
-&lt;p>So our best option is to swizzle. We know we have to keep the bottom 8 halfs in tact. This means for some fp16 address A, we mask out the bottom 3 bits since they must be contiguous for an aligned fp16 swizzle block. What are our row and column? The row is simply the row of SMEM. In our example, each row is 64 halfs, so for fp16 address A the row is simply all the bits beyond the first six, i.e. &lt;code>A &amp;gt;&amp;gt; 6&lt;/code>. The column is simply the bits in between our contiguous chunk and our row. With 64 columns and 8 halfs per column, we have 8 8-half columns, which becomes the 3 bits that sit bewteen the row bits and the bottom 3 chunk bits.&lt;/p>
-&lt;p>Cute defines this parameterization with the Swizzle struct:&lt;/p>
+&lt;p>As before, banks cycle every 128-bytes, which is 32 consecutive floats or 64 halfs. If we have &lt;code>kHeadDim=64&lt;/code>, then we have conflicts for any threads that touch the same column in one load cycle. For a 16x16 fragment (per warp) load using a 32x4 copy atom (per thread), we notice that these byte sizes are equal, so each copy atom loads one 16x16 A-fragment. Similar to our vectorized GMEM load, it&amp;rsquo;s loading 512 bytes in four phases, this time loading over 16x16 instead of one contiguous block. In this case, threads 0-7 load the first 128-bytes. For 16 halfs per column and 8 halfs per thread per load, that&amp;rsquo;s 2 threads per row, so 4 rows per 8-thread load. For 16x8, we have half the columns, so it becomes 8 rows per 8-thread load. This means for fragment A, we have a 4-way bank conflict, and for fragments B and C, we have an 8-way bank conflict.&lt;/p>
+&lt;p>We could use padding, but we&amp;rsquo;ll see how that becomes infeasible with our constraints. For the A fragment, we simply need to shift each row&amp;rsquo;s banks by 16 floats or 32 halfs, so row 0 accesses 0-15, row 1 accesses 16-31, and so on and so forth. This increases our memory footprint by &lt;code>32*kBlockM&lt;/code> halfs, which is a 50% increase over &lt;code>kHeadDim=64&lt;/code>.&lt;/p>
+&lt;p>So our best option is to swizzle. We know we have to keep the bottom 8 halfs intact. This means for some fp16 address A, we mask out the bottom 3 bits since they must be contiguous for an aligned fp16 swizzle block. What are our row and column? The row is simply the row of SMEM. In our example, each row is 64 halfs, so for fp16 address A the row is simply all the bits beyond the first six, i.e. &lt;code>A &amp;gt;&amp;gt; 6&lt;/code>. The column is simply the bits in between our contiguous chunk and our row. With 64 columns and 8 halfs per column, we have 8 8-half columns, which becomes the 3 bits that sit between the row bits and the bottom 3 chunk bits.&lt;/p>
+&lt;p>CuTe defines this parameterization with the Swizzle struct:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -842,18 +909,803 @@ data-flex-basis="428px"
 &lt;/div>&lt;p>We can finally replace the layout we used to make &lt;code>sQ&lt;/code> above. &lt;code>sK&lt;/code> can &lt;code>sV&lt;/code> is an exercise left to the reader.&lt;/p>
 &lt;h2 id="dealing-with-v-copies">Dealing with V Copies&lt;/h2>
 &lt;p>V is a slightly different beast, since it doesn&amp;rsquo;t follow the row-major loading pattern of Q and K. When we compute our attention scores S, our resulting shape is &lt;code>(kBlockM, kBlockN)&lt;/code>.Since V is of shape &lt;code>(kBlockN, kHeadDim)&lt;/code>, we have to transpose V, as our original copy/MMA pattern expects the concatenation dim to be the the second shape dimension. As a result, we have to make two more tensors for V&amp;rsquo;s SMEM layouts in order to make sure the copies and fragments are correct.&lt;/p>
-&lt;h1 id="online-softmax-time">Online Softmax Time&lt;/h1>
-&lt;p>My AI learning guide had led me astray more times than I could count, but somehow I still had faith that somehow it wouldn&amp;rsquo;t disappoint me this time.&lt;/p>
+&lt;p>TODO: finish this section:&lt;/p>
+&lt;h1 id="online-softmax">Online Softmax&lt;/h1>
+&lt;p>After $QK^T$, we now deal with the online softmax. Fortunately, this step isn&amp;rsquo;t terribly difficult because of the way we set up the threads. To review, the softmax portion has a couple of steps:&lt;/p>
+&lt;ol>
+&lt;li>Calculate new per-row max: &lt;code>m_new = max(scores, dim=-1)&lt;/code>&lt;/li>
+&lt;li>Apply max rescale and exponentiation on scores: &lt;code>scores_exp = exp(scores - m_new)&lt;/code>&lt;/li>
+&lt;li>Calculate correction factor: &lt;code>correction = exp(m_old - m_new)&lt;/code>&lt;/li>
+&lt;li>Apply correction to output/accumulator: &lt;code>acc *= correction&lt;/code>&lt;/li>
+&lt;li>Apply correction and compute new expsum denominator: &lt;code>l = l*correction + scores_exp.sum(dim=-1)&lt;/code>&lt;/li>
+&lt;/ol>
+&lt;p>To track the softmax state, Dao opts for an organized softmax struct that keeps track of the rolling max and expsum registers per thread:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">template&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">kNRows&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="k">struct&lt;/span> &lt;span class="nc">Softmax&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">using&lt;/span> &lt;span class="n">TensorT&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="k">decltype&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_tensor&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="kt">float&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kNRows&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">TensorT&lt;/span> &lt;span class="n">row_max&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="c1">// running per-row max (m)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">TensorT&lt;/span> &lt;span class="n">row_sum&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="c1">// running per-row sum (l)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>You can opt for other equally valid ways, but a softmax struct allows us to keep the code clean and separate.&lt;/p>
+&lt;h2 id="loop-scale-softmax">Loop: Scale Softmax&lt;/h2>
+&lt;p>At each loop iteration, after we&amp;rsquo;ve computed &lt;code>S = Q@K.T&lt;/code>, we have to compute the online softmax on resulting tensor S and update our max and sum. We define the method &lt;code>rescale_softmax_o&lt;/code> that is invoked after &lt;code>S&lt;/code> is first computed:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">template&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="kt">bool&lt;/span> &lt;span class="n">Is_first&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Tensor0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Tensor1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">__device__&lt;/span> &lt;span class="n">__forceinline__&lt;/span> &lt;span class="kt">void&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">softmax_rescale_o&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Tensor0&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">acc_s&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="c1">// (MMA, MMA_M, MMA_N) score block, fp32
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">Tensor1&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">acc_o&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="c1">// (MMA, MMA_M, MMA_K) output acc, fp32
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="kt">float&lt;/span> &lt;span class="n">softmax_scale_log2&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>So what actually goes into computing the max and the sum?&lt;/p>
+&lt;h2 id="row-reduce">Row Reduce&lt;/h2>
+&lt;p>If we structured our MMA in a way where threads across multiple warps had each tile&amp;rsquo;s output data, we would have to stage information through SMEM for cross-warp reduction, which would be significantly slower and more complicated. With miraculous foresight, we set up our MMA fragments where each warp holds an entire row&amp;rsquo;s output for each tile. With 128 threads, we have 4 warps each owning 16 rows per MMA tile (see our &lt;code>TiledMma&lt;/code> to refresh), each spanning the entire row. This allows us to use &lt;strong>warp reduction&lt;/strong>, which is a &amp;ldquo;highly efficient CUDA parallel reduction technique that aggregates data across 32 threads within a single GPU warp.&amp;rdquo;&lt;sup id="fnref:3">&lt;a href="#fn:3" class="footnote-ref" role="doc-noteref">3&lt;/a>&lt;/sup> CUDA provides us with warp primitives such as &lt;code>__shfl_down_sync()&lt;/code> or &lt;code>__shfl_xor_sync()&lt;/code>, which allow us to easily shuffle data across all threads in a warp without any load/stores or staging through shared memory. As a result, there is zero memory latency or synchronization barriers, which makes our max/sum step ultra fast.&lt;/p>
+&lt;blockquote>
+&lt;p>Warp reduction is the primary and fastest way to perform intra-warp communication.&lt;/p>
+&lt;/blockquote>
+&lt;p>However, warp reduction is actually step 2, because it finds the max/sum &lt;em>between threads.&lt;/em> We first have to find the max/sum &lt;em>per-thread&lt;/em>.&lt;/p>
+&lt;h3 id="thread-reduce">Thread Reduce&lt;/h3>
+&lt;p>In every 16x8 MMA output fragment, each thread holds $16\cdot 8 / 32=4$ output values. In order to find the thread&amp;rsquo;s row max or row sum, we have to find the max/sum of all of the elements the thread owns per row, across all the rows each thread touches. If you&amp;rsquo;re confused, don&amp;rsquo;t worry. It will make sense once we examine the MMA Atom&amp;rsquo;s thread layout.&lt;/p>
+&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom.png"
+width="1338"
+height="1712"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom_hu2245a945016555384b8151cb2072505d_690927_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom_hu2245a945016555384b8151cb2072505d_690927_1024x0_resize_box_3.png 1024w"
+loading="lazy"
+alt="MMA Atom thread layout"
+class="gallery-image"
+data-flex-grow="78"
+data-flex-basis="187px"
+>
+&lt;/p>
+&lt;p>Let&amp;rsquo;s look at the bottom right output fragment C this time. Let&amp;rsquo;s look at thread 0. We can see it owns output elements: &lt;code>(0, 0), (0, 1), (8, 0), (8, 1)&lt;/code>. If we examine all other threads, we see that they each own 4 elements across two rows. Let&amp;rsquo;s clarify the math a bit:&lt;/p>
+&lt;p>Previously, we saw that the TiledMma has shape &lt;code>(MMA, MMA_M, MMA_N)&lt;/code>. We showed that &lt;code>MMA = (2, 2)&lt;/code>, which refers to the 2 rows, and 2 columns per row each thread holds in the output tile. &lt;code>MMA_M&lt;/code> and &lt;code>MMA_N&lt;/code> can be calculated by how many &lt;code>16x8&lt;/code> tiles fit across the output shape: &lt;code>(kBlockM, kBlockN)&lt;/code>. We can easily see that &lt;code>MMA_M = kBlockM / 16&lt;/code> and &lt;code>MMA_N = kBlockN / 8&lt;/code>. We can see that each thread&amp;rsquo;s values span &lt;code>MMA_M * 2&lt;/code> rows and &lt;code>MMA_N * 2&lt;/code> columns.&lt;/p>
+&lt;blockquote>
+&lt;p>&lt;strong>Note&lt;/strong>: even though we think of tiled MMA in terms of tiles, we must remember that CUDA is still written in the &lt;strong>thread view&lt;/strong>. The CuTe abstractions make this confusing, as the only code we write where we explicitly see this thread-view is via the &lt;code>thread_slice&lt;/code>, which is only like 5 lines of code total. Whenever we look at a fragment tensor, remember this fragment tensor holds each &lt;strong>thread&amp;rsquo;s elements&lt;/strong>, not an entire tile. That is why MMA has shape &lt;code>(2, 2)&lt;/code>. It is often very confusing to mentally switch between this tile view and the thread view.&lt;/p>
+&lt;/blockquote>
+&lt;p>In order to make computation more straightforward, Dao opts to reshape the output fragment into a standard row-major layout, which simplifies the thread reduction to a standard 2D array traversal. Since our block sizes are fixed in our template, we can simply just do a layout reinterpretation using a CuTe layout reshape for free by using static dimensions. You can simply iterate over the slightly more convoluted MMA shape&amp;ndash;the output PTX is identical. &lt;strong>This reshape is fully just a code quality and readability trick.&lt;/strong>&lt;/p>
+&lt;h4 id="fragment-reshape">Fragment Reshape&lt;/h4>
+&lt;p>We can create an inline function for this reshape. The CuTe methods are not super important to know as long as you understand the mechanism behind it; CuTe provides some out-of-the-box methods that make this layout algebra slightly easier for us. Let&amp;rsquo;s understand some shapes first with an example: &lt;code>kBlockM=kBlockN=128, kNWarps=1&lt;/code>.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// acc_s is the accumulator for Q@K.T
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">print&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">acc_s&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">layout&lt;/span>&lt;span class="p">());&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// ((_2,_2),_8,_16):((_1,_2),_4,_32)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// Target output shape: (16, 32)
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>We want our output shape to be &lt;code>(2*MMA_M, 2*MMA_N)&lt;/code> to mirror standard 2D row-major format, which means we have to distribute this &lt;code>(2, 2)&lt;/code> MMA atom shape across our tile dimensions. The Atom standard is actually column-major, which means the &lt;code>(2,2)=(j, i)&lt;/code>. This is a choice by the hardware layout, which can be an area of confusion. We can verify this by printing the C fragment thread layout:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// TV = thread value
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">print_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tiled_mma&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">get_layoutC_TV&lt;/span>&lt;span class="p">());&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout.png"
+width="1312"
+height="1314"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout_huf5ef5f6c8af0c31e3f8ca5d56f73a263_186770_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout_huf5ef5f6c8af0c31e3f8ca5d56f73a263_186770_1024x0_resize_box_3.png 1024w"
+loading="lazy"
+alt="MMA C fragment thread value layout"
+class="gallery-image"
+data-flex-grow="99"
+data-flex-basis="239px"
+>
+&lt;/p>
+&lt;blockquote>
+&lt;p>The row labels are the thread numbers and the columns are the thread values. I truncated it at threads 0-7 for brevity, but the full print shows all 32 threads. There are 8 thread values instead of 4 because this is the full output C tile which is two 16x8 atoms to form the 16x16 output; this is equivalent to the values in two adjacent N-tiles in &lt;code>acc_s&lt;/code>.&lt;/p>
+&lt;/blockquote>
+&lt;p>We can see that thread 0&amp;rsquo;s values &lt;code>(0, 0)&lt;/code> and &lt;code>(0, 1)&lt;/code> (values 0 and 1) are at memory locations 0 and 16 while &lt;code>(8, 0)&lt;/code> and &lt;code>(8, 1)&lt;/code> are at 8 and 24. Since it&amp;rsquo;s 0th column row 8 is at mem location 8, we see that the thread values are column-major. Therefore, to grab the 2nd row 1st element (&lt;code>i=1, j=0)&lt;/code>) at tile &lt;code>(4, 3)&lt;/code>, we would index &lt;code>((0, 1), 4, 3)&lt;/code> in the original layout. For our reshaped layout, we cannot simply reinterpret the shape to be &lt;code>(2*MMA_M, 2*MMA_N)&lt;/code> because neither the rows nor columns are contiguous in memory in our tiled fragment. Instead, we have to rely on our handy-dandy hiearchical layouts. We know each &lt;code>MMA_M&lt;/code> and &lt;code>MMA_N&lt;/code> has two values, so we can actually map them to 2D via a composed 2D layout: &lt;code>((MMA_M, 2), (MMA_N, 2)&lt;/code>. Since CuTe is column major, &lt;code>(MMA_M, 2)&lt;/code> iterates over the &lt;code>MMA_M&lt;/code> dimension first (every other row, since each M tile is two rows). In our row-major orientation, we want adjacent indices to be adjacent rows, so we can remedy this by flipping the dims: &lt;code>((2, MMA_M), (2, MMA_N))&lt;/code>. Fixing the strides is easy; we just map each old stride to the new location in the new shape, and that&amp;rsquo;s it:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># pseudo code&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">old_layout&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">((&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="mi">8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">16&lt;/span>&lt;span class="p">):((&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">new_layout&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">((&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">8&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">16&lt;/span>&lt;span class="p">)):((&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="p">))&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>This composed layout can be addressed as shape &lt;code>(16, 32)&lt;/code> even though it has sub-layouts. We can index it via &lt;code>(i, j)&lt;/code> and CuTe figures out the math under the hood. The stride math is identical: we match each layout dimension with its original stride but redistribute the dimensions so our final output shape is &lt;code>(2*MMA_M, 2*MMA_N)&lt;/code>. We can verify with our example:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;span class="lnt">15
+&lt;/span>&lt;span class="lnt">16
+&lt;/span>&lt;span class="lnt">17
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># IDX = ((0, 1), 4, 3) = ((col, row), m_tile, n_tile)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># left value is index, right is stride&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">original_address&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="mi">1&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="mi">4&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="mi">3&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">114&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># compute i, j for IDX&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># m_tile * 2 rows/tile + 1st row&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">i&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">9&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># n_tile * 2 cols/tile + 0th col&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">j&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">0&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">6&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># Remember, colex indexing&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># convert i=9 to layout (2, 8)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">i_tuple&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">9&lt;/span> &lt;span class="n">mod&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">9&lt;/span>&lt;span class="o">/&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="n">mod&lt;/span> &lt;span class="mi">8&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># convert i=9 to layout (2, 16)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">j_tuple&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">6&lt;/span> &lt;span class="n">mod&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">6&lt;/span>&lt;span class="o">/&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="n">mod&lt;/span> &lt;span class="mi">16&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">final_address&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="mi">1&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="mi">32&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">114&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>All of this row-major column-major conversion is extremely confusing and annoying and was a huge source of unbelievable headache. All of this work simply for a reshape in code. You could have kept the column major ordering or not reshaped at all, but at least you can now understand the FA2 production source code. Dao Lab implements this approach as such:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;span class="lnt">7
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">template&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="k">typename&lt;/span> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">__forceinline__&lt;/span> &lt;span class="n">__device__&lt;/span> &lt;span class="k">auto&lt;/span> &lt;span class="n">convert_layout_rowcol&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Layout&lt;/span> &lt;span class="k">const&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">in&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1">// (MMA, MMA_M, MMA_N), MMA=4 -&amp;gt; (2,2)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="k">auto&lt;/span> &lt;span class="n">sl&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">logical_divide&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">in&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{});&lt;/span> &lt;span class="c1">// ((2, MMA/2), MMA_M, MMA_N)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="k">return&lt;/span> &lt;span class="nf">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">get&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sl&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">get&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sl&lt;/span>&lt;span class="p">)),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">get&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sl&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">get&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sl&lt;/span>&lt;span class="p">)));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>In this code, the &lt;code>logical_divide&lt;/code> is actually a no-op. CuTe already gives us &lt;code>acc_s&lt;/code> as &lt;code>((2, 2), MMA_M, MMA_N)&lt;/code>. This bit of code ensures that if we were somehow given &lt;code>MMA=4&lt;/code> instead of &lt;code>(2, 2)&lt;/code>, the function would column divide the shape to give us what we expect. I&amp;rsquo;m not sure why the &lt;code>logical_divide&lt;/code> is here, but it doesn&amp;rsquo;t break anything. Since it has a static divide, the compiler optimizes everything to the same PTX regardless.&lt;/p>
+&lt;h4 id="back-to-the-actual-reduce">Back to the Actual Reduce&lt;/h4>
+&lt;p>Having the thread&amp;rsquo;s values in row-major format trivializes the loops for the remainder of the softmax functions. Each thread can simply iterate through all of its values and compute the max and the sum. This happens at the per-thread register level and is very fast.&lt;/p>
+&lt;p>We have two reduction operations: &lt;code>max&lt;/code> and &lt;code>sum&lt;/code>, and it&amp;rsquo;s common to define them as a functional struct for portability:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">struct&lt;/span> &lt;span class="nc">MaxOp&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">__device__&lt;/span> &lt;span class="n">__forceinline__&lt;/span> &lt;span class="kt">float&lt;/span> &lt;span class="nf">operator&lt;/span>&lt;span class="p">()(&lt;/span>&lt;span class="kt">float&lt;/span> &lt;span class="n">a&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="kt">float&lt;/span> &lt;span class="n">b&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="k">const&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">return&lt;/span> &lt;span class="n">a&lt;/span> &lt;span class="o">&amp;gt;&lt;/span> &lt;span class="n">b&lt;/span> &lt;span class="o">?&lt;/span> &lt;span class="nl">a&lt;/span> &lt;span class="p">:&lt;/span> &lt;span class="n">b&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">struct&lt;/span> &lt;span class="nc">SumOp&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">__device__&lt;/span> &lt;span class="n">__forceinline__&lt;/span> &lt;span class="kt">float&lt;/span> &lt;span class="nf">operator&lt;/span>&lt;span class="p">()(&lt;/span>&lt;span class="kt">float&lt;/span> &lt;span class="n">a&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="kt">float&lt;/span> &lt;span class="n">b&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="k">const&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">return&lt;/span> &lt;span class="n">a&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">b&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">};&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Next, we define the actual thread reduce function. It&amp;rsquo;s just a nested for loop that keeps track of the per-row max and sum in a register tensor. Just like pretty much all other loops in our kernel, this one has kernel-constant iterations and plenty of register reuse, we can fully unroll it.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;span class="lnt">15
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">template&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="kt">bool&lt;/span> &lt;span class="n">zero_init&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nb">true&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Engine0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Layout0&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">typename&lt;/span> &lt;span class="n">Engine1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Layout1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Op&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">__device__&lt;/span> &lt;span class="n">__forceinline__&lt;/span> &lt;span class="kt">void&lt;/span> &lt;span class="n">thread_reduce_&lt;/span>&lt;span class="p">(&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Tensor&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Engine0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Layout0&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="k">const&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">tensor&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="c1">// (M, N)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">Tensor&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Engine1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Layout1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">dst&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="c1">// (kNRows,) per-row scratch
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">Op&lt;/span> &lt;span class="n">op&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">#pragma unroll
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">row&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">row&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tensor&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="n">row&lt;/span>&lt;span class="o">++&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">dst&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">row&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">zero_init&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">?&lt;/span> &lt;span class="n">tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">row&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">:&lt;/span> &lt;span class="n">op&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">dst&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">row&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">row&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">#pragma unroll
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">col&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">col&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tensor&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="n">col&lt;/span>&lt;span class="o">++&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">dst&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">row&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">op&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">row&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">col&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">dst&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">row&lt;/span>&lt;span class="p">));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>We use the &lt;code>size&amp;lt;&amp;gt;&lt;/code> declarator to get the row and column sizes, and we add a &lt;code>zero_init&lt;/code> template variable to initialize the first softmax call. That&amp;rsquo;s it!&lt;/p>
+&lt;h3 id="warp-reduce">Warp Reduce&lt;/h3>
+&lt;p>Now, each thread has its max and sum, so we now warp-find the max and sum between all threads. CUDA and GPUs all follow a tree-reduce paradigm; instead of looping over all threads in $O(n)$ time, pairs of threads reduce among each other at each step, single elimination bracket-style. Each iteration, we reduce half the threads so at the end, we only require $O(\log(n))$ iterations to find the final max.&lt;/p>
+&lt;p>The simplest strategy is where each thread pairs up with the thread $N/2$ above it. Thread 0 pairs with 16, 1 with 17, until 15 with 31. Threads 0-15 have the max. Then Thread 0 pairs with 8, 1 with 9, until 7 and 15. At each step, we half the step (16-&amp;gt;8-&amp;gt;4-&amp;gt;2-&amp;gt;1), until thread 0 has the final max. CUDA calls this reduction &lt;code>__shfl_down_sync()&lt;/code>, which would be good enough except that only one thread ends up with the final value at the end. However, in our case, each thread needs to know the max/sum in order to calculate the final softmax. Instead, we use the primitive &lt;code>__shfl_xor_sync()&lt;/code> instead. You might tense up at the idea of XOR again, but I&amp;rsquo;m not going to explain it this time. But like in swizzling, the primitive creates a bit sharing mask where all the threads pair up in a way where they all end up with the final value at the end.&lt;sup id="fnref:4">&lt;a href="#fn:4" class="footnote-ref" role="doc-noteref">4&lt;/a>&lt;/sup>&lt;/p>
+&lt;p>Most shuffle primitives take in a bitmask of all participating threads, a value, and a stride:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">__shfl_xor_sync&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">uint&lt;/span> &lt;span class="n">b_32bit_mask&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">T&lt;/span> &lt;span class="n">value&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">uint&lt;/span> &lt;span class="n">stride&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Most of the time, all 32 threads participate, so the mask is all 1s (&lt;code>0xffffffff&lt;/code>). The stride is how many threads apart we look. With 32 threads, this starts at 16 and goes until 1. This means we loop over all possible strides until the value is fully reduced:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;span class="lnt">7
+&lt;/span>&lt;span class="lnt">8
+&lt;/span>&lt;span class="lnt">9
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// try cleaned up
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">template&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">N&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">T&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Op&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">__device__&lt;/span> &lt;span class="n">__forceinline__&lt;/span> &lt;span class="n">T&lt;/span> &lt;span class="n">allreduce&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">T&lt;/span> &lt;span class="n">x&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Op&lt;/span> &lt;span class="n">op&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">#pragma unroll
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">stride&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">N&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">stride&lt;/span> &lt;span class="o">&amp;gt;&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">stride&lt;/span> &lt;span class="o">/=&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">x&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">op&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">__shfl_xor_sync&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mh">0xffffffff&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">x&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">stride&lt;/span>&lt;span class="p">));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">return&lt;/span> &lt;span class="n">x&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;h4 id="quad-reduce">Quad Reduce&lt;/h4>
+&lt;p>The reason we provide &lt;code>allreduce&lt;/code> a template variable &lt;code>N&lt;/code> is because we&amp;rsquo;re not actually reducing across all 32 threads. We only need to reduce over the number of threads that own each row. In the &lt;a class="link" href="#thread-reduce" >MMA Atom Layout image&lt;/a> from earlier, we see that four adjacent threads collectively own each row. Therefore, &lt;code>N=4&lt;/code>, hence, &amp;ldquo;quad&amp;rdquo; reduce. The xor primitive automatically reduces between participating threads, so we don&amp;rsquo;t have to iterate in groups of four&amp;ndash;the sync instruction waits for each four-thread group to enter the reduction. Our quad reduce function is therefore quite simple:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">template&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="k">typename&lt;/span> &lt;span class="n">Engine0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Layout0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Engine1&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">typename&lt;/span> &lt;span class="n">Layout1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Op&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">__device__&lt;/span> &lt;span class="n">__forceinline__&lt;/span> &lt;span class="kt">void&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">quad_allreduce_&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Tensor&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Engine0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Layout0&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">dst&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="c1">// (kNRows,) per-row reduced
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">Tensor&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Engine1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Layout1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">src&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="c1">// (kNRows,) per-row local
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">Op&lt;/span> &lt;span class="n">op&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">#pragma unroll
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">row&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">row&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">src&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="n">row&lt;/span>&lt;span class="o">++&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">dst&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">row&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">allreduce&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">src&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">row&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">op&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Now, we can create some functions to wrap the thread and the quad reduce to get our max and sum.&lt;/p>
+&lt;h4 id="reduce-sum-and-max">Reduce Sum and Max&lt;/h4>
+&lt;p>For &lt;code>reduce_max()&lt;/code>, all we need to do is call thread reduce followed by quad reduce. The sync during &lt;code>quad_allreduce()&lt;/code> handles the thread sync:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;span class="lnt">7
+&lt;/span>&lt;span class="lnt">8
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">template&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="kt">bool&lt;/span> &lt;span class="n">zero_init&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nb">true&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Engine0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Layout0&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">typename&lt;/span> &lt;span class="n">Engine1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Layout1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">__forceinline__&lt;/span> &lt;span class="n">__device__&lt;/span> &lt;span class="kt">void&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">reduce_max&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Tensor&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Engine0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Layout0&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="k">const&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">tensor&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Tensor&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Engine1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Layout1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">max&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">thread_reduce_&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">zero_init&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tensor&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">dst&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">MaxOp&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">quad_allreduce_&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">dst&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">dst&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">MaxOp&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>For &lt;code>reduce_sum()&lt;/code>, we actually don&amp;rsquo;t have to quad reduce the final sum until the very end. FA2 brought a slight optimization where the final expsum division only needs to happen after the final softmax rescale. This saves us quite a few sums and multiplications per iteration.&lt;/p>
+&lt;p>All we need to do is update the thread sums along the way and scale by the correction factor.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">template&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="kt">bool&lt;/span> &lt;span class="n">zero_init&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="nb">true&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Engine0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Layout0&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">typename&lt;/span> &lt;span class="n">Engine1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Layout1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">__forceinline__&lt;/span> &lt;span class="n">__device__&lt;/span> &lt;span class="kt">void&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">reduce_sum&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Tensor&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Engine0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Layout0&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="k">const&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">tensor&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Tensor&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Engine1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Layout1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">sum&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1">// we defer allreduce only after all iterations are completed
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="c1">// so we only do curr_sum * correction + new_sum until final
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="c1">// iteration. Saves unneccessary aggregation/registers
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">thread_reduce_&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">zero_init&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tensor&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">sum&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">SumOp&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>At each step, we have the rowsum per thread. After each rescale, we multiply by the correction factor (to be covered): &lt;code>rowsum *= correction&lt;/code>. Then, we call the reduction: &lt;code>rowsum += sum(v for v in thread_row)&lt;/code>.&lt;/p>
+&lt;blockquote>
+&lt;p>&lt;strong>Note&lt;/strong>: we cannot reduce max and sum at the same time. Although it seems like it would be more efficient, we need the full row max to compute the exp2 sum, not just the per-thread max.&lt;/p>
+&lt;/blockquote>
+&lt;h2 id="exp2-and-calculating-exprow">Exp2, and Calculating Exp(Row)&lt;/h2>
+&lt;p>We make a function to compute &lt;code>exp(Q@K.T)&lt;/code>. Cuda has functional primitives for exponentiation, including &lt;code>exp&lt;/code>, &lt;code>expf&lt;/code>, and &lt;code>__expf&lt;/code>, but we won&amp;rsquo;t use any of them. Since LLMs can tolerate a decent error margin, we can instead use the faster &lt;code>exp2f&lt;/code> primitive instead. Most NVIDIA GPUs have native hardware support for power of two exponentiation, which is often 10-15% faster than &lt;code>expf&lt;/code>.&lt;/p>
+&lt;blockquote>
+&lt;p>&lt;code>__expf()&lt;/code> is a lower-precision and significantly faster version of &lt;code>expf()&lt;/code>, and it might even use &lt;code>exp2f&lt;/code> under the hood. But since the FA2 source code uses &lt;code>exp2f&lt;/code> we will opt for that as well.&lt;/p>
+&lt;/blockquote>
+&lt;p>In order to use &lt;code>exp2f(x)&lt;/code>, we have to scale &lt;code>x&lt;/code> by &lt;code>log2(e)&lt;/code>, as $2^{\log_2(e)x} = \exp(x)$. Instead of computing $\log_2(e)$, we can simply just store it as a float constant, which saves us from computing it again and again, which would limit our performance gain.&lt;/p>
+&lt;p>For the exp loop, we just iterate over the rows again, scaling the max and each value by the log2 scale factor before &lt;code>exp2f&lt;/code>:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;span class="lnt">15
+&lt;/span>&lt;span class="lnt">16
+&lt;/span>&lt;span class="lnt">17
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">template&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="k">typename&lt;/span> &lt;span class="n">Engine0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Layout0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Engine1&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">typename&lt;/span> &lt;span class="n">Layout1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">__forceinline__&lt;/span> &lt;span class="n">__device__&lt;/span> &lt;span class="kt">void&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">scale_apply_exp2&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Tensor&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Engine0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Layout0&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">tensor&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Tensor&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Engine1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Layout1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="k">const&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">max&lt;/span>&lt;span class="p">,&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">const&lt;/span> &lt;span class="kt">float&lt;/span> &lt;span class="n">softmax_scale_log2&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">#pragma unroll
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">r&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">r&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tensor&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="n">r&lt;/span>&lt;span class="o">++&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="kt">float&lt;/span> &lt;span class="n">adj_max&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">max&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">r&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">softmax_scale_log2&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">#pragma unroll
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">c&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">c&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tensor&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="n">c&lt;/span>&lt;span class="o">++&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1">// compiler often does a*b + c in one instruction
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="c1">// called FMA (fused multiply-add)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">r&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">c&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">exp2f&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">r&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">c&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">softmax_scale_log2&lt;/span> &lt;span class="o">-&lt;/span> &lt;span class="n">adj_max&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;h2 id="full-softmax-call-rescale">Full Softmax Call: Rescale&lt;/h2>
+&lt;p>It&amp;rsquo;s time to piece all our previous functions together in one function call that each main loop iteration in our kernel will invoke after computing $QK^T$. It will do the following steps:&lt;/p>
+&lt;ul>
+&lt;li>Reshape our accumulators to the expected layout&lt;/li>
+&lt;li>Compute the &lt;code>max&lt;/code>&lt;/li>
+&lt;li>Apply the correction to previous output and expsum&lt;/li>
+&lt;li>Call &lt;code>scale_apply_exp2&lt;/code>&lt;/li>
+&lt;li>Reduce the sum&lt;/li>
+&lt;/ul>
+&lt;p>In the &lt;code>Softmax{}&lt;/code> struct we declared at the beginning of &lt;a class="link" href="#online-softmax" >this section&lt;/a>, we add the following function:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">template&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="kt">bool&lt;/span> &lt;span class="n">Is_first&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Tensor0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="k">typename&lt;/span> &lt;span class="n">Tensor1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">__device__&lt;/span> &lt;span class="n">__forceinline__&lt;/span> &lt;span class="kt">void&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">softmax_rescale_o&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Tensor0&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">acc_s&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="c1">// (MMA, MMA_M, MMA_N) score block, fp32
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">Tensor1&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">acc_o&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="c1">// (MMA, MMA_M, MMA_K) output acc, fp32
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="kt">float&lt;/span> &lt;span class="n">softmax_scale_log2&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>We first reshape &lt;code>acc_s&lt;/code> to our row/column view. If this rescale call is the first call, we don&amp;rsquo;t have to do any rescaling, so we can template this call on the boolean &lt;code>Is_first&lt;/code>.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">softmax_rescale_o&lt;/span>&lt;span class="p">(...)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Tensor&lt;/span> &lt;span class="n">scores&lt;/span> &lt;span class="o">=&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">acc_s&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">(),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">convert_layout_rowcol&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">acc_s&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">layout&lt;/span>&lt;span class="p">()));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">if&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">Is_first&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span> &lt;span class="c1">// first block, no prevs
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">FLASH&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">reduce_max&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="nb">true&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">scores&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">row_max&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">FLASH&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">scale_apply_exp2&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">scores&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">row_max&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">softmax_scale_log2&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">FLASH&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">reduce_sum&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="nb">true&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">scores&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">row_sum&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">...&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>For the standard call, we first have to reduce the max and apply the correction on the previous output (which we reshape as well). Then, we can call &lt;code>scale_apply_exp2&lt;/code> and reduce the sum.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;span class="lnt">15
+&lt;/span>&lt;span class="lnt">16
+&lt;/span>&lt;span class="lnt">17
+&lt;/span>&lt;span class="lnt">18
+&lt;/span>&lt;span class="lnt">19
+&lt;/span>&lt;span class="lnt">20
+&lt;/span>&lt;span class="lnt">21
+&lt;/span>&lt;span class="lnt">22
+&lt;/span>&lt;span class="lnt">23
+&lt;/span>&lt;span class="lnt">24
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">softmax_rescale_o&lt;/span>&lt;span class="p">(...)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">...&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">else&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">FLASH&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">reduce_max&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="nb">false&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">scores&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">row_max&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Tensor&lt;/span> &lt;span class="n">output&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">acc_o&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">(),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">FLASH&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">convert_layout_rowcol&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">acc_o&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">layout&lt;/span>&lt;span class="p">()));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// apply correction to output
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="cp">#pragma unroll
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">r&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">r&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">output&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="n">r&lt;/span>&lt;span class="o">++&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1">// exp(m_old-m_new)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="kt">float&lt;/span> &lt;span class="n">correction&lt;/span> &lt;span class="o">=&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">exp2f&lt;/span>&lt;span class="p">((&lt;/span>&lt;span class="n">row_max_old&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">r&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">-&lt;/span> &lt;span class="n">row_max&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">r&lt;/span>&lt;span class="p">))&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">softmax_scale_log2&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">row_sum&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">r&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">*=&lt;/span> &lt;span class="n">correction&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">#pragma unroll
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span> &lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">c&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">c&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">output&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="n">c&lt;/span>&lt;span class="o">++&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">output&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">r&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">c&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">*=&lt;/span> &lt;span class="n">correction&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1">// exp2(scores-m_new)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">FLASH&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">scale_apply_exp2&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">scores&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">row_max&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">softmax_scale_log2&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1">// sum(scores_exp), per thread, full reduce at end of main kernel
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">FLASH&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">reduce_sum&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="nb">false&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">scores&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">row_sum&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Everything is coming together nicely now. One simple reshape, and everything is what you always imagined CUDA coding to be. If only it could always be this easy. All we need now is the final normalization at the end where we compute our final expsum denominator and perform one last output scale.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">template&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="k">typename&lt;/span> &lt;span class="n">Tensor0&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">__device__&lt;/span> &lt;span class="n">__forceinline__&lt;/span> &lt;span class="kt">void&lt;/span> &lt;span class="n">normalize_softmax&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Tensor0&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">acc_o&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1">// final expsum reduce
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">quad_allreduce_&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">row_sum&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">row_sum&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">SumOp&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Tensor&lt;/span> &lt;span class="n">output&lt;/span> &lt;span class="o">=&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">acc_o&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">(),&lt;/span> &lt;span class="n">FLASH&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">convert_layout_rowcol&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">acc_o&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">layout&lt;/span>&lt;span class="p">()));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">r&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">r&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">output&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="n">r&lt;/span>&lt;span class="o">++&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="kt">float&lt;/span> &lt;span class="n">row_sum_i&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mf">1.f&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="n">row_sum&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">r&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">c&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">c&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">output&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="n">c&lt;/span>&lt;span class="o">++&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">output&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">r&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">c&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">*=&lt;/span> &lt;span class="n">row_sum_i&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>This function is called in the epilogue after the main loop before we store the output back to GMEM. Overall, the softmax step is not particularly complicated. There&amp;rsquo;s some funky confusing layout reshaping and learning warp reduce primitives but everything else pieces together nicely once you understand the MMA thread layout.&lt;/p>
+&lt;h1 id="epilogue-output-gmem">Epilogue: Output-&amp;gt;GMEM&lt;/h1>
+&lt;p>We now have our output stored in fragments across all of the warps, and we want to write them back to a &lt;code>o_ptr&lt;/code> in our GMEM. The optimal way to perform our write-back is:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">Registers-&amp;gt;SMEM-&amp;gt;Registers-&amp;gt;GMEM
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>You might be wondering: if we&amp;rsquo;re going go from SMEM back to registers why don&amp;rsquo;t we just write it back from the fragments? The answer is n-fold:&lt;/p>
+&lt;ol>
+&lt;li>&lt;strong>No GMEM-&amp;gt;SMEM instructions&lt;/strong>: Ampere has the nice async GMEM-&amp;gt;SMEM pipeline, but there is no direct SMEM-&amp;gt;GMEM pipeline. Therefore, we have to stage the SMEM blocks in registers before writing back to HBM.&lt;/li>
+&lt;li>&lt;strong>Vectorization&lt;/strong>: The fragments are stored as per-thread shapes, which are scattered halfs across all the registers. To write back to gmem, each thread writes one fp32 at a time across a bunch of scattered memory addresses. Given what we know about the memory bus and vectorization, this is excruciatingly inefficient and slow. By staging through SMEM, each thread can write a full 128-bit block in one instruction like before.&lt;/li>
+&lt;li>&lt;strong>Coalescing&lt;/strong>: Furthermore, we can group all 32 threads into a contiguous block to coalesce the store into the 512-byte memory transaction like before.&lt;/li>
+&lt;/ol>
+&lt;blockquote>
+&lt;p>&lt;strong>Note&lt;/strong>: Vectorization is per-thread, Coalescing is across threads (per-warp).&lt;/p>
+&lt;/blockquote>
+&lt;p>Compared to doing a terrible amount of uncoalesced and unvectorized stores, the SMEM staging is pretty much free compared to the efficiency gains from the optimized stores. Like before, the Registers-&amp;gt;SMEM and SMEM-&amp;gt;Registers-&amp;gt;GMEM steps will each require their own &lt;code>Tiled_Copy&lt;/code>, but it should be a lot quicker to figure out what they should be this time around. Before we begin the copy, we should convert the output back to fp16 using the same &lt;code>convert_type()&lt;/code> we used for &lt;code>acc_s&lt;/code> before the &lt;code>O = SV&lt;/code> MMA.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;span class="lnt">7
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// Epilogue
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// final output scale
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">softmax&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">normalize_softmax&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">acc_o&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// convert o from float back to fp16
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">Tensor&lt;/span> &lt;span class="n">o_fp16&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">FLASH&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">convert_type&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">acc_o&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;h2 id="registers-smem">Registers-&amp;gt;SMEM&lt;/h2>
+&lt;p>We can now begin our register-&amp;gt;SMEM write. Since we never sliced a portion of SMEM for O, we can simply reuse the Q&amp;rsquo;s SMEM portion; it has the exact same shape and size as O, and it isn&amp;rsquo;t being used for anything anymore. We can also reuse its layout, since the write access pattern has the same bank conflict problem as the read, so our swizzled layout before is perfect.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">sO&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sQ&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">(),&lt;/span> &lt;span class="n">SmemLayoutQ&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>The next step is to define the tiled copy. Even though Ampere supports the &lt;code>SM75&lt;/code> (Turing) &lt;code>LDSM&lt;/code> instructions for loading MMA fragments, there is no analogous store instruction. The &lt;code>STSM&lt;/code> instructions were actually introduced for the H100 Hopper architecture (&lt;code>SM90&lt;/code>), but only God knows why they didn&amp;rsquo;t have them earlier. Instead, we can just do a typical vectorized copy back to SMEM.&lt;/p>
+&lt;p>Funnily enough, Dao Lab takes the lazy route and uses:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">SmemCopyAtomO&lt;/span> &lt;span class="o">=&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Copy_Atom&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">AutoVectorizingCopyWithAssumedAlignment&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">128&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Why is this lazy? It&amp;rsquo;s because &lt;code>AutoVectorizing...&lt;/code> just tells the compiler to find the largest vectorized chunk it can store in one go according to the tiled MMA and fragment layouts. Since 128-bit loads/stores are the maximum size, we&amp;rsquo;re just telling the kernel: oh yeah, you optimize it for me. Reading this bit of FA2 source code can lead you into thinking this 128-bit vectorized store is possible, but it unfortunately is not. Let&amp;rsquo;s examine why:&lt;/p>
+&lt;p>Recall that in the output fragment, each thread holds 4 values per tile. In our &lt;a class="link" href="#thread-reduce" >thread reduce&lt;/a> section, we saw how thread 0 holds &lt;code>(0, 0), (0, 1), (8, 0), (8, 1)&lt;/code>. Although these fragments have a layout, registers do not behave as memory&amp;ndash;you cannot address them. Rather, it&amp;rsquo;s a mapping between an &amp;ldquo;address&amp;rdquo; and its physical register name/location. So even though our fragment layout is &amp;ldquo;column-major&amp;rdquo;, there is no physical column-major memory anywhere. The limitation to our vectorized store relies on how many values each thread can store contiguously in the &lt;em>output SMEM&lt;/em>&amp;ndash;&amp;ldquo;contiguous&amp;rdquo; registers don&amp;rsquo;t exist. For example, the hardware PTX &lt;code>st.shared.v2.b16&lt;/code> takes in any two registers with fp16s and stores it in one fp32 address. We can see that each thread holds 2 contiguous halfs, so the max vectorization we can get is 32-bits. This is a hardware limitation, so we can&amp;rsquo;t simply optimize this any more. Given that this is the final store and that we can vectorize SMEM-&amp;gt;GMEM, this isn&amp;rsquo;t a huge problem and by far not the worst bottleneck.&lt;/p>
+&lt;p>If you wanted to be exact, you can replace the copy atom above with this below for superior clarity:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">SmemCopyAtomO&lt;/span> &lt;span class="o">=&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Copy_Atom&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">UniversalCopy&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="kt">uint32_t&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>This is technically more accurate than what the source code specifies. The way you can check is by compiling the full kernel with fixed-size universal copies until it compiles&amp;ndash;if it&amp;rsquo;s not compatible, it&amp;rsquo;ll throw an error. Other ways to verify include printing the shapes per thread to see the strides, looking at the raw PTX instructions, or unfortunately, using your brain.&lt;/p>
+&lt;h3 id="tiled-copy">Tiled Copy&lt;/h3>
+&lt;p>Let&amp;rsquo;s make our tiled copy object. To let CuTe know we&amp;rsquo;re working with an output MMA thread layout, we can use the function &lt;code>make_tiled_copy_C()&lt;/code>, using &lt;code>C&lt;/code> version instead of the &lt;code>A/B&lt;/code> that we used for Q, K, and V.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">smem_tiled_copy_O&lt;/span> &lt;span class="o">=&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_tiled_copy_C&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">SmemCopyAtomO&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">tiled_mma&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">smem_thr_copy_O&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_tiled_copy_O&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">get_thread_slice&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tid&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>This time, we have to retile the registers (this time, a source) to fit this new copy atom, and partition the SMEM destination. Then, we can issue our copy.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// retile_S this time, since it&amp;#39;s the source
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">trO&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_thr_copy_O&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">retile_S&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">o_fp16&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">tsO&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_thr_copy_O&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_D&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sO&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// copy, and we&amp;#39;re done!
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">copy&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">smem_tiled_copy_O&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">trO&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tsO&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;h2 id="smem-register-gmem">SMEM-&amp;gt;Register-&amp;gt;GMEM&lt;/h2>
+&lt;p>We create the gmem output tile the same way we created the Q, K, V source tiles. It has exactly the same layout as Q. The only difference is that it is not a &lt;code>const&lt;/code> as we are modifying its contents:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;span class="lnt">7
+&lt;/span>&lt;span class="lnt">8
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">mO&lt;/span> &lt;span class="o">=&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_gmem_ptr&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="k">reinterpret_cast&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span> &lt;span class="o">*&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">o_ptr&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">+&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">batch_idx&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">o_batch_stride&lt;/span> &lt;span class="o">+&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">head_idx&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">o_head_stride&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">seqlen_q&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">head_dim&lt;/span>&lt;span class="p">),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">q_row_stride&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">gO&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">local_tile&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">mO&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockM&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kHeadDim&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{}),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_coord&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">m_block&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">));&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;h3 id="smem-gmem-tiled-copy">SMEM-&amp;gt;GMEM Tiled Copy&lt;/h3>
+&lt;p>Our tiled copy atom is pretty much exactly the same as the one for Q, except we use a standard synchronous 128-bit copy atom instead of the &lt;code>cp.async&lt;/code> we used for GMEM-&amp;gt;SMEM copies. This time, our 128-bit &lt;code>AutoVectorizing&lt;/code> cheat is fine, since we are doing the full 128-bit vectorized loads, although you can explicitly declare a 128-bit &lt;code>UniversalCopy&lt;/code> instead for clarity. As with the GMEM-&amp;gt;SMEM load, we still benefit from memory coalescing because the blocks written &lt;em>TO&lt;/em> GMEM are contiguous in memory. Even though blocks may not be contiguous in SMEM, they are when we store to GMEM.&lt;/p>
+&lt;blockquote>
+&lt;p>&lt;strong>Note&lt;/strong>: Remember, memory coalescing is a GMEM optimization. The swizzle is our valet attendant, it stores and retrieves our car on the thread&amp;rsquo;s behalf, and we don&amp;rsquo;t really care &lt;em>where&lt;/em> it puts it. Once each thread retrieves its &amp;ldquo;car&amp;rdquo;, they each park them contiguously in GMEM, which is all that matters for coalescing.&lt;/p>
+&lt;/blockquote>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;span class="lnt">7
+&lt;/span>&lt;span class="lnt">8
+&lt;/span>&lt;span class="lnt">9
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// can reuse the 128-bit auto vectorized SMEM copy
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// if you used 32-bit universal, then you&amp;#39;ll have to redefine it here
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">using&lt;/span> &lt;span class="n">SmemCopyAtomO&lt;/span> &lt;span class="o">=&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Copy_Atom&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">UniversalCopy&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">uint128_t&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// Copy_Atom&amp;lt;AutoVectorizingCopyWithAssumedAlignment&amp;lt;128&amp;gt;, cute::half_t&amp;gt;;
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// same gmem layout as QKV
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">gmem_tiled_copy_O&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tiled_copy&lt;/span>&lt;span class="p">(&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">SmemCopyAtomO&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">GmemLayout&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Now, we can create our thread slice and partition our source and destination memory.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// thread Output _ Output
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">gmem_thr_copy_O&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">gmem_tiled_copy_O&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">get_thread_slice&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tid&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tOsO&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">gmem_thr_copy_O&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_S&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sO&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tOgO&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">gmem_thr_copy_O&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_D&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">gO&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Since there is no instruction for SMEM-&amp;gt;GMEM directly, we cannot simply &lt;code>copy(..., tOsO, tOgO)&lt;/code>. Instead, we stage it through a register of the same shape. This is pretty much free since we aren&amp;rsquo;t using any of the registers at this stage. The tiled copy doesn&amp;rsquo;t know or care whether our source/dest is GMEM or SMEM or a register, so we just make a &lt;code>tOgO&lt;/code> clone and issue two copies using the same &lt;code>Tiled_Copy&lt;/code>:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// register buffer
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tOrO&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_fragment_like&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tOgO&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// smem-&amp;gt;registers
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">copy&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">gmem_tiled_copy_O&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tOsO&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tOrO&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// registers-&amp;gt;gmem
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">copy&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">gmem_tiled_copy_O&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tOrO&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tOgO&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Voila! El Fin.&lt;/p>
+&lt;h3 id="sync-threads">Sync Threads&lt;/h3>
+&lt;p>Haha, not quite yet. There is a slight bug in our epilogue as-is. Between the register-&amp;gt;SMEM and SMEM-&amp;gt;GMEM copy, the threads control different parts of SMEM. We set up async waits earlier, but since we are synchronous for the O store, we simply have to call &lt;code>__syncthreads()&lt;/code> sometime between the two copy stages. The FA2 production code opts to put it right before the final two &lt;code>copy()&lt;/code> invocations to overlap the gmem tiled copy work with the register-&amp;gt;SMEM copy, but practically it probably doesn&amp;rsquo;t make much of a difference&amp;ndash;you can just put the sync right after the r-&amp;gt;S copy.&lt;/p>
+&lt;h1 id="wrapping-up">Wrapping up&lt;/h1>
+&lt;p>My AI learning guide had led me astray more times than I could count, but somehow I still had faith that somehow it wouldn&amp;rsquo;t disappoint me this time.
+My AI learning guide had led me astray more times than I could count, but somehow I still had faith that somehow it wouldn&amp;rsquo;t disappoint me this time.&lt;/p>
 &lt;h1 id="appendix">Appendix&lt;/h1>
 &lt;div class="footnotes" role="doc-endnotes">
 &lt;hr>
 &lt;ol>
 &lt;li id="fn:1">
-&lt;p>a word is 4 bytes&amp;#160;&lt;a href="#fnref:1" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
+&lt;p>A word is 4 bytes (32-bits). This term is slightly ambiguous based on architecture or context, e.g. a word for a n-bit CPU processor means n-bits. But in CUDA, it almost always means 32-bits. Other alternatives include scalars, floats, or bank-widths, but we will stick to the word &amp;ldquo;word&amp;rdquo; when discussing bank conflicts.&amp;#160;&lt;a href="#fnref:1" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
 &lt;/li>
 &lt;li id="fn:2">
 &lt;p>&lt;a class="link" href="https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html" target="_blank" rel="noopener"
 >https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html&lt;/a>&amp;#160;&lt;a href="#fnref:2" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
+&lt;/li>
+&lt;li id="fn:3">
+&lt;p>&lt;a class="link" href="https://developer.nvidia.com/blog/using-cuda-warp-level-primitives/" target="_blank" rel="noopener"
+>https://developer.nvidia.com/blog/using-cuda-warp-level-primitives/&lt;/a>&amp;#160;&lt;a href="#fnref:3" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
+&lt;/li>
+&lt;li id="fn:4">
+&lt;p>Oxford shuffle lecture notes, p. 6 for xor shuffle: &lt;a class="link" href="https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf" target="_blank" rel="noopener"
+>https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf&lt;/a>&amp;#160;&lt;a href="#fnref:4" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
 &lt;/li>
 &lt;/ol>
 &lt;/div></description></item><item><title>Eat with the Rich</title><link>https://blog.echen.io/p/eat-with-the-rich/</link><pubDate>Wed, 05 Nov 2025 00:00:00 +0000</pubDate><guid>https://blog.echen.io/p/eat-with-the-rich/</guid><description>&lt;img src="https://blog.echen.io/p/eat-with-the-rich/thumbnail.webp" alt="Featured image of post Eat with the Rich" />&lt;p>I’ve been wanting to make fun of a specific breed of people I’ve seen becoming more and more popular over the past decade: the rich person who hates billionaires.&lt;/p>
