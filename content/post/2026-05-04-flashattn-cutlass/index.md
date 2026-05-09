@@ -7,7 +7,7 @@ tags: [politics, inequality, socialism, satire]
 math: true
 
 author: Eric Chen
-image: thumbnail.webp
+image: thumbnail.png
 date: 2026-05-04
 
 description: Taking an unfortunate look at Cutlass and CUDA
