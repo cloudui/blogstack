@@ -1,8 +1,8 @@
 ---
 title: FlashAttention, but the Actual Details
 
-categories: [Discussion, Politics]
-tags: [politics, inequality, socialism, satire]
+categories: [Engineering, GPU]
+tags: [GPU, AI, technology, CUDA, NVIDIA, LLMs, tutorial, cutlass, ampere, kernel-programming]
 # mathjax: true
 math: true
 
