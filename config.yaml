@@ -245,3 +245,8 @@ markup:
         lineNos: true
         lineNumbersInTable: true
         tabWidth: 4
+
+imaging:
+    resampleFilter: Lanczos
+    quality: 90
+    hint: text

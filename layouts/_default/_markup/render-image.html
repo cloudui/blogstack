@@ -18,9 +18,18 @@
 		{{- $galleryImage = true -}}
 
 		{{- if (default true .Page.Site.Params.imageProcessing.content.enabled) -}}
-			{{- $small := $image.Resize `480x` -}}
-			{{- $big := $image.Resize `1024x` -}}
-			{{- $Srcset = printf `%s 480w, %s 1024w` $small.RelPermalink $big.RelPermalink -}}
+			{{- $widths := slice 480 1024 2048 -}}
+			{{- $parts := slice -}}
+			{{- range $widths -}}
+				{{- if le . $image.Width -}}
+					{{- $r := $image.Resize (printf "%dx" .) -}}
+					{{- $parts = $parts | append (printf "%s %dw" $r.RelPermalink .) -}}
+				{{- end -}}
+			{{- end -}}
+			{{- if not (in $widths $image.Width) -}}
+				{{- $parts = $parts | append (printf "%s %dw" $image.RelPermalink $image.Width) -}}
+			{{- end -}}
+			{{- $Srcset = delimit $parts ", " -}}
 		{{- end -}}
 	{{- end -}}
 {{- end -}}
