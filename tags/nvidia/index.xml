@@ -20,7 +20,7 @@
 &lt;li>Clean basic out-of-the-box attention mechanism: no causal masking, RoPE, dropout, etc.&lt;/li>
 &lt;li>head_dim: focus on 64 and 128 block size, although 32 may be covered, though I didn&amp;rsquo;t specifically check&lt;/li>
 &lt;li>Assume sequence length is a power of two, more specifically a multiple of the Q block size.&lt;/li>
-&lt;li>We expect $Q, K, V$ to be in row-major order.&lt;/li>
+&lt;li>We expect $Q, K, V$ to be contiguous along &lt;code>head_dim&lt;/code>, i.e. all of shape &lt;code>(seqlen, head_dim)&lt;/code> in PyTorch.&lt;/li>
 &lt;/ul>
 &lt;h2 id="some-naming-conventions">Some Naming Conventions&lt;/h2>
 &lt;p>If you look at the FA2 source code, you might notice they have some weird naming conventions. Some of them are standard CuTe/CUTLASS, some carry over from other things. Here are some patterns:&lt;/p>
@@ -172,7 +172,7 @@ O &amp;amp;= S \cdot V
 &lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">static&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">x&lt;/span>&lt;span class="p">[]&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">{&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="p">...,&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="p">};&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">l_row_major&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}),&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_4&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="p">{}));&lt;/span>
-&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// row major view
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// row-major view
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">t_row_major&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">l_row_major&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// column major view
@@ -188,9 +188,12 @@ O &amp;amp;= S \cdot V
 &lt;/div>
 &lt;/div>&lt;h2 id="row-and-column-major">Row and Column Major&lt;/h2>
 &lt;p>In row-major formats, data is stored row-contiguous (C, C++ style), i.e. &lt;code>A[0][1]&lt;/code> and &lt;code>A[0][2]&lt;/code> are contiguous in memory.&lt;/p>
-&lt;p>In column-major formats, data is stored column-contiguous (Fortran, CUBLAS style), i.e. &lt;code>A[0][1]&lt;/code> and &lt;code>A[1][1]&lt;/code> are contiguous in memory.&lt;/p>
-&lt;p>The way to tell is by the stride; for any 2D matrix with stride $(a, b)$, the matrix is row-major if $b=1$ and column-major if $a=1$. In CuTe, any layout without a provided stride is &lt;strong>column-major&lt;/strong> by default.&lt;/p>
-&lt;p>For FA2, Q, K, and V are all &lt;strong>row-major.&lt;/strong> Although somewhat arbitrary, most consumer applications or libraries like Pytorch or JAX are row-major by default, so this is the most obvious configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it&amp;rsquo;s also a choice in simplicity.&lt;/p>
+&lt;p>In column-major formats, data is stored column-contiguous (Fortran style), i.e. &lt;code>A[0][1]&lt;/code> and &lt;code>A[1][1]&lt;/code> are contiguous in memory.&lt;/p>
+&lt;p>The way to tell is by the stride; for any 2D matrix with stride $(a, b)$, the matrix is row-major if $b=1$ and column-major if $a=1$. In CuTe, any layout without a provided stride is a &lt;strong>column-major&lt;/strong> layout by default.&lt;/p>
+&lt;blockquote>
+&lt;p>&lt;strong>Note&lt;/strong>: The column-major default has &lt;strong>nothing to do with your underlying data&lt;/strong>. It&amp;rsquo;s just a consistent indexing pattern that NVIDIA chose.&lt;/p>
+&lt;/blockquote>
+&lt;p>For FA2, Q, K, and V are all &lt;strong>row-major&lt;/strong> along the sequence (&lt;code>(seq_len, head_dim)&lt;/code>). This means each row represents a token or activation. Although somewhat arbitrary, most consumer applications or libraries like Pytorch or JAX are row-major by default, so this is the most obvious configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it&amp;rsquo;s also a choice in simplicity.&lt;/p>
 &lt;h2 id="composedhierarchical-layouts">Composed/Hierarchical Layouts&lt;/h2>
 &lt;p>The last bit of confusing layout algebra is hierarchical layouts. CuTe lets us compose layouts into multiple dimensions. For example, a layout of shape &lt;code>Shape&amp;lt;_8&amp;gt;&lt;/code> can be composed to be &lt;code>Shape&amp;lt;_4, _2&amp;gt;&lt;/code> or &lt;code>Shape&amp;lt;_2, _4&amp;gt;&lt;/code>. We can iterate over the 8 block in groups of 1, 2, 4, or 8. The strides determine which direction we do so (row or column major). This is no different than normal layout re-interpretation from the &lt;a class="link" href="#tensors" >tensor section above&lt;/a>, but CuTe allows us to nest layouts for extremely granular layout interpretation.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
@@ -248,7 +251,11 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">j&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">idx&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="n">M&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>Again, this is the opposite of the C/C++/Pytorch row-major standard. As long as you remember this column-major indexing system, everything will be fine. If not, then you&amp;rsquo;ll probably end up scratching your head for hours. This means for many composed layouts, you&amp;rsquo;ll likely have to flip the order for composed shapes for the indices to be row-major adjacent. If you think this sucks, I agree. This is probably &lt;em>the&lt;/em> most annoying part of learning CuTe because things do not align with your expectations. Unfortunately, the only way to learn is via trial by fire.&lt;/p>
+&lt;/div>&lt;p>For 3D+ tensors, it means stride increases from left to right, starting at &lt;code>_1{}&lt;/code>.&lt;/p>
+&lt;p>Again, this is the opposite of the C/C++/Pytorch row-major standard. As long as you remember this column-major indexing system, everything will be fine. If not, then you&amp;rsquo;ll probably end up scratching your head for hours. This means for many composed layouts, you&amp;rsquo;ll likely have to flip the order for composed shapes for the indices to be row-major adjacent. If you think this sucks, I agree. This is probably &lt;em>the&lt;/em> most annoying part of learning CuTe because things do not align with your expectations. Unfortunately, the only way to learn is via trial by fire.&lt;/p>
+&lt;blockquote>
+&lt;p>&lt;strong>Tip&lt;/strong>: Most of the time, you will be specifying the shape and stride. When you deal with certain tiled copies or MMAs, you might end up having colex indexing for something that is row-major. In this case, it just means your row/column indices are flipped. What you expect to be &lt;code>A[i][j]&lt;/code> should be &lt;code>A[j][i]&lt;/code>. That&amp;rsquo;s it&amp;ndash;it doesn&amp;rsquo;t actually change your underlying memory layout, just the indexing changes. If you indexed into 2D with just an integer (i.e. &lt;code>A[idx]&lt;/code>), both colex/rolex return the same memory address.&lt;/p>
+&lt;/blockquote>
 &lt;h1 id="cute-copy-then-cry">CuTe, Copy, then Cry&lt;/h1>
 &lt;h2 id="a100-ampere-specs">A100 (Ampere) Specs&lt;/h2>
 &lt;p>The entire point of FA2 or even GPU optimization in general is to maximize compute by overlapping it with memory loads. Here are the memory and card specs of A100 GPU (Ampere):&lt;/p>
@@ -603,11 +610,15 @@ data-flex-basis="350px"
 &lt;/span>&lt;span class="lnt">2
 &lt;/span>&lt;span class="lnt">3
 &lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
 &lt;/span>&lt;/code>&lt;/pre>&lt;/td>
 &lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// TN means transposed-normal for AxB. It&amp;#39;s a historical convention
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// that you can search up.
-&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// Practically, it means both A and B are row-major
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// Practically, it means both A and B are row-major across M, N
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// i.e. K-dim is contiguous
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// (M, K), (N, K)
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">using&lt;/span> &lt;span class="n">TiledMmaAtom&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">MMA_Atom&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">SM80_16x8x16_F32F16F16F32_TN&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
@@ -1028,9 +1039,9 @@ data-flex-basis="428px"
 &lt;/div>
 &lt;/div>&lt;p>We can finally replace the layout we used to make &lt;code>sQ&lt;/code> above. &lt;code>sK&lt;/code> can &lt;code>sV&lt;/code> is an exercise left to the reader.&lt;/p>
 &lt;h2 id="dealing-with-v-copies">Dealing with V Copies&lt;/h2>
-&lt;p>V is a slightly different beast, since it doesn&amp;rsquo;t follow the row-major loading pattern of Q and K during &lt;code>O=S@Q&lt;/code>. When we compute our attention scores S, our resulting shape is &lt;code>(kBlockM, kBlockN)&lt;/code>.Since V is of shape &lt;code>(kBlockN, kHeadDim)&lt;/code>, we have to transpose V, as our original copy/MMA pattern expects the concatenation dim to be the the second shape dimension. As a result, we have to make two more tensors for V&amp;rsquo;s SMEM layouts in order to make sure the copies and fragments are correct.&lt;/p>
+&lt;p>V is a slightly different beast, since it doesn&amp;rsquo;t follow the row-major loading pattern of Q and K during &lt;code>O=S@Q&lt;/code>. When we compute our attention scores S, our resulting shape is &lt;code>(kBlockM, kBlockN)&lt;/code>. Since V is of shape &lt;code>(kBlockN, kHeadDim)&lt;/code>, we have to transpose V, as our original copy/MMA pattern expects the concatenation dim to be the the second shape dimension. As a result, we have to make transpose-view tensors for V&amp;rsquo;s SMEM layouts in order to make sure the copies and fragments are correct.&lt;/p>
 &lt;h3 id="v-gmem-smem">V: GMEM-&amp;gt;SMEM&lt;/h3>
-&lt;p>To get the maximum coalesced-vectorized load performance, we can simply copy V in its row-major form from GMEM to SMEM. We need to eventually tranpose V before it hits the register fragments, and Ampere and Turing fortunately provide us with some &lt;code>ldmatrix&lt;/code> instructions that do so. As a result, we only have to worry about the transpose once we hit the SMEM-&amp;gt;register stage. The GMEM-&amp;gt;SMEM copy fully mirrors the tiled copy for K from earlier:&lt;/p>
+&lt;p>To get the maximum coalesced-vectorized load performance, we can simply copy V in its row-major form from GMEM to SMEM. We need to eventually tranpose V before it hits the register fragments, and Ampere and Turing (SM75+) fortunately provide us with some &lt;code>ldmatrix&lt;/code> instructions that do so. As a result, we only have to worry about the transpose once we hit the SMEM-&amp;gt;register stage. The GMEM-&amp;gt;SMEM copy fully mirrors the tiled copy for K from earlier:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
