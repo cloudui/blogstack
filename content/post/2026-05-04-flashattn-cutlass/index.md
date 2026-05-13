@@ -109,7 +109,7 @@ A shape of (8, 16) with stride (1, 8). Pretty simple. Both declarations are iden
 Any standard C++ integer passed into a layout, shape, or stride is dynamically typed, i.e. its value is only known at runtime (e.g. int, const int, static int). Even CUDA's `constexpr int` is treated as such by CuTe. Any time you index into a tensor, the library will compute
 
 ```cpp
-A[i][j] = i*stride_row + j*stride_column
+A[i][j] = i*stride_i + j*stride_j
 ```
 
 Each index operation is a multiply and add, which can be quite costly. Instead, when we can, we opt to use for statics: type wrappers used by CUTLASS to allow the value to be known at compile time. It's just a C++ compiler trick that allows CuTe to compute all indexing during compilation rather at runtime, saving the GPU from having to do so while its running. Obviously, you can only do this if sizes are predetermined, either because they are definite, templated, or constant. So instead of passing in `make_stride(2, 4)`, we can pass in `make_stride(Int<2>{}, _4{})`. Functionally, these are the same, but any subsequent indexing done will be done at compile time for the latter.
@@ -165,7 +165,7 @@ In column-major formats, data is stored column-contiguous (Fortran style), i.e. 
 
 The way to tell is by the stride; for any 2D matrix with stride $(a, b)$, the matrix is row-major if $b=1$ and column-major if $a=1$. In CuTe, any layout without a provided stride is a **column-major** layout by default.
 
-> **Note**: The column-major default has **nothing to do with your underlying data**. It's just a consistent indexing pattern that NVIDIA chose. 
+> **Note**: The column-major default has **nothing to do with your underlying data**. It's just a consistent indexing pattern that NVIDIA chose.
 
 For FA2, Q, K, and V are all **row-major** along the sequence (`(seq_len, head_dim)`). This means each row represents a token or activation. Although somewhat arbitrary, most consumer applications or libraries like Pytorch or JAX are row-major by default, so this is the most obvious configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it's also a choice in simplicity.
 
@@ -206,7 +206,7 @@ For 3D+ tensors, it means stride increases from left to right, starting at `_1{}
 
 Again, this is the opposite of the C/C++/Pytorch row-major standard. As long as you remember this column-major indexing system, everything will be fine. If not, then you'll probably end up scratching your head for hours. This means for many composed layouts, you'll likely have to flip the order for composed shapes for the indices to be row-major adjacent. If you think this sucks, I agree. This is probably *the* most annoying part of learning CuTe because things do not align with your expectations. Unfortunately, the only way to learn is via trial by fire.
 
-> **Tip**: Most of the time, you will be specifying the shape and stride. When you deal with certain tiled copies or MMAs, you might end up having colex indexing for something that is row-major. In this case, it just means your row/column indices are flipped. What you expect to be `A[i][j]` should be `A[j][i]`. That's it--it doesn't actually change your underlying memory layout, just the indexing changes. If you indexed into 2D with just an integer (i.e. `A[idx]`), both colex/rolex return the same memory address. 
+> **Tip**: Most of the time, you will be specifying the shape and stride. When you deal with certain tiled copies or MMAs, you might end up having colex indexing for something that is row-major. In this case, it just means your row/column indices are flipped. What you expect to be `A[i][j]` should be `A[j][i]`. That's it--it doesn't actually change your underlying memory layout, just the indexing changes. If you indexed into 2D with just an integer (i.e. `A[idx]`), both colex/rolex return the same memory address.
 
 # CuTe, Copy, then Cry
 ## A100 (Ampere) Specs
@@ -240,7 +240,7 @@ Since NVIDIA introduced the Ampere architecture, we can now take advantage of as
 
 The async design pattern is quite simple:
 
-![Fetch next data, do stuff with current data, wait for new data, and repeat.](async-pipeline.jpg)
+![Fetch next data, do stuff with current data, wait for new data, and repeat.](async_pipeline.png)
 
 We'll cover how we apply this pattern to Q, K, V later on. There are some small CuTe details to be aware of, but the overal idea is exactly the same.
 
@@ -253,9 +253,9 @@ Those two concepts are **vectorized loads** and **coalesced loads**. They are ve
 - **Vectorized Loads**: A *thread* loading as much data as it can in one *instruction*. Since we're working with fp16, we could naively load one 16-bit number at a time. However, all NVIDIA chips today support a 128-bit load instruction *per-thread*: `LDG.E.128` (and it's SMEM counterpart `LDS.E.128`), which can load 8 fp16 numbers in one go. Memory transactions are funny in that a 16-bit load and 128-bit load take the same amount of time, so if we load 16-bits at a time, we immediately slash our performance by 8x. So instead, when we can, we load 128 bits at a time and decompose it into 8 halfs (1 fp16 = 1 half).
 - **Coalesced Loads**: A *group of threads* loading as much data as it can in one *transaction*. GPUs never fetch from HBM just one byte at a time; they can fetch a whole 32, 64, or 128-byte chunk in one go (i.e. the **transaction size**). When this thread group loads a contiguous 128-byte chunk, the memory controller will clear the entire block of data at once. Furthermore, this block fully saturates a L2 cache line, making any subsequent cache accesses more efficient. If all 32 threads in the warp are each fetching some random chunk scattered across memory, then the memory controller would issue 32 separate transactions, immediately crushing your performance, hopes, and dreams. Note: the coalescing is the maximum bandwidth of the memory controller itself--it has no relation to instructions or how many threads are participating in a load or store. It simply means whether we ask for a 128-byte chunk at once or not. You might notice how 32 threads and 128-bit *instruction* loads is 512 bytes, four times the bandwidth. We'll cover how this works in the next section.
 
-> **Tip**: You should think of vectorized loads in terms of instructions--Can each thread load 128-bits at one time with my data format/layout? 
+> **Tip**: You should think of vectorized loads in terms of instructions--Can each thread load 128-bits at one time with my data format/layout?
 >
-> You should think of coalesced loads in terms of contiguity--can I load 128 bytes from HBM at a time?  
+> You should think of coalesced loads in terms of contiguity--can I load 128 bytes from HBM at a time?
 
 ![Vectorized load example. Can issue 4 fp32 load instructions or just 1 128-bit load and reinterpret as fp32. Byte-addressed, so 0x4 address increment per float.](vec.png)
 
@@ -263,7 +263,7 @@ Those two concepts are **vectorized loads** and **coalesced loads**. They are ve
 
 > Both vectorized and coalesced loads expect the data to be contiguous (e.g. 128 bits and 128 bytes, respectively). If your data are scattered, you might not be able to leverage the full benefit of vectorization and coalescing. However, it's possible that loading 64 bytes or 64 bits at a time could be good enough for your purpose. If memory becomes a bottleneck, you can always consider reformatting the data, or loading out of order, as long as your downstream compute handles the data correctly.
 
-> **Memory coalescing only applies to GMEM/HBM**, while vectorization applies to both GMEM and SMEM, although in slightly different ways. In both cases, we're reducing instruction pressure and increasing our instruction-level parallelism (ILP). We'll cover more details about bank conflicts and swizzling in our [SMEM->register section](#smem-registers) later. 
+> **Memory coalescing only applies to GMEM/HBM**, while vectorization applies to both GMEM and SMEM, although in slightly different ways. In both cases, we're reducing instruction pressure and increasing our instruction-level parallelism (ILP). We'll cover more details about bank conflicts and swizzling in our [SMEM->register section](#smem-registers) later.
 
 ### Copy Atoms
 There are a boatload of copy PTX instructions in CUDA--you can fetch 32 bytes, 64 bytes, one byte, synchronous or asynchronous alike. CuTe neatly packages these copy instructions into a core piece called an `Atom`. These "atomic" pieces are the core hardware instructions that you eventually pass to the `copy` function so it knows what instruction to use to copy your data.
@@ -414,7 +414,7 @@ You might wonder, why 16x8x16 and not 16x16x16? Again, it's a hardware design ch
 2. More register re-use. Each A tile is used twice per B and C tile, reducing the number of simultaneous register reads.
 3. Best "area of efficiency". NVIDIA certainly tested many combos and somehow found this size to be optimal.
 
-This is by far not an exhaustive list, and tensor core shapes change generation-to-generation for a multitude of reasons. It's best to just use it as-is instead of wondering all day why it is this way. The TiledMMA atom conveniently defines which threads get which chunks and which registers are used for the MMA, which we can see below: 
+This is by far not an exhaustive list, and tensor core shapes change generation-to-generation for a multitude of reasons. It's best to just use it as-is instead of wondering all day why it is this way. The TiledMMA atom conveniently defines which threads get which chunks and which registers are used for the MMA, which we can see below:
 
 ![MMA Atom thread layout. We can see each thread gets 32-bits (2 halfs) at a time. For each 16x16 tile, each thread has two 32-bit pairs per row, and only 1 32-bit pair for each 16x8 tile.](mma_atom.png)
 
@@ -428,9 +428,9 @@ using TiledMma = TiledMMA<MMA_Atom<SM80_16x8x16_F32F16F16F32_TN>,
 
 ![Tiled MMA layout. Each solid color is one of four warps. If we had more rows/cols, the color pattern would repeat. The tiled layout for fragment B is pretty much the same as for fragment C, only with a size differnce. Each 16x16 B-tile is composed of two fragments that are 1 N-tile adjacent for shape (K, N). Note that B is transposed in this visualization.](tiled_mma.png)
 
-We chose 128 threads or 4 warps because each SM has 4 resident tensor cores, a sensible choice in order to maximize MMA throughput. For the layout, we tile across the M-dimension, which we take a slice from the left column of Q, and move across the K dimension. This allows each warp to compute a full output row. This makes it easy and efficient to warp-synchronize the online softmax statistics, such as the max and the expsum later down the line. Each tile is `kNWarps` stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$. 
+We chose 128 threads or 4 warps because each SM has 4 resident tensor cores, a sensible choice in order to maximize MMA throughput. For the layout, we tile across the M-dimension, which we take a slice from the left column of Q, and move across the K dimension. This allows each warp to compute a full output row. This makes it easy and efficient to warp-synchronize the online softmax statistics, such as the max and the expsum later down the line. Each tile is `kNWarps` stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$.
 
-> Note that $N$ is 16, not 8, because we must aggregate across adjacent N-atoms to produce one 16x16 output tile due to the 16x8 asymmetry 
+> Note that $N$ is 16, not 8, because we must aggregate across adjacent N-atoms to produce one 16x16 output tile due to the 16x8 asymmetry
 
 ![(16,16) x (16,8) MMA produces an (16,8) output. MMA of one A tile with two adjacent B tiles + concatenation produces one (16,16) output tile.](mma_in_to_out.png)
 
@@ -488,11 +488,11 @@ Unlike the GMEM->SMEM transaction where we copy the whole tile in one go, we can
 ### MMA Shape
 
 The tiled MMA tensors (`tSsQ`, `tSsK`) have shape (MMA, MMA_M, MMA_N) (see visualization in the [fragment reshape section](#fragment-reshape)).
-- `MMA`: shape/number of elements per thread. For our tiled MMA, it's 8 elements per thread for Q and 4 elements per thread for K, V, and the accumulator. The output of our SM80 16x8x16 atom has `MMA=(2,2)`, which means each thread holds 4 values in the shape (2, 2). 
-- `MMA_M` is the number of tiles along M and 
+- `MMA`: shape/number of elements per thread. For our tiled MMA, it's 8 elements per thread for Q and 4 elements per thread for K, V, and the accumulator. The output of our SM80 16x8x16 atom has `MMA=(2,2)`, which means each thread holds 4 values in the shape (2, 2).
+- `MMA_M` is the number of tiles along M and
 - `MMA_N` is the number of tiles along N for tensor with shape (M, N). In this case, `M=kBlockM` and `N=K=kHeadDim` for `tSsQ`. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.
 
-We index these K-tiles via `register(_, _, i)` to grab the relevant K-fragment per loop iteration. The TiledMMA handles the the M and N dimension. 
+We index these K-tiles via `register(_, _, i)` to grab the relevant K-fragment per loop iteration. The TiledMMA handles the the M and N dimension.
 
 ![Macro view of the MMA. We iterate over the K-dimension, each tile multiplying across and summing to form one output tile. The colors just mean they pair, not that they are the same. In the tiled mma, CuTe handles all the M, N work on our behalf. We just have to concatenate via the K-dim.](mma_macro.png)
 
@@ -681,7 +681,7 @@ We can finally replace the layout we used to make `sQ` above. `sK` can `sV` is a
 V is a slightly different beast, since it doesn't follow the row-major loading pattern of Q and K during `O=S@Q`. When we compute our attention scores S, our resulting shape is `(kBlockM, kBlockN)`. Since V is of shape `(kBlockN, kHeadDim)`, we have to transpose V, as our original copy/MMA pattern expects the concatenation dim to be the the second shape dimension. As a result, we have to make transpose-view tensors for V's SMEM layouts in order to make sure the copies and fragments are correct.
 
 ### V: GMEM->SMEM
-To get the maximum coalesced-vectorized load performance, we can simply copy V in its row-major form from GMEM to SMEM. We need to eventually tranpose V before it hits the register fragments, and Ampere and Turing (SM75+) fortunately provide us with some `ldmatrix` instructions that do so. As a result, we only have to worry about the transpose once we hit the SMEM->register stage. The GMEM->SMEM copy fully mirrors the tiled copy for K from earlier:
+To get the maximum coalesced-vectorized load performance, we can simply copy V in its row-major form from GMEM to SMEM. We need to eventually tranpose V before it hits the register fragments, and Ampere and Turing (SM75+) fortunately provide us with some transposed `ldmatrix` instructions that do so. As a result, we only have to worry about the transpose once we hit the SMEM->register stage. The GMEM->SMEM copy fully mirrors the tiled copy for K from earlier:
 
 ```cpp
 Tensor mV = make_tensor(
@@ -700,9 +700,13 @@ Tensor tVsV = gmem_thr_copy_QKV.partition_D(sV);
 ```
 
 ### V: SMEM->Register
-This is the step where we have to tread a bit carefully. V is sitting in SMEM in the same format as Q and K, but now we have to reinterpret the memory in column-major format in order to perform the SMEM->register tiled copy. The way we do this is by composing 
+This is the step where we have to tread a bit carefully. V is sitting in SMEM in the same format as Q and K--contiguous along our `kHeadDim`, so we can't just copy our SMEM->register pipeline from earlier. This part is a bit confusing, so let's visualize our problem first:
 
-provides us with some `ldmatrix` hardware instructions that does a transpose on the fly via the `LDSM_T` (t for transposed) Atom. 
+![alt text](mma_v_layout.png)
+
+but now we have to reinterpret the memory in column-major format in order to perform the SMEM->register tiled copy. The way we do this is by composing
+
+provides us with some `ldmatrix` hardware instructions that does a transpose on the fly via the `LDSM_T` (t for transposed) Atom.
 
 TODO: finish this section:
 
@@ -780,7 +784,7 @@ We want our output shape to be `(2*MMA_M, 2*MMA_N)` to mirror standard 2D row-ma
 print_layout(tiled_mma.get_layoutC_TV());
 ```
 
-![MMA C fragment thread value layout. The row labels are the thread numbers and the columns are the thread values. I truncated it at threads 0-7 for brevity, but the full print shows all 32 threads. There are 8 thread values instead of 4 because this is the full output C tile which is two 16x8 atoms to form the 16x16 output; this is equivalent to the values in two adjacent N-tiles in `acc_s`.](mma_thread_value_layout.png) 
+![MMA C fragment thread value layout. The row labels are the thread numbers and the columns are the thread values. I truncated it at threads 0-7 for brevity, but the full print shows all 32 threads. There are 8 thread values instead of 4 because this is the full output C tile which is two 16x8 atoms to form the 16x16 output; this is equivalent to the values in two adjacent N-tiles in `acc_s`.](mma_thread_value_layout.png)
 
 We can see that thread 0's values `(0, 0)` and `(0, 1)` (values 0 and 1) are at memory locations 0 and 16 while `(8, 0)` and `(8, 1)` are at 8 and 24. Since it's 0th column row 8 is at mem location 8, we see that the thread values are column-major. Therefore, to grab the 2nd row 1st element (`i=1, j=0)`) at tile `(4, 3)`, we would index `((0, 1), 4, 3)` in the original layout. For our reshaped layout, we cannot simply reinterpret the shape to be `(2*MMA_M, 2*MMA_N)` because neither the rows nor columns are contiguous in memory in our tiled fragment. Instead, we have to rely on our handy-dandy hiearchical layouts. We know each `MMA_M` and `MMA_N` has two values, so we can actually map them to 2D via a composed 2D layout: `((MMA_M, 2), (MMA_N, 2)`. Since CuTe is column major, `(MMA_M, 2)` iterates over the `MMA_M` dimension first (every other row, since each M tile is two rows). In our row-major orientation, we want adjacent indices to be adjacent rows, so we can remedy this by flipping the dims: `((2, MMA_M), (2, MMA_N))`. Fixing the strides is easy; we just map each old stride to the new location in the new shape, and that's it:
 
