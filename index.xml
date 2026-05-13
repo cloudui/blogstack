@@ -617,7 +617,20 @@ data-flex-basis="350px"
 &lt;li>More register re-use. Each A tile is used twice per B and C tile, reducing the number of simultaneous register reads.&lt;/li>
 &lt;li>Best &amp;ldquo;area of efficiency&amp;rdquo;. NVIDIA certainly tested many combos and somehow found this size to be optimal.&lt;/li>
 &lt;/ol>
-&lt;p>This is by far not an exhaustive list, and tensor core shapes change generation-to-generation for a multitude of reasons. It&amp;rsquo;s best to just use it as-is instead of wondering all day why it is this way. The TiledMMA atom conveniently defines which threads get which chunks and which registers are used for the MMA (TODO: printing). We now define the full &lt;code>Tiled_MMA&lt;/code>:&lt;/p>
+&lt;p>This is by far not an exhaustive list, and tensor core shapes change generation-to-generation for a multitude of reasons. It&amp;rsquo;s best to just use it as-is instead of wondering all day why it is this way. The TiledMMA atom conveniently defines which threads get which chunks and which registers are used for the MMA, which we can see below:&lt;/p>
+&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom.png"
+width="1338"
+height="1712"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom_hu2245a945016555384b8151cb2072505d_690927_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom_hu2245a945016555384b8151cb2072505d_690927_1024x0_resize_box_3.png 1024w"
+loading="lazy"
+alt="MMA Atom thread layout. We can see each thread gets 32-bits (2 halfs) at a time. For each 16x16 tile, each thread has two 32-bit pairs per row, and only 1 32-bit pair for each 16x8 tile."
+class="gallery-image"
+data-flex-grow="78"
+data-flex-basis="187px"
+>
+&lt;/p>
+&lt;p>With this info, let&amp;rsquo;s define the full &lt;code>Tiled_MMA&lt;/code>:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -630,9 +643,21 @@ data-flex-basis="350px"
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Tile&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">16&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">kNWarps&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_16&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_16&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>We chose 128 threads or 4 warps because each SM has 4 resident tensor cores, a sensible choice in order to maximize MMA throughput. For the layout, we tile across the M-dimension, which we take a slice from the left column of Q, and move across the K dimension. This allows each warp to compute a full output row. This makes it easy and efficient to warp-synchronize the online softmax statistics, such as the max and the expsum later down the line. Each tile is &lt;code>kNWarps&lt;/code> stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$.&lt;/p>
+&lt;/div>&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/tiled_mma.png"
+width="1425"
+height="849"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/tiled_mma_hue92333bbdb5ce9ccc78173b652bc39fa_66545_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/tiled_mma_hue92333bbdb5ce9ccc78173b652bc39fa_66545_1024x0_resize_box_3.png 1024w"
+loading="lazy"
+alt="Tiled MMA layout. Each solid color is one of four warps. If we had more rows/cols, the color pattern would repeat. The tiled layout for fragment B is pretty much the same as for fragment C, only with a size differnce. Each 16x16 B-tile is composed of two fragments that are 1 N-tile adjacent for shape (K, N). Note that B is transposed in this visualization."
+class="gallery-image"
+data-flex-grow="167"
+data-flex-basis="402px"
+>
+&lt;/p>
+&lt;p>We chose 128 threads or 4 warps because each SM has 4 resident tensor cores, a sensible choice in order to maximize MMA throughput. For the layout, we tile across the M-dimension, which we take a slice from the left column of Q, and move across the K dimension. This allows each warp to compute a full output row. This makes it easy and efficient to warp-synchronize the online softmax statistics, such as the max and the expsum later down the line. Each tile is &lt;code>kNWarps&lt;/code> stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$.&lt;/p>
 &lt;blockquote>
-&lt;p>Note that $N$ is 16, not 8, because we must aggregate across adjacent N-atoms to produce one $16x16$ output tile due to the 16x8 asymmetry&lt;/p>
+&lt;p>Note that $N$ is 16, not 8, because we must aggregate across adjacent N-atoms to produce one 16x16 output tile due to the 16x8 asymmetry&lt;/p>
 &lt;/blockquote>
 &lt;p>
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_in_to_out.png"
@@ -646,8 +671,7 @@ data-flex-grow="164"
 data-flex-basis="394px"
 >
 &lt;/p>
-&lt;p>(TODO: MMA layout, shape)&lt;/p>
-&lt;h3 id="tiled_copy-a-b-and-c">Tiled_Copy A, B, and C&lt;/h3>
+&lt;h3 id="tiled-copy-a-b-and-c">Tiled Copy A, B, and C&lt;/h3>
 &lt;p>This time, we need to make a different tiled copy for A, B, and C since the fragment registers are specific to each component per atom. The code patterns is mostly the same, with some SMEM-&amp;gt;register specifics.&lt;/p>
 &lt;p>First, we create the register fragments for each thread according to the tiled MMA:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
@@ -726,13 +750,15 @@ data-flex-basis="394px"
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tXrK&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_thr_copy_K&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">retile_D&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tCrK&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>Retiling doesn&amp;rsquo;t change the underlying registers, it simply allows us to map the 32x4 LDSM load to the specific fragment registers. By default, the 32x4 LDSM instruction is unaware of the underlying tensor op. We retile the fragments so that these u32 map to half_t and align their tile shapes to ensure the eventual copy is correct. (TODO: image). In the final writeback of our output, we&amp;rsquo;ll see how we have to retile the register source when moving data from registers-&amp;gt;SMEM.&lt;/p>
+&lt;/div>&lt;p>Retiling doesn&amp;rsquo;t change the underlying registers, it simply allows us to map the 32x4 LDSM load to the specific fragment registers. By default, the 32x4 LDSM instruction is unaware of the underlying tensor op. We retile the fragments so that these &lt;code>u32&lt;/code> map to &lt;code>half_t&lt;/code> and align their tile shapes to ensure the eventual copy is correct. (TODO: image). In the final writeback of our output, we&amp;rsquo;ll see how we have to retile the register source when moving data from registers-&amp;gt;SMEM.&lt;/p>
 &lt;h2 id="register-copy-and-mma">Register Copy and MMA&lt;/h2>
-&lt;p>Unlike the GMEM-&amp;gt;SMEM transaction where we copy the whole tile in one go, we can pseudo-pipeline the fragment loads while doing the GEMM loop across dimension K. For the TiledMMA, we MMA over dim-K, loading the next tile fragment every iteration. This interleaves the &lt;code>LDMATRIX&lt;/code> instruction with some compute and probably saves a bit of time due to mem controller and tensor core overlap (functional units can execute independently). But mainly, by explicitly telling the compiler when it needs to have certain fragments ready, we can conserve register pressure by only having them available when they are needed. In our case, if we prefetch the next block every iteration, we only really need two register fragments available at any time.&lt;/p>
+&lt;p>Unlike the GMEM-&amp;gt;SMEM transaction where we copy the whole tile in one go, we can pseudo-pipeline the fragment loads while doing the GEMM loop across dimension K. For the TiledMMA, we MMA over dim-K, loading the next tile fragment every iteration. This interleaves the &lt;code>ldmatrix&lt;/code> instruction with some compute and probably saves a bit of time due to mem controller and tensor core overlap (functional units can execute independently). But mainly, by explicitly telling the compiler when it needs to have certain fragments ready, we can conserve register pressure by only having them available when they are needed. In our case, if we prefetch the next block every iteration, we only really need two register fragments available at any time.&lt;/p>
 &lt;h3 id="mma-shape">MMA Shape&lt;/h3>
-&lt;p>The tiled MMA tensors (&lt;code>tSsQ&lt;/code>, &lt;code>tSsK&lt;/code>) have shape (MMA, MMA_M, MMA_N) (TODO: atom layout).&lt;/p>
+&lt;p>The tiled MMA tensors (&lt;code>tSsQ&lt;/code>, &lt;code>tSsK&lt;/code>) have shape (MMA, MMA_M, MMA_N) (see visualization in the &lt;a class="link" href="#fragment-reshape" >fragment reshape section&lt;/a>).&lt;/p>
 &lt;ul>
-&lt;li>MMA: shape/number of elements per thread. For our tiled MMA, it&amp;rsquo;s 8 elements per thread for Q and 4 elements per thread for K, V, and the accumulator. The output of our SM80 16x8x16 atom has &lt;code>MMA=(2,2)&lt;/code>, which means each thread holds 4 values in the shape $(2, 2)$. MMA_M is the number of tiles along M and &lt;code>MMA_N&lt;/code> is the number of tiles along N for tensor with shape (M, N). In this case, &lt;code>M=kBlockM&lt;/code> and &lt;code>N=K=kHeadDim&lt;/code> for &lt;code>tSsQ&lt;/code>. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.&lt;/li>
+&lt;li>&lt;code>MMA&lt;/code>: shape/number of elements per thread. For our tiled MMA, it&amp;rsquo;s 8 elements per thread for Q and 4 elements per thread for K, V, and the accumulator. The output of our SM80 16x8x16 atom has &lt;code>MMA=(2,2)&lt;/code>, which means each thread holds 4 values in the shape (2, 2).&lt;/li>
+&lt;li>&lt;code>MMA_M&lt;/code> is the number of tiles along M and&lt;/li>
+&lt;li>&lt;code>MMA_N&lt;/code> is the number of tiles along N for tensor with shape (M, N). In this case, &lt;code>M=kBlockM&lt;/code> and &lt;code>N=K=kHeadDim&lt;/code> for &lt;code>tSsQ&lt;/code>. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.&lt;/li>
 &lt;/ul>
 &lt;p>We index these K-tiles via &lt;code>register(_, _, i)&lt;/code> to grab the relevant K-fragment per loop iteration. The TiledMMA handles the the M and N dimension.&lt;/p>
 &lt;p>
@@ -1004,7 +1030,7 @@ data-flex-basis="428px"
 &lt;h2 id="dealing-with-v-copies">Dealing with V Copies&lt;/h2>
 &lt;p>V is a slightly different beast, since it doesn&amp;rsquo;t follow the row-major loading pattern of Q and K during &lt;code>O=S@Q&lt;/code>. When we compute our attention scores S, our resulting shape is &lt;code>(kBlockM, kBlockN)&lt;/code>.Since V is of shape &lt;code>(kBlockN, kHeadDim)&lt;/code>, we have to transpose V, as our original copy/MMA pattern expects the concatenation dim to be the the second shape dimension. As a result, we have to make two more tensors for V&amp;rsquo;s SMEM layouts in order to make sure the copies and fragments are correct.&lt;/p>
 &lt;h3 id="v-gmem-smem">V: GMEM-&amp;gt;SMEM&lt;/h3>
-&lt;p>To get the maximum coalesced-vectorized load performance, we can simply copy V in its row-major form from GMEM to SMEM. We need to eventually tranpose V before it hits the register fragments, and Ampere and Turing fortunately provide us with some &lt;code>LDMATRIX&lt;/code> instructions that do so. As a result, we only have to worry about the transpose once we hit the SMEM-&amp;gt;register stage. The GMEM-&amp;gt;SMEM copy fully mirrors the tiled copy for K from earlier:&lt;/p>
+&lt;p>To get the maximum coalesced-vectorized load performance, we can simply copy V in its row-major form from GMEM to SMEM. We need to eventually tranpose V before it hits the register fragments, and Ampere and Turing fortunately provide us with some &lt;code>ldmatrix&lt;/code> instructions that do so. As a result, we only have to worry about the transpose once we hit the SMEM-&amp;gt;register stage. The GMEM-&amp;gt;SMEM copy fully mirrors the tiled copy for K from earlier:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
@@ -1039,7 +1065,7 @@ data-flex-basis="428px"
 &lt;/div>
 &lt;/div>&lt;h3 id="v-smem-register">V: SMEM-&amp;gt;Register&lt;/h3>
 &lt;p>This is the step where we have to tread a bit carefully. V is sitting in SMEM in the same format as Q and K, but now we have to reinterpret the memory in column-major format in order to perform the SMEM-&amp;gt;register tiled copy. The way we do this is by composing&lt;/p>
-&lt;p>provides us with some &lt;code>LDMATRIX&lt;/code> hardware instructions that does a transpose on the fly via the &lt;code>LDSM_T&lt;/code> (t for transposed) Atom.&lt;/p>
+&lt;p>provides us with some &lt;code>ldmatrix&lt;/code> hardware instructions that does a transpose on the fly via the &lt;code>LDSM_T&lt;/code> (t for transposed) Atom.&lt;/p>
 &lt;p>TODO: finish this section:&lt;/p>
 &lt;h1 id="online-softmax">Online Softmax&lt;/h1>
 &lt;p>After $QK^T$, we now deal with the online softmax. Fortunately, this step isn&amp;rsquo;t terribly difficult because of the way we set up the threads. To review, the softmax portion has a couple of steps:&lt;/p>
@@ -1096,26 +1122,26 @@ data-flex-basis="428px"
 &lt;/blockquote>
 &lt;p>However, warp reduction is actually step 2, because it finds the max/sum &lt;em>between threads.&lt;/em> We first have to find the max/sum &lt;em>per-thread&lt;/em>.&lt;/p>
 &lt;h3 id="thread-reduce">Thread Reduce&lt;/h3>
-&lt;p>In every 16x8 MMA output fragment, each thread holds $16\cdot 8 / 32=4$ output values. In order to find the thread&amp;rsquo;s row max or row sum, we have to find the max/sum of all of the elements the thread owns per row, across all the rows each thread touches. If you&amp;rsquo;re confused, don&amp;rsquo;t worry. It will make sense once we examine the MMA Atom&amp;rsquo;s thread layout.&lt;/p>
-&lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom.png"
-width="1338"
-height="1712"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom_hu2245a945016555384b8151cb2072505d_690927_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom_hu2245a945016555384b8151cb2072505d_690927_1024x0_resize_box_3.png 1024w"
-loading="lazy"
-alt="MMA Atom thread layout"
-class="gallery-image"
-data-flex-grow="78"
-data-flex-basis="187px"
->
-&lt;/p>
-&lt;p>Let&amp;rsquo;s look at the bottom right output fragment C this time. Let&amp;rsquo;s look at thread 0. We can see it owns output elements: &lt;code>(0, 0), (0, 1), (8, 0), (8, 1)&lt;/code>. If we examine all other threads, we see that they each own 4 elements across two rows. Let&amp;rsquo;s clarify the math a bit:&lt;/p>
+&lt;p>In every 16x8 MMA output fragment, each thread holds $16\cdot 8 / 32=4$ output values. In order to find the thread&amp;rsquo;s row max or row sum, we have to find the max/sum of all of the elements the thread owns per row, across all the rows each thread touches. If you&amp;rsquo;re confused, don&amp;rsquo;t worry. It will make sense as we re-examine the &lt;a class="link" href="#tiled-mma" >MMA Atom&amp;rsquo;s thread layout&lt;/a> from earlier.&lt;/p>
+&lt;p>Let&amp;rsquo;s look at the bottom right output fragment C this time and zoom in on thread 0&amp;rsquo;s values. We can see it owns output elements: &lt;code>(0, 0), (0, 1), (8, 0), (8, 1)&lt;/code>. If we examine all other threads, we see that they each own 4 elements across two rows. Let&amp;rsquo;s clarify the math a bit:&lt;/p>
 &lt;p>Previously, we saw that the TiledMma has shape &lt;code>(MMA, MMA_M, MMA_N)&lt;/code>. We showed that &lt;code>MMA = (2, 2)&lt;/code>, which refers to the 2 rows, and 2 columns per row each thread holds in the output tile. &lt;code>MMA_M&lt;/code> and &lt;code>MMA_N&lt;/code> can be calculated by how many &lt;code>16x8&lt;/code> tiles fit across the output shape: &lt;code>(kBlockM, kBlockN)&lt;/code>. We can easily see that &lt;code>MMA_M = kBlockM / 16&lt;/code> and &lt;code>MMA_N = kBlockN / 8&lt;/code>. We can see that each thread&amp;rsquo;s values span &lt;code>MMA_M * 2&lt;/code> rows and &lt;code>MMA_N * 2&lt;/code> columns.&lt;/p>
 &lt;blockquote>
 &lt;p>&lt;strong>Note&lt;/strong>: even though we think of tiled MMA in terms of tiles, we must remember that CUDA is still written in the &lt;strong>thread view&lt;/strong>. The CuTe abstractions make this confusing, as the only code we write where we explicitly see this thread-view is via the &lt;code>thread_slice&lt;/code>, which is only like 5 lines of code total. Whenever we look at a fragment tensor, remember this fragment tensor holds each &lt;strong>thread&amp;rsquo;s elements&lt;/strong>, not an entire tile. That is why MMA has shape &lt;code>(2, 2)&lt;/code>. It is often very confusing to mentally switch between this tile view and the thread view.&lt;/p>
 &lt;/blockquote>
 &lt;p>In order to make computation more straightforward, Dao opts to reshape the output fragment into a standard row-major layout, which simplifies the thread reduction to a standard 2D array traversal. Since our block sizes are fixed in our template, we can simply just do a layout reinterpretation using a CuTe layout reshape for free by using static dimensions. You can simply iterate over the slightly more convoluted MMA shape&amp;ndash;the output PTX is identical. &lt;strong>This reshape is fully just a code quality and readability trick.&lt;/strong>&lt;/p>
 &lt;h4 id="fragment-reshape">Fragment Reshape&lt;/h4>
+&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col.png"
+width="1695"
+height="925"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col_hu280d1ebda0c6290d7caa71e02cc9ec1d_86745_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col_hu280d1ebda0c6290d7caa71e02cc9ec1d_86745_1024x0_resize_box_3.png 1024w"
+loading="lazy"
+alt="Visualization of reshape from left: ((2,2), MMA_M, MMA_N) to right, row x wolumn format: (2xMMA_M, 2xMMA_N)."
+class="gallery-image"
+data-flex-grow="183"
+data-flex-basis="439px"
+>
+&lt;/p>
 &lt;p>We can create an inline function for this reshape. The CuTe methods are not super important to know as long as you understand the mechanism behind it; CuTe provides some out-of-the-box methods that make this layout algebra slightly easier for us. Let&amp;rsquo;s understand some shapes first with an example: &lt;code>kBlockM=kBlockN=128, kNWarps=1&lt;/code>.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -1150,15 +1176,12 @@ width="1312"
 height="1314"
 srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout_huf5ef5f6c8af0c31e3f8ca5d56f73a263_186770_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout_huf5ef5f6c8af0c31e3f8ca5d56f73a263_186770_1024x0_resize_box_3.png 1024w"
 loading="lazy"
-alt="MMA C fragment thread value layout"
+alt="MMA C fragment thread value layout. The row labels are the thread numbers and the columns are the thread values. I truncated it at threads 0-7 for brevity, but the full print shows all 32 threads. There are 8 thread values instead of 4 because this is the full output C tile which is two 16x8 atoms to form the 16x16 output; this is equivalent to the values in two adjacent N-tiles in acc_s."
 class="gallery-image"
 data-flex-grow="99"
 data-flex-basis="239px"
 >
 &lt;/p>
-&lt;blockquote>
-&lt;p>The row labels are the thread numbers and the columns are the thread values. I truncated it at threads 0-7 for brevity, but the full print shows all 32 threads. There are 8 thread values instead of 4 because this is the full output C tile which is two 16x8 atoms to form the 16x16 output; this is equivalent to the values in two adjacent N-tiles in &lt;code>acc_s&lt;/code>.&lt;/p>
-&lt;/blockquote>
 &lt;p>We can see that thread 0&amp;rsquo;s values &lt;code>(0, 0)&lt;/code> and &lt;code>(0, 1)&lt;/code> (values 0 and 1) are at memory locations 0 and 16 while &lt;code>(8, 0)&lt;/code> and &lt;code>(8, 1)&lt;/code> are at 8 and 24. Since it&amp;rsquo;s 0th column row 8 is at mem location 8, we see that the thread values are column-major. Therefore, to grab the 2nd row 1st element (&lt;code>i=1, j=0)&lt;/code>) at tile &lt;code>(4, 3)&lt;/code>, we would index &lt;code>((0, 1), 4, 3)&lt;/code> in the original layout. For our reshaped layout, we cannot simply reinterpret the shape to be &lt;code>(2*MMA_M, 2*MMA_N)&lt;/code> because neither the rows nor columns are contiguous in memory in our tiled fragment. Instead, we have to rely on our handy-dandy hiearchical layouts. We know each &lt;code>MMA_M&lt;/code> and &lt;code>MMA_N&lt;/code> has two values, so we can actually map them to 2D via a composed 2D layout: &lt;code>((MMA_M, 2), (MMA_N, 2)&lt;/code>. Since CuTe is column major, &lt;code>(MMA_M, 2)&lt;/code> iterates over the &lt;code>MMA_M&lt;/code> dimension first (every other row, since each M tile is two rows). In our row-major orientation, we want adjacent indices to be adjacent rows, so we can remedy this by flipping the dims: &lt;code>((2, MMA_M), (2, MMA_N))&lt;/code>. Fixing the strides is easy; we just map each old stride to the new location in the new shape, and that&amp;rsquo;s it:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
