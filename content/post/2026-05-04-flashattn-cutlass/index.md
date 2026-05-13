@@ -38,7 +38,7 @@ We're going to make some basic design choices to make this learning exercise sim
 - Clean basic out-of-the-box attention mechanism: no causal masking, RoPE, dropout, etc.
 - head_dim: focus on 64 and 128 block size, although 32 may be covered, though I didn't specifically check
 - Assume sequence length is a power of two, more specifically a multiple of the Q block size.
-- We expect $Q, K, V$ to be in row-major order.
+- We expect $Q, K, V$ to be contiguous along `head_dim`, i.e. all of shape `(seqlen, head_dim)` in PyTorch.
 
 ## Some Naming Conventions
 If you look at the FA2 source code, you might notice they have some weird naming conventions. Some of them are standard CuTe/CUTLASS, some carry over from other things. Here are some patterns:
@@ -144,7 +144,7 @@ Tensors are just a pointer wrapped in a layout. The underlying data is just a po
 static int x[] = {1, 2, ..., 32};
 auto l_row_major = make_layout(make_shape(_8{}, _4{}),
     make_stride(_4{}, _1{}));
-// row major view
+// row-major view
 auto t_row_major = make_tensor(x, l_row_major);
 
 // column major view
@@ -161,11 +161,13 @@ int n_col = t_col_major(2, 3); // 15
 ## Row and Column Major
 In row-major formats, data is stored row-contiguous (C, C++ style), i.e. `A[0][1]` and `A[0][2]` are contiguous in memory.
 
-In column-major formats, data is stored column-contiguous (Fortran, CUBLAS style), i.e. `A[0][1]` and `A[1][1]` are contiguous in memory.
+In column-major formats, data is stored column-contiguous (Fortran style), i.e. `A[0][1]` and `A[1][1]` are contiguous in memory.
 
-The way to tell is by the stride; for any 2D matrix with stride $(a, b)$, the matrix is row-major if $b=1$ and column-major if $a=1$. In CuTe, any layout without a provided stride is **column-major** by default.
+The way to tell is by the stride; for any 2D matrix with stride $(a, b)$, the matrix is row-major if $b=1$ and column-major if $a=1$. In CuTe, any layout without a provided stride is a **column-major** layout by default.
 
-For FA2, Q, K, and V are all **row-major.** Although somewhat arbitrary, most consumer applications or libraries like Pytorch or JAX are row-major by default, so this is the most obvious configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it's also a choice in simplicity.
+> **Note**: The column-major default has **nothing to do with your underlying data**. It's just a consistent indexing pattern that NVIDIA chose. 
+
+For FA2, Q, K, and V are all **row-major** along the sequence (`(seq_len, head_dim)`). This means each row represents a token or activation. Although somewhat arbitrary, most consumer applications or libraries like Pytorch or JAX are row-major by default, so this is the most obvious configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it's also a choice in simplicity.
 
 ## Composed/Hierarchical Layouts
 The last bit of confusing layout algebra is hierarchical layouts. CuTe lets us compose layouts into multiple dimensions. For example, a layout of shape `Shape<_8>` can be composed to be `Shape<_4, _2>` or `Shape<_2, _4>`. We can iterate over the 8 block in groups of 1, 2, 4, or 8. The strides determine which direction we do so (row or column major). This is no different than normal layout re-interpretation from the [tensor section above](#tensors), but CuTe allows us to nest layouts for extremely granular layout interpretation.
@@ -200,8 +202,11 @@ CuTe uses column-major indexing, which is their way of consistenly enforcing 1D-
 i = idx % M
 j = idx / M
 ```
+For 3D+ tensors, it means stride increases from left to right, starting at `_1{}`.
 
 Again, this is the opposite of the C/C++/Pytorch row-major standard. As long as you remember this column-major indexing system, everything will be fine. If not, then you'll probably end up scratching your head for hours. This means for many composed layouts, you'll likely have to flip the order for composed shapes for the indices to be row-major adjacent. If you think this sucks, I agree. This is probably *the* most annoying part of learning CuTe because things do not align with your expectations. Unfortunately, the only way to learn is via trial by fire.
+
+> **Tip**: Most of the time, you will be specifying the shape and stride. When you deal with certain tiled copies or MMAs, you might end up having colex indexing for something that is row-major. In this case, it just means your row/column indices are flipped. What you expect to be `A[i][j]` should be `A[j][i]`. That's it--it doesn't actually change your underlying memory layout, just the indexing changes. If you indexed into 2D with just an integer (i.e. `A[idx]`), both colex/rolex return the same memory address. 
 
 # CuTe, Copy, then Cry
 ## A100 (Ampere) Specs
@@ -398,7 +403,9 @@ Getting deja vu yet? This time, we define the tiling for the MMA GEMM. We define
 ```cpp
 // TN means transposed-normal for AxB. It's a historical convention
 // that you can search up.
-// Practically, it means both A and B are row-major
+// Practically, it means both A and B are row-major across M, N
+// i.e. K-dim is contiguous
+// (M, K), (N, K)
 using TiledMmaAtom = MMA_Atom<SM80_16x8x16_F32F16F16F32_TN>
 ```
 
@@ -671,10 +678,10 @@ auto SmemLayoutQ = tile_to_shape(SmemLayoutAtomQ{},
 We can finally replace the layout we used to make `sQ` above. `sK` can `sV` is an exercise left to the reader.
 
 ## Dealing with V Copies
-V is a slightly different beast, since it doesn't follow the row-major loading pattern of Q and K during `O=S@Q`. When we compute our attention scores S, our resulting shape is `(kBlockM, kBlockN)`.Since V is of shape `(kBlockN, kHeadDim)`, we have to transpose V, as our original copy/MMA pattern expects the concatenation dim to be the the second shape dimension. As a result, we have to make two more tensors for V's SMEM layouts in order to make sure the copies and fragments are correct.
+V is a slightly different beast, since it doesn't follow the row-major loading pattern of Q and K during `O=S@Q`. When we compute our attention scores S, our resulting shape is `(kBlockM, kBlockN)`. Since V is of shape `(kBlockN, kHeadDim)`, we have to transpose V, as our original copy/MMA pattern expects the concatenation dim to be the the second shape dimension. As a result, we have to make transpose-view tensors for V's SMEM layouts in order to make sure the copies and fragments are correct.
 
 ### V: GMEM->SMEM
-To get the maximum coalesced-vectorized load performance, we can simply copy V in its row-major form from GMEM to SMEM. We need to eventually tranpose V before it hits the register fragments, and Ampere and Turing fortunately provide us with some `ldmatrix` instructions that do so. As a result, we only have to worry about the transpose once we hit the SMEM->register stage. The GMEM->SMEM copy fully mirrors the tiled copy for K from earlier:
+To get the maximum coalesced-vectorized load performance, we can simply copy V in its row-major form from GMEM to SMEM. We need to eventually tranpose V before it hits the register fragments, and Ampere and Turing (SM75+) fortunately provide us with some `ldmatrix` instructions that do so. As a result, we only have to worry about the transpose once we hit the SMEM->register stage. The GMEM->SMEM copy fully mirrors the tiled copy for K from earlier:
 
 ```cpp
 Tensor mV = make_tensor(
