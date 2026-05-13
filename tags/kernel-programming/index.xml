@@ -105,7 +105,7 @@ O &amp;amp;= S \cdot V
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
 &lt;/span>&lt;/code>&lt;/pre>&lt;/td>
 &lt;td class="lntd">
-&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">A&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">][&lt;/span>&lt;span class="n">j&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="n">stride_row&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">j&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="n">stride_column&lt;/span>
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">A&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">][&lt;/span>&lt;span class="n">j&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="n">stride_i&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">j&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="n">stride_j&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>Each index operation is a multiply and add, which can be quite costly. Instead, when we can, we opt to use for statics: type wrappers used by CUTLASS to allow the value to be known at compile time. It&amp;rsquo;s just a C++ compiler trick that allows CuTe to compute all indexing during compilation rather at runtime, saving the GPU from having to do so while its running. Obviously, you can only do this if sizes are predetermined, either because they are definite, templated, or constant. So instead of passing in &lt;code>make_stride(2, 4)&lt;/code>, we can pass in &lt;code>make_stride(Int&amp;lt;2&amp;gt;{}, _4{})&lt;/code>. Functionally, these are the same, but any subsequent indexing done will be done at compile time for the latter.&lt;/p>
@@ -349,15 +349,15 @@ O &amp;amp;= S \cdot V
 &lt;p>Since NVIDIA introduced the Ampere architecture, we can now take advantage of asynchronous copying from GMEM-&amp;gt;SMEM to help us overlap our tile fetches with compute. Before, you might have had to wait hundreds or thousands of cycles for your bytes to hit your SMEM; on Ampere, we can issue some loads and immediately begin doing useful work while the memory loads in the background.&lt;/p>
 &lt;p>The async design pattern is quite simple:&lt;/p>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/async-pipeline.jpg"
-width="1824"
-height="1044"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/async-pipeline_hu41e04d310d2ca8dd240508c01a14a0a9_136069_480x0_resize_q75_box.jpg 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/async-pipeline_hu41e04d310d2ca8dd240508c01a14a0a9_136069_1024x0_resize_q75_box.jpg 1024w"
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/async_pipeline.png"
+width="2308"
+height="1284"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/async_pipeline_hu246a953f40b88517180cbe2b4a521786_239370_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/async_pipeline_hu246a953f40b88517180cbe2b4a521786_239370_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/async_pipeline_hu246a953f40b88517180cbe2b4a521786_239370_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/async_pipeline.png 2308w"
 loading="lazy"
 alt="Fetch next data, do stuff with current data, wait for new data, and repeat."
 class="gallery-image"
-data-flex-grow="174"
-data-flex-basis="419px"
+data-flex-grow="179"
+data-flex-basis="431px"
 >
 &lt;/p>
 &lt;p>We&amp;rsquo;ll cover how we apply this pattern to Q, K, V later on. There are some small CuTe details to be aware of, but the overal idea is exactly the same.&lt;/p>
@@ -374,21 +374,21 @@ data-flex-basis="419px"
 &lt;/blockquote>
 &lt;p>
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/vec.png"
-width="1383"
-height="898"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/vec_hu3b1a91ebc11c118da9419f128fbee10e_84713_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/vec_hu3b1a91ebc11c118da9419f128fbee10e_84713_1024x0_resize_box_3.png 1024w"
+width="1814"
+height="1274"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/vec_hu330d518e49285b7068a4fe6df27d5816_171152_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/vec_hu330d518e49285b7068a4fe6df27d5816_171152_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/vec.png 1814w"
 loading="lazy"
 alt="Vectorized load example. Can issue 4 fp32 load instructions or just 1 128-bit load and reinterpret as fp32. Byte-addressed, so 0x4 address increment per float."
 class="gallery-image"
-data-flex-grow="154"
-data-flex-basis="369px"
+data-flex-grow="142"
+data-flex-basis="341px"
 >
 &lt;/p>
 &lt;p>
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/coalesce.png"
 width="1788"
 height="984"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/coalesce_hu841b47aa88dd1af49e00c1cc3f4212d4_342432_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/coalesce_hu841b47aa88dd1af49e00c1cc3f4212d4_342432_1024x0_resize_box_3.png 1024w"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/coalesce_hu841b47aa88dd1af49e00c1cc3f4212d4_342432_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/coalesce_hu841b47aa88dd1af49e00c1cc3f4212d4_342432_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/coalesce.png 1788w"
 loading="lazy"
 alt="Coalesced load example. Four threads want 128-bits&amp;ndash;making a 64-byte contiguous chunk. The memory controller combines it into one transaction."
 class="gallery-image"
@@ -488,14 +488,14 @@ data-flex-basis="436px"
 &lt;/div>
 &lt;/div>&lt;p>
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/gmem_tiling.png"
-width="1179"
-height="807"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/gmem_tiling_huac84ecf92c863a617563e22346b683fb_63727_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/gmem_tiling_huac84ecf92c863a617563e22346b683fb_63727_1024x0_resize_box_3.png 1024w"
+width="1828"
+height="1186"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/gmem_tiling_hu8471f6b995ae5327f227a2a9278bf604_124679_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/gmem_tiling_hu8471f6b995ae5327f227a2a9278bf604_124679_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/gmem_tiling.png 1828w"
 loading="lazy"
 alt="The tiling strategy above, but assume two warps, not four to show how warps cycle. Each row is 8 threads, each square is a thread&amp;rsquo;s 128-bit load (8 fp16s). Each full tile is two warp-loads, four rows per warp, so 8 rows per tile."
 class="gallery-image"
-data-flex-grow="146"
-data-flex-basis="350px"
+data-flex-grow="154"
+data-flex-basis="369px"
 >
 &lt;/p>
 &lt;p>The way to think about this is that this &lt;code>Tiled_Copy&lt;/code> is the tiling strategy for your source memory (GMEM in this case). All 128 threads load the first 128 contiguous 128-bit chunks, finish, then move onto the next 128 chunks until the entire GMEM section is copied. Even though this example is for a GMEM source, &lt;code>Tiled_Copy&lt;/code> works between GMEM, SMEM, and per-thread registers. It doesn&amp;rsquo;t know what anything is, it&amp;rsquo;s just the floorplan, and we&amp;rsquo;re responsible for providing the expected input.&lt;/p>
@@ -633,7 +633,7 @@ data-flex-basis="350px"
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom.png"
 width="1338"
 height="1712"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom_hu2245a945016555384b8151cb2072505d_690927_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom_hu2245a945016555384b8151cb2072505d_690927_1024x0_resize_box_3.png 1024w"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom_hu2245a945016555384b8151cb2072505d_690927_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom_hu2245a945016555384b8151cb2072505d_690927_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom.png 1338w"
 loading="lazy"
 alt="MMA Atom thread layout. We can see each thread gets 32-bits (2 halfs) at a time. For each 16x16 tile, each thread has two 32-bit pairs per row, and only 1 32-bit pair for each 16x8 tile."
 class="gallery-image"
@@ -656,14 +656,14 @@ data-flex-basis="187px"
 &lt;/div>
 &lt;/div>&lt;p>
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/tiled_mma.png"
-width="1425"
-height="849"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/tiled_mma_hue92333bbdb5ce9ccc78173b652bc39fa_66545_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/tiled_mma_hue92333bbdb5ce9ccc78173b652bc39fa_66545_1024x0_resize_box_3.png 1024w"
+width="2046"
+height="1194"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/tiled_mma_hu6d0f913c83b5c5c4c0c7a54bbb63ffab_119902_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/tiled_mma_hu6d0f913c83b5c5c4c0c7a54bbb63ffab_119902_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/tiled_mma.png 2046w"
 loading="lazy"
 alt="Tiled MMA layout. Each solid color is one of four warps. If we had more rows/cols, the color pattern would repeat. The tiled layout for fragment B is pretty much the same as for fragment C, only with a size differnce. Each 16x16 B-tile is composed of two fragments that are 1 N-tile adjacent for shape (K, N). Note that B is transposed in this visualization."
 class="gallery-image"
-data-flex-grow="167"
-data-flex-basis="402px"
+data-flex-grow="171"
+data-flex-basis="411px"
 >
 &lt;/p>
 &lt;p>We chose 128 threads or 4 warps because each SM has 4 resident tensor cores, a sensible choice in order to maximize MMA throughput. For the layout, we tile across the M-dimension, which we take a slice from the left column of Q, and move across the K dimension. This allows each warp to compute a full output row. This makes it easy and efficient to warp-synchronize the online softmax statistics, such as the max and the expsum later down the line. Each tile is &lt;code>kNWarps&lt;/code> stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$.&lt;/p>
@@ -672,14 +672,14 @@ data-flex-basis="402px"
 &lt;/blockquote>
 &lt;p>
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_in_to_out.png"
-width="1425"
-height="867"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_in_to_out_hua90aa440725bf91e7a04bae0e1e4e8f4_46250_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_in_to_out_hua90aa440725bf91e7a04bae0e1e4e8f4_46250_1024x0_resize_box_3.png 1024w"
+width="2000"
+height="1202"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_in_to_out_hud13a14ae1d8af1c8036e837b47af987c_92685_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_in_to_out_hud13a14ae1d8af1c8036e837b47af987c_92685_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_in_to_out.png 2000w"
 loading="lazy"
 alt="(16,16) x (16,8) MMA produces an (16,8) output. MMA of one A tile with two adjacent B tiles &amp;#43; concatenation produces one (16,16) output tile."
 class="gallery-image"
-data-flex-grow="164"
-data-flex-basis="394px"
+data-flex-grow="166"
+data-flex-basis="399px"
 >
 &lt;/p>
 &lt;h3 id="tiled-copy-a-b-and-c">Tiled Copy A, B, and C&lt;/h3>
@@ -774,14 +774,14 @@ data-flex-basis="394px"
 &lt;p>We index these K-tiles via &lt;code>register(_, _, i)&lt;/code> to grab the relevant K-fragment per loop iteration. The TiledMMA handles the the M and N dimension.&lt;/p>
 &lt;p>
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro.png"
-width="1920"
-height="1080"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro_hu110751cbf1136b643edcd767580f3e1b_55858_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro_hu110751cbf1136b643edcd767580f3e1b_55858_1024x0_resize_box_3.png 1024w"
+width="2270"
+height="1244"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro_hu04f74aa79072a560bd0ec98594996ed7_145696_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro_hu04f74aa79072a560bd0ec98594996ed7_145696_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro_hu04f74aa79072a560bd0ec98594996ed7_145696_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro.png 2270w"
 loading="lazy"
 alt="Macro view of the MMA. We iterate over the K-dimension, each tile multiplying across and summing to form one output tile. The colors just mean they pair, not that they are the same. In the tiled mma, CuTe handles all the M, N work on our behalf. We just have to concatenate via the K-dim."
 class="gallery-image"
-data-flex-grow="177"
-data-flex-basis="426px"
+data-flex-grow="182"
+data-flex-basis="437px"
 >
 &lt;/p>
 &lt;p>Here&amp;rsquo;s the full GEMM block:&lt;/p>
@@ -943,7 +943,7 @@ data-flex-basis="426px"
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32.png"
 width="3114"
 height="1577"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32_hu6596b57894f6490cbf0e273c8793060d_380231_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32_hu6596b57894f6490cbf0e273c8793060d_380231_1024x0_resize_box_3.png 1024w"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32_hu6596b57894f6490cbf0e273c8793060d_380231_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32_hu6596b57894f6490cbf0e273c8793060d_380231_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32_hu6596b57894f6490cbf0e273c8793060d_380231_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32.png 3114w"
 loading="lazy"
 alt="32x32 swizzle pattern"
 class="gallery-image"
@@ -956,7 +956,7 @@ data-flex-basis="473px"
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-8x8.png"
 width="1749"
 height="980"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-8x8_hu6a7db30d722cbb431d4322770efc8b0b_91421_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-8x8_hu6a7db30d722cbb431d4322770efc8b0b_91421_1024x0_resize_box_3.png 1024w"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-8x8_hu6a7db30d722cbb431d4322770efc8b0b_91421_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-8x8_hu6a7db30d722cbb431d4322770efc8b0b_91421_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-8x8.png 1749w"
 loading="lazy"
 alt="8x8 swizzle pattern"
 class="gallery-image"
@@ -1041,7 +1041,7 @@ data-flex-basis="428px"
 &lt;h2 id="dealing-with-v-copies">Dealing with V Copies&lt;/h2>
 &lt;p>V is a slightly different beast, since it doesn&amp;rsquo;t follow the row-major loading pattern of Q and K during &lt;code>O=S@Q&lt;/code>. When we compute our attention scores S, our resulting shape is &lt;code>(kBlockM, kBlockN)&lt;/code>. Since V is of shape &lt;code>(kBlockN, kHeadDim)&lt;/code>, we have to transpose V, as our original copy/MMA pattern expects the concatenation dim to be the the second shape dimension. As a result, we have to make transpose-view tensors for V&amp;rsquo;s SMEM layouts in order to make sure the copies and fragments are correct.&lt;/p>
 &lt;h3 id="v-gmem-smem">V: GMEM-&amp;gt;SMEM&lt;/h3>
-&lt;p>To get the maximum coalesced-vectorized load performance, we can simply copy V in its row-major form from GMEM to SMEM. We need to eventually tranpose V before it hits the register fragments, and Ampere and Turing (SM75+) fortunately provide us with some &lt;code>ldmatrix&lt;/code> instructions that do so. As a result, we only have to worry about the transpose once we hit the SMEM-&amp;gt;register stage. The GMEM-&amp;gt;SMEM copy fully mirrors the tiled copy for K from earlier:&lt;/p>
+&lt;p>To get the maximum coalesced-vectorized load performance, we can simply copy V in its row-major form from GMEM to SMEM. We need to eventually tranpose V before it hits the register fragments, and Ampere and Turing (SM75+) fortunately provide us with some transposed &lt;code>ldmatrix&lt;/code> instructions that do so. As a result, we only have to worry about the transpose once we hit the SMEM-&amp;gt;register stage. The GMEM-&amp;gt;SMEM copy fully mirrors the tiled copy for K from earlier:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
@@ -1075,7 +1075,20 @@ data-flex-basis="428px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;h3 id="v-smem-register">V: SMEM-&amp;gt;Register&lt;/h3>
-&lt;p>This is the step where we have to tread a bit carefully. V is sitting in SMEM in the same format as Q and K, but now we have to reinterpret the memory in column-major format in order to perform the SMEM-&amp;gt;register tiled copy. The way we do this is by composing&lt;/p>
+&lt;p>This is the step where we have to tread a bit carefully. V is sitting in SMEM in the same format as Q and K&amp;ndash;contiguous along our &lt;code>kHeadDim&lt;/code>, so we can&amp;rsquo;t just copy our SMEM-&amp;gt;register pipeline from earlier. This part is a bit confusing, so let&amp;rsquo;s visualize our problem first:&lt;/p>
+&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_v_layout.png"
+width="1920"
+height="1080"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_v_layout_hu0ed971fc0e6f32098603b2d6f2c28536_106126_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_v_layout_hu0ed971fc0e6f32098603b2d6f2c28536_106126_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_v_layout.png 1920w"
+loading="lazy"
+alt="alt text"
+class="gallery-image"
+data-flex-grow="177"
+data-flex-basis="426px"
+>
+&lt;/p>
+&lt;p>but now we have to reinterpret the memory in column-major format in order to perform the SMEM-&amp;gt;register tiled copy. The way we do this is by composing&lt;/p>
 &lt;p>provides us with some &lt;code>ldmatrix&lt;/code> hardware instructions that does a transpose on the fly via the &lt;code>LDSM_T&lt;/code> (t for transposed) Atom.&lt;/p>
 &lt;p>TODO: finish this section:&lt;/p>
 &lt;h1 id="online-softmax">Online Softmax&lt;/h1>
@@ -1143,14 +1156,14 @@ data-flex-basis="428px"
 &lt;h4 id="fragment-reshape">Fragment Reshape&lt;/h4>
 &lt;p>
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col.png"
-width="1695"
-height="925"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col_hu280d1ebda0c6290d7caa71e02cc9ec1d_86745_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col_hu280d1ebda0c6290d7caa71e02cc9ec1d_86745_1024x0_resize_box_3.png 1024w"
+width="2310"
+height="1270"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col_hu75a85792dfe651d98ea8fc8269578250_161303_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col_hu75a85792dfe651d98ea8fc8269578250_161303_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col_hu75a85792dfe651d98ea8fc8269578250_161303_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col.png 2310w"
 loading="lazy"
 alt="Visualization of reshape from left: ((2,2), MMA_M, MMA_N) to right, row x wolumn format: (2xMMA_M, 2xMMA_N)."
 class="gallery-image"
-data-flex-grow="183"
-data-flex-basis="439px"
+data-flex-grow="181"
+data-flex-basis="436px"
 >
 &lt;/p>
 &lt;p>We can create an inline function for this reshape. The CuTe methods are not super important to know as long as you understand the mechanism behind it; CuTe provides some out-of-the-box methods that make this layout algebra slightly easier for us. Let&amp;rsquo;s understand some shapes first with an example: &lt;code>kBlockM=kBlockN=128, kNWarps=1&lt;/code>.&lt;/p>
@@ -1185,7 +1198,7 @@ data-flex-basis="439px"
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout.png"
 width="1312"
 height="1314"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout_huf5ef5f6c8af0c31e3f8ca5d56f73a263_186770_480x0_resize_box_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout_huf5ef5f6c8af0c31e3f8ca5d56f73a263_186770_1024x0_resize_box_3.png 1024w"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout_huf5ef5f6c8af0c31e3f8ca5d56f73a263_186770_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout_huf5ef5f6c8af0c31e3f8ca5d56f73a263_186770_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout.png 1312w"
 loading="lazy"
 alt="MMA C fragment thread value layout. The row labels are the thread numbers and the columns are the thread values. I truncated it at threads 0-7 for brevity, but the full print shows all 32 threads. There are 8 thread values instead of 4 because this is the full output C tile which is two 16x8 atoms to form the 16x16 output; this is equivalent to the values in two adjacent N-tiles in acc_s."
 class="gallery-image"
