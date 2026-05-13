@@ -16,12 +16,12 @@ I made the unfortunate decision to read through the FlashAttention-v2 paper mayb
 
 I made the unfortunate mistake of thinking I actually understood the algorithm in its entirety. At a surface level, sure, but such triviality only exists in the abstract. It was akin to me thinking that I could build a microwave simply because I know how it works. However, I was not amateur enough as to simply read the paper, I wanted to implement it myself like the engineer that I am. I had heard Triton was making waves in the GPU sea, and I decided to take a venture into its wake. I started by making some simple kernels: a softmax here, a SwiGLU there. One or two hours of barely any code, and I was done. Easy peasy. In fact, I wrote the full flash attention kernel within two or three days during the work week and achieved similar-ish performance to pytorch's native implementation on smaller sequence lengths within this time. I replicated Tri Dao's work in a fraction of the time, and I didn't even optimize my kernel that much along the way. I was feeling unstoppable.
 
-I made the unfortunate oversight of trying to rewrite the kernel using CUDA. Obviously, two days of work with only a few sweats of confusion wasn't enough to satiate my hunger. I felt as though Triton had taught me nothing of GPU programming, and I wanted more. In the throne room of luxury and convenience, I sought the caves and the jungles. With a few more drops of sweat and maybe a few tears, I finished a few elementary kernels in CUDA. Piece of two-layer cake. But, I wanted that 12-layer wedding cake. I sought to recreate flash attention in its full glory, and it seemed like I was equipped to do so. Over the course of the next week or two, I would complete a first draft iteration of FlashAttention-v2 using a somewhat outdated WMMA API, achieving...only 20% of native FA2 performance. Clearly, this old WMMA abstraction wouldn't cut it. I looked at Dao Lab's source code, and it looked nothing like the verbose mess of for loops and somewhat-understandable code in my repository.
+I made the unfortunate oversight of trying to rewrite the kernel using CUDA. Obviously, two days of work with only a few sweats of confusion wasn't enough to satiate my hunger. I felt as though Triton had taught me nothing of GPU programming, and I wanted more. In the throne room of luxury and convenience, I sought the caves and the jungles. With a few more drops of sweat and maybe a few tears, I finished a few elementary kernels in CUDA. Piece of two-layer cake. But, I wanted that 12-layer wedding cake. I sought to recreate flash attention in its full glory, and it seemed like I was equipped to do so. Over the course of the next week or two, I would complete a first draft iteration of FlashAttention-v2 using a somewhat outdated WMMA API, achieving...only 20% of native FA2 performance. Clearly, this old WMMA abstraction wouldn't cut it. I looked at Dao's source code, and it looked nothing like the verbose mess of for loops and somewhat-understandable code in my repository.
 
 I made the unfortunate blunder of rewriting my kernel with CuTe in C++. As with any performance library, I had to rewrite the entire kernel using a poorly documented library with complex syntax and abstracted BS that somehow is way faster. What I thought would be a somewhat simple task turned out to be a nightmare in understanding. It's a path I'm sure any low-level developer had to cross at some point in their journey, and I am certain they have seen the fear in the eyes of the avoiders and the stockpile of bodies along the way. After many pools of sweat, many hairs pulled, and many neurons disintegrated, I finally found success. But, I was not filled with glory, confidence, or peace. In the end, I could only feel relief and a massive sense of responsibility to aid any traveler who dare wish to traverse this same path.
 
 # FlashAttention-v2
-If you're reading this, I will assume you already have a solid understanding of the attention mechanism and at least the basics of the FlashAttention algorithm itself. If not, I recommend reading Tri Dao's original paper to build your understanding of the algorithm before coming back. Or, you could just read the article as is, because you will probably piece it together through the struggle of trying to understand. It would be helpful for you to at least know the pseudocode/baseline algorithm for FA2, and it would be even better if you have maybe tried simulating it in pytorch (or your framework of choice) or maybe even implemented it in Triton.
+If you're reading this, I will assume you already have a solid understanding of the attention mechanism and at least the basics of the FlashAttention algorithm itself. If not, I recommend reading the original flash attention paper[^5] to build your understanding of the algorithm before coming back. Or, you could just read the article as is, because you will probably piece it together through the struggle of trying to understand. It would be helpful for you to at least know the pseudocode/baseline algorithm for FA2, and it would be even better if you have maybe tried simulating it in pytorch (or your framework of choice) or maybe even implemented it in Triton.
 
 If you've never touched CUDA, you should at least try to understand its SIMT programming nature and maybe implement some basic level kernels using this thread-level view. Try to build your understanding of how CUDA works and a solid understanding of NVIDIA's GPU architecture, from threads to warps to thread blocks to SMs and beyond. I will talk about a lot of these concepts as if you at least have a basic understanding of them. I will be as comprehensive as I can, but it will be an uphill battle should you try to read this blog in its entirety without some background knowledge.
 
@@ -41,7 +41,7 @@ We're going to make some basic design choices to make this learning exercise sim
 - We expect $Q, K, V$ to be in row-major order.
 
 ## Some Naming Conventions
-If you look at Dao Lab's source code, you might notice they have some weird naming conventions. Some of them are standard CuTe/CUTLASS, some carry over from other things. Here are some patterns:
+If you look at the FA2 source code, you might notice they have some weird naming conventions. Some of them are standard CuTe/CUTLASS, some carry over from other things. Here are some patterns:
 - Starts with k: compile-time constant, e.g. `kBlockM`, `kHeadDim`
 - $M, N, K$: All of general matrix-multiply (GEMM) parameters are in this order for a $(M, K) \times (K, N)$ matrix-multiply. Hence, the shape of Q is `(kBlockM, kHeadDim)` and the shape of K, V is `(kBlockN, kHeadDim)`.
 
@@ -229,18 +229,43 @@ The entire point of FA2 or even GPU optimization in general is to maximize compu
 | **L2 Cache** | 40 MB or 80 MB |
 
 ## GMEM->SMEM (Async Copying)
-A rule of thumb is to have approximately **150-200 FLOPs per byte loaded from HBM**. On Ampere, we can take advantage of asynchronous copies from GMEM->SMEM that can help us overlap a meaningful amount of the tile fetches with compute. This means our threads can do other stuff without having to immediately stall for memory fetches.
+A rule of thumb is to have approximately **150-200 FLOPs per byte loaded from HBM**. Although this particular number is quite arbitrary depending on your kernel or GPU, it's a universal theme to overlap loads/stores with your actual compute.
 
-Memory coalescing is also extremely important here. GPUs never fetch just one byte at a time; they can fetch a whole 32, 64, or 128-byte chunk at a time. Ideally, a warp fetching a full 128-byte contiguous block allows the GPU to issue one instruction to clear this entire block of data. Furthermore, this block fully saturates a L2 cache line, making any subsequent cache accesses more efficient. If all 32 threads in the warp are each fetching some random chunk scattered across memory, then the memory controller would issue 32 separate transactions, immediately crushing your performance, hopes, and dreams. So in principle, we would love for all 32 threads to "coalesce" by fetching 128-byte contiguous blocks of data. Let's introduce how we do that in CuTe.
+Since NVIDIA introduced the Ampere architecture, we can now take advantage of asynchronous copying from GMEM->SMEM to help us overlap our tile fetches with compute. Before, you might have had to wait hundreds or thousands of cycles for your bytes to hit your SMEM; on Ampere, we can issue some loads and immediately begin doing useful work while the memory loads in the background.
 
-> Memory coalescing is a hardware mechanism specifically for GMEM/HBM. **It does not apply to SMEM**. As long as the load *from* GMEM or a store *to* GMEM is a consecutive 128-bytes, we benefit from memory coalescing.
+The async design pattern is quite simple:
+
+![Fetch next data, do stuff with current data, wait for new data, and repeat.](async-pipeline.jpg)
+
+We'll cover how we apply this pattern to Q, K, V later on. There are some small CuTe details to be aware of, but the overal idea is exactly the same.
+
+Although you might think we can kind of async set and forget, there are two important concepts we need to be aware of that could potentially crush our performance if we're not careful:
+
+### Vectorized and Coalesced Loads
+
+Those two concepts are **vectorized loads** and **coalesced loads**. They are very similar in meaning and are often a point of confusion, so let's break them down here:
+
+- **Vectorized Loads**: A *thread* loading as much data as it can in one *instruction*. Since we're working with fp16, we could naively load one 16-bit number at a time. However, all NVIDIA chips today support a 128-bit load instruction *per-thread*: `LDG.E.128` (and it's SMEM counterpart `LDS.E.128`), which can load 8 fp16 numbers in one go. Memory transactions are funny in that a 16-bit load and 128-bit load take the same amount of time, so if we load 16-bits at a time, we immediately slash our performance by 8x. So instead, when we can, we load 128 bits at a time and decompose it into 8 halfs (1 fp16 = 1 half).
+- **Coalesced Loads**: A *group of threads* loading as much data as it can in one *transaction*. GPUs never fetch from HBM just one byte at a time; they can fetch a whole 32, 64, or 128-byte chunk in one go (i.e. the **transaction size**). When this thread group loads a contiguous 128-byte chunk, the memory controller will clear the entire block of data at once. Furthermore, this block fully saturates a L2 cache line, making any subsequent cache accesses more efficient. If all 32 threads in the warp are each fetching some random chunk scattered across memory, then the memory controller would issue 32 separate transactions, immediately crushing your performance, hopes, and dreams. Note: the coalescing is the maximum bandwidth of the memory controller itself--it has no relation to instructions or how many threads are participating in a load or store. It simply means whether we ask for a 128-byte chunk at once or not. You might notice how 32 threads and 128-bit *instruction* loads is 512 bytes, four times the bandwidth. We'll cover how this works in the next section.
+
+> **Tip**: You should think of vectorized loads in terms of instructions--Can each thread load 128-bits at one time with my data format/layout? 
+>
+> You should think of coalesced loads in terms of contiguity--can I load 128 bytes from HBM at a time?  
+
+![Vectorized load example. Can issue 4 fp32 load instructions or just 1 128-bit load and reinterpret as fp32. Byte-addressed, so 0x4 address increment per float.](vec.png)
+
+![Coalesced load example. Four threads want 128-bits--making a 64-byte contiguous chunk. The memory controller combines it into one transaction.](coalesce.png)
+
+> Both vectorized and coalesced loads expect the data to be contiguous (e.g. 128 bits and 128 bytes, respectively). If your data are scattered, you might not be able to leverage the full benefit of vectorization and coalescing. However, it's possible that loading 64 bytes or 64 bits at a time could be good enough for your purpose. If memory becomes a bottleneck, you can always consider reformatting the data, or loading out of order, as long as your downstream compute handles the data correctly.
+
+> **Memory coalescing only applies to GMEM/HBM**, while vectorization applies to both GMEM and SMEM, although in slightly different ways. In both cases, we're reducing instruction pressure and increasing our instruction-level parallelism (ILP). We'll cover more details about bank conflicts and swizzling in our [SMEM->register section](#smem-registers) later. 
 
 ### Copy Atoms
-There are a boatload of copy PTX instructions in CUDA. You can fetch 32 bytes, 64 bytes, one byte, synchronous or asynchronous alike. CuTe neatly packages these copy instructions into a core piece called an `Atom`. These "atomic" pieces are the core hardware instructions that you eventually pass to the `copy` function so it knows what instruction to use to copy your data.
+There are a boatload of copy PTX instructions in CUDA--you can fetch 32 bytes, 64 bytes, one byte, synchronous or asynchronous alike. CuTe neatly packages these copy instructions into a core piece called an `Atom`. These "atomic" pieces are the core hardware instructions that you eventually pass to the `copy` function so it knows what instruction to use to copy your data.
 
 Ampere has a specific asynchronous `Copy_Atom` with the architecture name `SM_80`: `SM80_CP_ASYNC_CACHEGLOBAL<bit_size>` or `SM80_CP_ASYNC_CACHEALWAYS<bit_size>`. The `cache_global` and `cache_always` map to the PTX instructions `ld.global.cg.u32` and `ld.global.ca.u32`; `cache_global` loads straight from L2 to the destination, skipping over L1 cache, while `cache_always` also loads the data into L1. Most kernels will use `cache_always` by default because of improved spatial and temporal locality across threads. But, in FA2, we never reference Q, K, or V again once they are loaded into SMEM--therefore, we can bypass the L2 cache, which is slightly faster. It also reduces thrashing at the L1 level and allows more important data to stay in-cache. In practice, this is a micro-optimization and relatively not that important.
 
-The `bit_size` supports up to 128-bit loads. **Bits**, not bytes, as these atoms are **per-thread**. The memory controller indeed loves sending the full fat 128-bytes per warp, but CUDA views all transactions at the thread-level. Hence, our atom loads a total of $128 \cdot 32 / 8 = 512$ bytes. This means each 128-bit fetch across the 32 threads in a warp takes $512/128 =4$ memory transactions in 4 "phases" (more on this later). For our purposes, we want that full coalesced 128-bit power using `cache_global`. We can define the `Copy_Atom` with the following syntax:
+The `bit_size` supports up to 128-bit loads. **Bits**, not bytes, as these atoms viewed through the **thread perspective**. Hence, our atom loads a total of $128 \text{ bytes} \cdot 32 / 8 = 512 \text{ bytes}$. This means each 128-bit fetch across the 32 threads in a warp takes $512/128 =4$ memory transactions in four "phases" (more on this later). For our purposes, we want that full coalesced 128-bit power using `cache_global`. We can define the `Copy_Atom` with the following code:
 
 ```cpp
 #include <cute/atom/copy_atom.hpp>
@@ -249,9 +274,11 @@ using GmemCopyAtom = Copy_Atom<SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>,
 ```
 We use the cute namespace types for robustness, and our source data type is fp16 (`cute::half_t`). Each thread therefore loads $128/16=8$ halfs.
 
-We have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes or 128 words[^1] or 4x32 bank accesses (see bank conflicts section below). The async proxy issues the load/store in 4 phases using quarter-warps, or 8 threads at a time.[^2] In phase 1, threads 0-7 load the first 8 128-bit chunks. In phase 2, threads 8-15 do the next 8, and so on and so forth. In each phase, each quarter warp issues a contiguous 8x128-bit or 128-byte coalesced copy, which targets all 32 banks without any conflicts. So by design, our async copies perfectly copy our data using the full HBM bandwidth.
+#### How do 32 threads load 128 bits each?
 
-### Tiled_Copy
+We have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes or 128 words[^2] or 4x32 bank accesses (see [bank conflicts section](#bank-conflicts-and-smem-layout) below). The GPU cannot physically load 512 bytes in one go, so the async proxy issues the load/store in **four phases**, 8 threads at a time (called a quarter-warp).[^3] In phase 1, threads 0-7 load the first 8 128-bit chunks. In phase 2, threads 8-15 do the next 8, and so on and so forth. In each phase, each quarter warp issues a contiguous 8x128-bit or 128-byte coalesced copy, which targets all 32 banks without any conflicts. So by design, our async copies perfectly copy our data using the full HBM bandwidth.
+
+### Tiled Copy
 Even though each thread copies 128 bits, each thread block is usually working with a variable amount of threads/warps. Given the 4 tensor cores per SM, 4 warps per block is typically a good choice for FA2. This means we have to determine how to copy each Q, K, V tile using these 128-bit async copies.
 
 CuTe uses `Tiled_Copy`, which "tiles" the memory you are trying to copy (in this case, GMEM) in a structured way over your entire memory region. It outlines the "tiling strategy" that your threads will follow.
@@ -267,9 +294,9 @@ using MyTiledCopy = decltype(make_tiled_copy(
 ));
 ```
 
-The tiled copy function `make_tiled_copy` takes in the atom, the thread layout, and the values given to each thread. Our `Copy_Atom` is 128-bit wide chunk of 8 fp16 numbers, which is 8 values per thread. Given our row-major inputs, the output layout has to be: `Layout<Shape<_1, _8>>{}`. The layout is the thread layout, i.e. how you want to distribute your threads per tile. Assuming `kNThreads=128`, we have to give each thread a 128-bit chunk. The stride determines which 128-thread tile of memory comes next. The easiest strategy is to simply spread the tiles across along columns and then the rows, essentially filling it from the top like an upside-down cup.
+The tiled copy function `make_tiled_copy` takes in the atom, the thread layout, and the values given to each thread. Our `Copy_Atom` is 128-bit wide chunk of 8 fp16 numbers, which is 8 values per thread. Given our row-major inputs, the output layout has to be: `Layout<Shape<_1, _8>>{}`. The layout is the *thread layout*, i.e. how you want to distribute your threads per tile. Assuming `kNThreads=128`, we have to give each thread a 128-bit chunk. The stride determines which 128-thread tile of memory comes next. The easiest strategy is to simply spread the tiles across along columns and then the rows, essentially filling it from the top (see image below).
 
-Funnily enough, it gets slightly tricky here because of bank conflict optimization. Dao uses the same tiled copy setup for Q, K, V despite them having slightly different dimensions. We'll revisit this when we talk about bank conflicts, but for now, assume our smem block is of shape `(_, kBlockKSmem)`, where `kBlockKSmem` is the column width for all 3 tensors. We can compute the layout as:
+> Funnily enough, this gets slightly tricky here because of bank conflict optimization. Dao uses the same tiled copy setup for Q, K, V despite them having slightly different dimensions. We'll revisit this when we talk about bank conflicts, but for now, assume our smem block is of shape `(_, kBlockKSmem)`, where `kBlockKSmem` is the column width for all 3 tensors. We can compute the layout as:
 
 ```cpp
 // pseudocode; assume static constexpr ints
@@ -291,9 +318,11 @@ using TiledCopyQKV = decltype(make_tiled_copy(
 ));
 ```
 
+![The tiling strategy above, but assume two warps, not four to show how warps cycle. Each row is 8 threads, each square is a thread's 128-bit load (8 fp16s). Each full tile is two warp-loads, four rows per warp, so 8 rows per tile.](gmem_tiling.png)
+
 The way to think about this is that this `Tiled_Copy` is the tiling strategy for your source memory (GMEM in this case). All 128 threads load the first 128 contiguous 128-bit chunks, finish, then move onto the next 128 chunks until the entire GMEM section is copied. Even though this example is for a GMEM source, `Tiled_Copy` works between GMEM, SMEM, and per-thread registers. It doesn't know what anything is, it's just the floorplan, and we're responsible for providing the expected input.
 
-### Tiled_Copy, Source and Destination
+### Tiled Copy, Source and Destination
 Our `Tiled_Copy` determines how our source is tiled, but we now have to configure the destination. The layout of the destination is determined by the destination tensor's tensor layout. The `Tiled_Copy` simply places the threads data in the "same place" it was loaded from. The destination layout can essentially be anything as long as it is compatible with the `Copy_Atom`. Since we have 128-bit loads/stores, the destination tensor layout must accept aligned 8-half blocks (more on this in swizzling). For now, we can ignore what the output tensor is. `Tiled_Copy` has a specific pattern for copying between a source and a destination: a thread view, partitioning step, and then finally, the copy.
 
 ```cpp
@@ -363,7 +392,7 @@ using SmemCopyAtom = Copy_Atom<SM75_U32x4_LDSM_N, cute::half_t>;
 
 Our copy atom this time leverages the `LDSM` PTX instruction: Load from Shared Memory with the "N"ormal row-major/no-transpose layout. It moves 4 words = 128 bits per instruction, similar to our async load from before. However, this instruction is specialized to copy from shared memory to the correct registers for MMA, vectorizing per-warp loads and bypassing bank conflicts. However, unlike for GMEM->SMEM, our tiled copy has to be aware of the MMA layout as well as the relevant thread fragments, which differ between fragments A, B, and C.
 
-### Tiled_MMA
+### Tiled MMA
 Getting deja vu yet? This time, we define the tiling for the MMA GEMM. We define the following Tiled MMA atom:
 
 ```cpp
@@ -386,7 +415,11 @@ using TiledMma = TiledMMA<MMA_Atom<SM80_16x8x16_F32F16F16F32_TN>,
     Tile<Int<16 * kNWarps>, _16, _16>>;
 ```
 
-We chose 128 threads or 4 warps because each SM has 4 resident tensor cores, a sensible choice in order to maximize MMA throughput. For the layout, we tile across the M-dimension, which we take a slice from the left column of Q, and move across the K dimension. This allows each warp to compute a full output row. This makes it easy and efficient to warp-synchronize the online softmax statistics, such as the max and the expsum later down the line. Each tile is `kNWarps` stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$. $N$ is 16, not 8, because we must aggregate across adjacent N-atoms to produce one $16x16$ output tile due to the 16x8 asymmetry (TODO: image).
+We chose 128 threads or 4 warps because each SM has 4 resident tensor cores, a sensible choice in order to maximize MMA throughput. For the layout, we tile across the M-dimension, which we take a slice from the left column of Q, and move across the K dimension. This allows each warp to compute a full output row. This makes it easy and efficient to warp-synchronize the online softmax statistics, such as the max and the expsum later down the line. Each tile is `kNWarps` stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$. 
+
+> Note that $N$ is 16, not 8, because we must aggregate across adjacent N-atoms to produce one $16x16$ output tile due to the 16x8 asymmetry 
+
+![(16,16) x (16,8) MMA produces an (16,8) output. MMA of one A tile with two adjacent B tiles + concatenation produces one (16,16) output tile.](mma_in_to_out.png)
 
 (TODO: MMA layout, shape)
 
@@ -445,7 +478,9 @@ Unlike the GMEM->SMEM transaction where we copy the whole tile in one go, we can
 The tiled MMA tensors (`tSsQ`, `tSsK`) have shape (MMA, MMA_M, MMA_N) (TODO: atom layout).
 - MMA: shape/number of elements per thread. For our tiled MMA, it's 8 elements per thread for Q and 4 elements per thread for K, V, and the accumulator. The output of our SM80 16x8x16 atom has `MMA=(2,2)`, which means each thread holds 4 values in the shape $(2, 2)$. MMA_M is the number of tiles along M and `MMA_N` is the number of tiles along N for tensor with shape (M, N). In this case, `M=kBlockM` and `N=K=kHeadDim` for `tSsQ`. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.
 
-We index these K-tiles via `register(_, _, i)` to grab the relevant K-fragment per loop iteration. The TiledMMA handles the the M and N dimension. (TODO: image)
+We index these K-tiles via `register(_, _, i)` to grab the relevant K-fragment per loop iteration. The TiledMMA handles the the M and N dimension. 
+
+![Macro view of the MMA. We iterate over the K-dimension, each tile multiplying across and summing to form one output tile. The colors just mean they pair, not that they are the same. In the tiled mma, CuTe handles all the M, N work on our behalf. We just have to concatenate via the K-dim.](mma_macro.png)
 
 Here's the full GEMM block:
 
@@ -629,7 +664,31 @@ auto SmemLayoutQ = tile_to_shape(SmemLayoutAtomQ{},
 We can finally replace the layout we used to make `sQ` above. `sK` can `sV` is an exercise left to the reader.
 
 ## Dealing with V Copies
-V is a slightly different beast, since it doesn't follow the row-major loading pattern of Q and K. When we compute our attention scores S, our resulting shape is `(kBlockM, kBlockN)`.Since V is of shape `(kBlockN, kHeadDim)`, we have to transpose V, as our original copy/MMA pattern expects the concatenation dim to be the the second shape dimension. As a result, we have to make two more tensors for V's SMEM layouts in order to make sure the copies and fragments are correct.
+V is a slightly different beast, since it doesn't follow the row-major loading pattern of Q and K during `O=S@Q`. When we compute our attention scores S, our resulting shape is `(kBlockM, kBlockN)`.Since V is of shape `(kBlockN, kHeadDim)`, we have to transpose V, as our original copy/MMA pattern expects the concatenation dim to be the the second shape dimension. As a result, we have to make two more tensors for V's SMEM layouts in order to make sure the copies and fragments are correct.
+
+### V: GMEM->SMEM
+To get the maximum coalesced-vectorized load performance, we can simply copy V in its row-major form from GMEM to SMEM. We need to eventually tranpose V before it hits the register fragments, and Ampere and Turing fortunately provide us with some `LDMATRIX` instructions that do so. As a result, we only have to worry about the transpose once we hit the SMEM->register stage. The GMEM->SMEM copy fully mirrors the tiled copy for K from earlier:
+
+```cpp
+Tensor mV = make_tensor(
+    make_gmem_ptr(reinterpret_cast<const cute::half_t *>(params.v_ptr) +
+                batch_idx * params.v_batch_stride +
+                head_idx * params.v_head_stride),
+    make_shape(params.seqlen_k, params.head_dim),
+    make_stride(params.v_row_stride, _1{}));
+Tensor gV = local_tile(mV, make_shape(Int<kBlockN>{}, Int<kHeadDim>{}),
+                        make_coord(_, 0));
+Tensor sV =
+    make_tensor(sK.data() + size(sK), typename Traits::SmemLayoutKV{});
+// (VCPY, VCPY_N, VCPY_K, nblocksN)
+Tensor tVgV = gmem_thr_copy_QKV.partition_S(gV);
+Tensor tVsV = gmem_thr_copy_QKV.partition_D(sV);
+```
+
+### V: SMEM->Register
+This is the step where we have to tread a bit carefully. V is sitting in SMEM in the same format as Q and K, but now we have to reinterpret the memory in column-major format in order to perform the SMEM->register tiled copy. The way we do this is by composing 
+
+provides us with some `LDMATRIX` hardware instructions that does a transpose on the fly via the `LDSM_T` (t for transposed) Atom. 
 
 TODO: finish this section:
 
@@ -642,7 +701,7 @@ After $QK^T$, we now deal with the online softmax. Fortunately, this step isn't 
 4. Apply correction to output/accumulator: `acc *= correction`
 5. Apply correction and compute new expsum denominator: `l = l*correction + scores_exp.sum(dim=-1)`
 
-To track the softmax state, Dao opts for an organized softmax struct that keeps track of the rolling max and expsum registers per thread:
+To track the softmax state, the source code opts for an organized softmax struct that keeps track of the rolling max and expsum registers per thread:
 
 ```cpp
 template <int kNRows> struct Softmax {
@@ -669,7 +728,7 @@ softmax_rescale_o(Tensor0 &acc_s, // (MMA, MMA_M, MMA_N) score block, fp32
 So what actually goes into computing the max and the sum?
 
 ## Row Reduce
-If we structured our MMA in a way where threads across multiple warps had each tile's output data, we would have to stage information through SMEM for cross-warp reduction, which would be significantly slower and more complicated. With miraculous foresight, we set up our MMA fragments where each warp holds an entire row's output for each tile. With 128 threads, we have 4 warps each owning 16 rows per MMA tile (see our `TiledMma` to refresh), each spanning the entire row. This allows us to use **warp reduction**, which is a "highly efficient CUDA parallel reduction technique that aggregates data across 32 threads within a single GPU warp."[^3] CUDA provides us with warp primitives such as `__shfl_down_sync()` or `__shfl_xor_sync()`, which allow us to easily shuffle data across all threads in a warp without any load/stores or staging through shared memory. As a result, there is zero memory latency or synchronization barriers, which makes our max/sum step ultra fast.
+If we structured our MMA in a way where threads across multiple warps had each tile's output data, we would have to stage information through SMEM for cross-warp reduction, which would be significantly slower and more complicated. With miraculous foresight, we set up our MMA fragments where each warp holds an entire row's output for each tile. With 128 threads, we have 4 warps each owning 16 rows per MMA tile (see our `TiledMma` to refresh), each spanning the entire row. This allows us to use **warp reduction**, which is a "highly efficient CUDA parallel reduction technique that aggregates data across 32 threads within a single GPU warp."[^4] CUDA provides us with warp primitives such as `__shfl_down_sync()` or `__shfl_xor_sync()`, which allow us to easily shuffle data across all threads in a warp without any load/stores or staging through shared memory. As a result, there is zero memory latency or synchronization barriers, which makes our max/sum step ultra fast.
 
 > Warp reduction is the primary and fastest way to perform intra-warp communication.
 
@@ -740,7 +799,7 @@ j_tuple = (6 mod 2, 6/2 mod 16) = (0, 3)
 final_address = (1*2 + 4*4) + (0*1 + 3*32) = 114
 ```
 
-All of this row-major column-major conversion is extremely confusing and annoying and was a huge source of unbelievable headache. All of this work simply for a reshape in code. You could have kept the column major ordering or not reshaped at all, but at least you can now understand the FA2 production source code. Dao Lab implements this approach as such:
+All of this row-major column-major conversion is extremely confusing and annoying and was a huge source of unbelievable headache. All of this work simply for a reshape in code. You could have kept the column major ordering or not reshaped at all, but at least you can now understand the FA2 production source code. Dao implements this approach like such:
 
 ```cpp
 template <typename Layout>
@@ -798,7 +857,7 @@ We use the `size<>` declarator to get the row and column sizes, and we add a `ze
 ### Warp Reduce
 Now, each thread has its max and sum, so we now warp-find the max and sum between all threads. CUDA and GPUs all follow a tree-reduce paradigm; instead of looping over all threads in $O(n)$ time, pairs of threads reduce among each other at each step, single elimination bracket-style. Each iteration, we reduce half the threads so at the end, we only require $O(\log(n))$ iterations to find the final max.
 
-The simplest strategy is where each thread pairs up with the thread $N/2$ above it. Thread 0 pairs with 16, 1 with 17, until 15 with 31. Threads 0-15 have the max. Then Thread 0 pairs with 8, 1 with 9, until 7 and 15. At each step, we half the step (16->8->4->2->1), until thread 0 has the final max. CUDA calls this reduction `__shfl_down_sync()`, which would be good enough except that only one thread ends up with the final value at the end. However, in our case, each thread needs to know the max/sum in order to calculate the final softmax. Instead, we use the primitive `__shfl_xor_sync()` instead. You might tense up at the idea of XOR again, but I'm not going to explain it this time. But like in swizzling, the primitive creates a bit sharing mask where all the threads pair up in a way where they all end up with the final value at the end.[^4]
+The simplest strategy is where each thread pairs up with the thread $N/2$ above it. Thread 0 pairs with 16, 1 with 17, until 15 with 31. Threads 0-15 have the max. Then Thread 0 pairs with 8, 1 with 9, until 7 and 15. At each step, we half the step (16->8->4->2->1), until thread 0 has the final max. CUDA calls this reduction `__shfl_down_sync()`, which would be good enough except that only one thread ends up with the final value at the end. However, in our case, each thread needs to know the max/sum in order to calculate the final softmax. Instead, we use the primitive `__shfl_xor_sync()` instead. You might tense up at the idea of XOR again, but I'm not going to explain it this time. But like in swizzling, the primitive creates a bit sharing mask where all the threads pair up in a way where they all end up with the final value at the end.[^5]
 
 Most shuffle primitives take in a bitmask of all participating threads, a value, and a stride:
 
@@ -995,7 +1054,7 @@ Registers->SMEM->Registers->GMEM
 
 You might be wondering: if we're going go from SMEM back to registers why don't we just write it back from the fragments? The answer is n-fold:
 
-1. **No GMEM->SMEM instructions**: Ampere has the nice async GMEM->SMEM pipeline, but there is no direct SMEM->GMEM pipeline. Therefore, we have to stage the SMEM blocks in registers before writing back to HBM.
+1. **No SMEM->GMEM instructions**: Ampere has the nice async GMEM->SMEM pipeline, but there is no direct SMEM->GMEM pipeline. Therefore, we have to stage the SMEM blocks in registers before writing back to HBM.
 2. **Vectorization**: The fragments are stored as per-thread shapes, which are scattered halfs across all the registers. To write back to gmem, each thread writes one fp32 at a time across a bunch of scattered memory addresses. Given what we know about the memory bus and vectorization, this is excruciatingly inefficient and slow. By staging through SMEM, each thread can write a full 128-bit block in one instruction like before.
 3. **Coalescing**: Furthermore, we can group all 32 threads into a contiguous block to coalesce the store into the 512-byte memory transaction like before.
 
@@ -1022,7 +1081,7 @@ Tensor sO = make_tensor(sQ.data(), SmemLayoutQ{});
 
 The next step is to define the tiled copy. Even though Ampere supports the `SM75` (Turing) `LDSM` instructions for loading MMA fragments, there is no analogous store instruction. The `STSM` instructions were actually introduced for the H100 Hopper architecture (`SM90`), but only God knows why they didn't have them earlier. Instead, we can just do a typical vectorized copy back to SMEM.
 
-Funnily enough, Dao Lab takes the lazy route and uses:
+Funnily enough, the FA2 source code takes the lazy route and uses:
 
 ```cpp
 using SmemCopyAtomO =
@@ -1124,10 +1183,10 @@ Haha, not quite yet. There is a slight bug in our epilogue as-is. Between the re
 
 
 My AI learning guide had led me astray more times than I could count, but somehow I still had faith that somehow it wouldn't disappoint me this time.
-My AI learning guide had led me astray more times than I could count, but somehow I still had faith that somehow it wouldn't disappoint me this time.
 
 # Appendix
-[^1]: A word is 4 bytes (32-bits). This term is slightly ambiguous based on architecture or context, e.g. a word for a n-bit CPU processor means n-bits. But in CUDA, it almost always means 32-bits. Other alternatives include scalars, floats, or bank-widths, but we will stick to the word "word" when discussing bank conflicts.
-[^2]: https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html
-[^3]: https://developer.nvidia.com/blog/using-cuda-warp-level-primitives/
-[^4]: Oxford shuffle lecture notes, p. 6 for xor shuffle: https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf
+[^1]: Tri Dao original FA2 paper: https://arxiv.org/pdf/2307.08691
+[^2]: A word is 4 bytes (32-bits). This term is slightly ambiguous based on architecture or context, e.g. a word for a n-bit CPU processor means n-bits. But in CUDA, it almost always means 32-bits. Other alternatives include scalars, floats, or bank-widths, but we will stick to the word "word" when discussing bank conflicts.
+[^3]: https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html
+[^4]: https://developer.nvidia.com/blog/using-cuda-warp-level-primitives/
+[^5]: Oxford shuffle lecture notes, p. 6 for xor shuffle: https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf
