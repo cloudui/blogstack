@@ -71,33 +71,53 @@ O &amp;amp;= S \cdot V
 &lt;/ol>
 &lt;p>Only 11 steps and they&amp;rsquo;re all pretty simple in concept&amp;hellip;Let&amp;rsquo;s take a deeper look into the implementation details.&lt;/p>
 &lt;h1 id="cute-the-basics">CuTe, the Basics&lt;/h1>
-&lt;p>Bombarding you up front with all the design choices in CuTe/CUTLASS will only confuse you, and the best way to learn is honestly by necessity. However, having some basic info is still probably required, so I will bombard you with some sadness before we move onto the &amp;ldquo;cool&amp;rdquo; stuff.&lt;/p>
+&lt;p>Bombarding you up front with all the design choices in CuTe/CUTLASS will only confuse you, and the best way to learn is by necessity. I skipping to the FA2 implementation and coming back to this section when you become lost. It&amp;rsquo;s hard to internalize the motivations for certain CuTe features until you actually encounter the problems they are meant to solve.&lt;/p>
+&lt;p>In this section, I won&amp;rsquo;t cover or explain all the APIs. You can intuit 90% of them from the examples and the FA2 code. However, you can always refer to CuTe&amp;rsquo;s documentation for all of the library and syntax details: &lt;a class="link" href="https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html" target="_blank" rel="noopener"
+>https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html&lt;/a>.&lt;/p>
 &lt;h2 id="background">Background&lt;/h2>
-&lt;p>CuTe is essentially a templating engine that allows you to manipulate memory using tensors, shapes, layouts, data types, and strides, sort of similar to pytorch&amp;rsquo;s &lt;code>torch.Tensor&lt;/code> object. Unfortunately, it&amp;rsquo;s not nearly as friendly. But, if you&amp;rsquo;re familiar with any deep learning library, these concepts should click pretty quickly. It allows you to declare a general &amp;ldquo;shape&amp;rdquo; once and if you template it with a fp32 vs fp16, you can just pass the relevant parameters to your kernel template.&lt;/p>
-&lt;p>However, you are still responsible for all of the sizes. It may be able to extract fp16 from a 128-bit load, but you&amp;rsquo;ll have to figure out that 128-bits is 8 fp16 numbers. It just handles the typing on your behalf and lets you index stuff more easily. This will click later.&lt;/p>
+&lt;p>CuTe is essentially a templating engine that allows you to manipulate memory using tensors, shapes, layouts, data types, and strides, quite similar to pytorch&amp;rsquo;s &lt;code>torch.Tensor&lt;/code> object. Unfortunately, it&amp;rsquo;s not nearly as friendly and much more powerful. But, if you&amp;rsquo;re familiar with any deep learning library, these concepts should click pretty quickly. It allows you to declare a general &amp;ldquo;shape&amp;rdquo; once and if you template it with a fp32 vs fp16, you can just pass the relevant parameters to your kernel template.&lt;/p>
+&lt;p>In CuTe, you are still responsible for all of the sizes. The code may be able to extract fp16 from a 128-bit load, but you&amp;rsquo;ll have to figure out that 128-bits is 8 fp16 numbers. It just handles the typing on your behalf and lets you index things with some nicer code. It certainly is not &amp;ldquo;easier&amp;rdquo; and is often a nightmare to read. You&amp;rsquo;ll see why pretty soon.&lt;/p>
 &lt;h2 id="layouts-shapes-and-strides">Layouts, Shapes, and Strides&lt;/h2>
 &lt;p>Ah yes, back to tensor school. A shape and stride is precisely the same concept as in PyTorch. A layout is just a composition of a shape and a stride.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
-&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
-&lt;/span>&lt;span class="lnt">2
-&lt;/span>&lt;span class="lnt">3
-&lt;/span>&lt;span class="lnt">4
-&lt;/span>&lt;span class="lnt">5
-&lt;/span>&lt;span class="lnt">6
-&lt;/span>&lt;span class="lnt">7
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;span class="lnt">15
+&lt;/span>&lt;span class="lnt">16
 &lt;/span>&lt;/code>&lt;/pre>&lt;/td>
 &lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="cp">#include&lt;/span> &lt;span class="cpf">&amp;lt;cute/tensor.hpp&amp;gt;&lt;/span>&lt;span class="cp">
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span>&lt;span class="c1">// runnable just like this without GPU
-&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">layout&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_16&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
-&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">layout_1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">8&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">16&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{}),&lt;/span>
-&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">layout&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">layout_1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">8&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{}),&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="p">{}));&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">print_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">layout&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// this is the shape of a torch.tensor([[0]*8 for _ in range(16)]).T
-&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// print
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">)&lt;/span>&lt;span class="o">:&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="mi">0&lt;/span> &lt;span class="mi">1&lt;/span> &lt;span class="mi">2&lt;/span> &lt;span class="mi">3&lt;/span> &lt;span class="mi">4&lt;/span> &lt;span class="mi">5&lt;/span> &lt;span class="mi">6&lt;/span> &lt;span class="mi">7&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="o">+----+----+----+----+----+----+----+----+&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="mi">0&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">0&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">1&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">2&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">3&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">4&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">5&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">6&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">7&lt;/span> &lt;span class="o">|&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="o">+----+----+----+----+----+----+----+----+&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="mi">1&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">8&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">9&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">10&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">11&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">12&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">13&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">14&lt;/span> &lt;span class="o">|&lt;/span> &lt;span class="mi">15&lt;/span> &lt;span class="o">|&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="o">+----+----+----+----+----+----+----+----+&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>A shape of (8, 16) with stride (1, 8). Pretty simple. Both declarations are identical. So what&amp;rsquo;s with the freaky underscores?&lt;/p>
+&lt;/div>&lt;p>A shape of (2, 8) with stride (8, 1), and CuTe provides us with a nice &lt;code>print_layout&lt;/code> function to see the shape and indexing. Pretty simple. Both declarations are identical. So what&amp;rsquo;s with the freaky underscores?&lt;/p>
 &lt;h2 id="statically-vs-dynamically-typed">Statically vs. Dynamically Typed&lt;/h2>
 &lt;p>Any standard C++ integer passed into a layout, shape, or stride is dynamically typed, i.e. its value is only known at runtime (e.g. int, const int, static int). Even CUDA&amp;rsquo;s &lt;code>constexpr int&lt;/code> is treated as such by CuTe. Any time you index into a tensor, the library will compute&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
@@ -105,7 +125,7 @@ O &amp;amp;= S \cdot V
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
 &lt;/span>&lt;/code>&lt;/pre>&lt;/td>
 &lt;td class="lntd">
-&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">A&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">][&lt;/span>&lt;span class="n">j&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="n">stride_i&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">j&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="n">stride_j&lt;/span>
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">A&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">][&lt;/span>&lt;span class="n">j&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="n">stride_row&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">j&lt;/span>&lt;span class="o">*&lt;/span>&lt;span class="n">stride_col&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>Each index operation is a multiply and add, which can be quite costly. Instead, when we can, we opt to use for statics: type wrappers used by CUTLASS to allow the value to be known at compile time. It&amp;rsquo;s just a C++ compiler trick that allows CuTe to compute all indexing during compilation rather at runtime, saving the GPU from having to do so while its running. Obviously, you can only do this if sizes are predetermined, either because they are definite, templated, or constant. So instead of passing in &lt;code>make_stride(2, 4)&lt;/code>, we can pass in &lt;code>make_stride(Int&amp;lt;2&amp;gt;{}, _4{})&lt;/code>. Functionally, these are the same, but any subsequent indexing done will be done at compile time for the latter.&lt;/p>
@@ -186,16 +206,166 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">n_col&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">t_col_major&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="c1">// 15
 &lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;h2 id="row-and-column-major">Row and Column Major&lt;/h2>
-&lt;p>In row-major formats, data is stored row-contiguous (C, C++ style), i.e. &lt;code>A[0][1]&lt;/code> and &lt;code>A[0][2]&lt;/code> are contiguous in memory.&lt;/p>
-&lt;p>In column-major formats, data is stored column-contiguous (Fortran style), i.e. &lt;code>A[0][1]&lt;/code> and &lt;code>A[1][1]&lt;/code> are contiguous in memory.&lt;/p>
-&lt;p>The way to tell is by the stride; for any 2D matrix with stride $(a, b)$, the matrix is row-major if $b=1$ and column-major if $a=1$. In CuTe, any layout without a provided stride is a &lt;strong>column-major&lt;/strong> layout by default.&lt;/p>
+&lt;/div>&lt;h2 id="layout-hell-row-and-column-major">Layout Hell: Row and Column Major&lt;/h2>
+&lt;p>Welcome to layout hell. The layout intro from earlier probably seemed easy enough, but you&amp;rsquo;ll realize that 90% of the difficulty in understanding CuTe comes from layout algebra. You might think you understand easy concepts row-major or column-major, but I&amp;rsquo;m here to tell you that unless you&amp;rsquo;ve sat down and drawn these stupid squares over and over again, you probably don&amp;rsquo;t.&lt;/p>
+&lt;h3 id="row-major-the-first-layer-of-hell">Row-Major: The First Layer of Hell&lt;/h3>
+&lt;p>A standard human math matrix follows a row-major paradigm. There are M rows and N rows and element $(i, j)$ points to the element in the &lt;code>i-th&lt;/code> row along M and &lt;code>j-th&lt;/code> column along N. If you&amp;rsquo;ve made arrays in most programming languages like C, Go, or numpy/torch, it&amp;rsquo;s precisely the same. Here&amp;rsquo;s a 4x6 row-major matrix that&amp;rsquo;s zero-indexed. We will call this the &lt;strong>logical view&lt;/strong>.&lt;/p>
+&lt;p>$$
+\begin{bmatrix}
+a_{00} &amp;amp; a_{01} &amp;amp; a_{02} &amp;amp; a_{03} &amp;amp; a_{04} &amp;amp; a_{05} \\
+a_{10} &amp;amp; a_{11} &amp;amp; a_{12} &amp;amp; a_{13} &amp;amp; a_{14} &amp;amp; a_{15} \\
+a_{20} &amp;amp; a_{21} &amp;amp; a_{22} &amp;amp; a_{23} &amp;amp; a_{24} &amp;amp; a_{25} \\
+a_{30} &amp;amp; a_{31} &amp;amp; a_{32} &amp;amp; a_{33} &amp;amp; a_{34} &amp;amp; a_{35}
+\end{bmatrix}
+$$&lt;/p>
 &lt;blockquote>
-&lt;p>&lt;strong>Note&lt;/strong>: The column-major default has &lt;strong>nothing to do with your underlying data&lt;/strong>. It&amp;rsquo;s just a consistent indexing pattern that NVIDIA chose.&lt;/p>
+&lt;p>Math majors might find this zero-indexing sacriligeous, but I&amp;rsquo;d imagine they&amp;rsquo;re not reading this blog anyway.&lt;/p>
 &lt;/blockquote>
-&lt;p>For FA2, Q, K, and V are all &lt;strong>row-major&lt;/strong> along the sequence (&lt;code>(seq_len, head_dim)&lt;/code>). This means each row represents a token or activation. Although somewhat arbitrary, most consumer applications or libraries like Pytorch or JAX are row-major by default, so this is the most obvious configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it&amp;rsquo;s also a choice in simplicity.&lt;/p>
-&lt;h2 id="composedhierarchical-layouts">Composed/Hierarchical Layouts&lt;/h2>
-&lt;p>The last bit of confusing layout algebra is hierarchical layouts. CuTe lets us compose layouts into multiple dimensions. For example, a layout of shape &lt;code>Shape&amp;lt;_8&amp;gt;&lt;/code> can be composed to be &lt;code>Shape&amp;lt;_4, _2&amp;gt;&lt;/code> or &lt;code>Shape&amp;lt;_2, _4&amp;gt;&lt;/code>. We can iterate over the 8 block in groups of 1, 2, 4, or 8. The strides determine which direction we do so (row or column major). This is no different than normal layout re-interpretation from the &lt;a class="link" href="#tensors" >tensor section above&lt;/a>, but CuTe allows us to nest layouts for extremely granular layout interpretation.&lt;/p>
+&lt;p>In the context of programming languages and memory, row-major also means that the items in each row are contiguous in memory, i.e. contiguous &lt;em>along&lt;/em> the columns. This means $a_{j}$ is NEXT TO $a_{i,j+1}$ in memory. For a 2D row-major tensor (M, N), the N-stride is the &lt;em>innermost&lt;/em> dimension&amp;ndash;the one where elements are adjacent in memory. The N-stride stride is always $1$. The M-stride is simply the number of columns N; to get to the next row, you offset by the N adjacent elements in the current row.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// for row-major of shape 2,8
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">shape&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// the N-stride is always 1.
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// With 8 columns per row, the m-stride is 8
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">row_major_stride&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Extrapolating to an N-D row-major tensor of shape $(d_{n-1}, d_{n-2}, \dots, d_0)$, the 0th dim stride is 1, the 1st dim stride is $d_{0}$. For each subsequent dimension, we have to step by the number of elements in the entire block inside&amp;ndash;the second dim has $d_{1}\cdot d_{0}$ values for each of its &amp;ldquo;columns.&amp;rdquo; Therefore:&lt;/p>
+&lt;p>$$\text{stride}(x) = \Pi_{i=0}^{x-1} d_i$$&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">shape&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">5&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">7&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">9&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">row_major_stride&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">630&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">126&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">18&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Each stride is just the size of the next dimension. Easy enough.&lt;/p>
+&lt;h3 id="column-major-one-bigger-step-into-the-pit">Column-Major: One Bigger Step into the Pit&lt;/h3>
+&lt;p>Column-major paradigms are far less common (e.g. Fortran, MATLAB) and assume that columns are adjacent in memory. Before things become more confusing, let&amp;rsquo;s compare PyTorch and MATLAB using a 2x4 example tensor:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># python&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">A&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">torch&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">tensor&lt;/span>&lt;span class="p">([[&lt;/span>&lt;span class="mi">9&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">6&lt;/span>&lt;span class="p">],&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="o">-&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">7&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">]])&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-matlab" data-lang="matlab">&lt;span class="line">&lt;span class="cl">&lt;span class="c">% MATLAB&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">A&lt;/span> &lt;span class="p">=&lt;/span> &lt;span class="p">[&lt;/span>&lt;span class="mi">9&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">6&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="o">-&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">7&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">]&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>When you create &lt;code>A&lt;/code> in torch, we allocate 8-int memory chunk that&amp;rsquo;s stores the values in the order we gave to it: &lt;code>[9,2,4,6,-1,3,7,0]&lt;/code>. On the other hand, MATLAB will allocate the same 8-int memory chunk but store the values along the columns instead: &lt;code>[9,-1,2,3,4,7,6,0]&lt;/code>. When we index &lt;code>(i, j)&lt;/code> into torch and MATLAB (bless their souls for being 1-indexed), we obtain the same value:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-matlab" data-lang="matlab">&lt;span class="line">&lt;span class="cl">&lt;span class="c">% some MATLAB version that&amp;#39;s 0-indexed, technically A(2, 3)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">A&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">=&lt;/span> &lt;span class="mi">7&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="n">A&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">7&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>But now, we realize the strides &lt;em>cannot&lt;/em> be the same. We know our row-major stride must be &lt;code>Stride&amp;lt;4, 1&amp;gt;&lt;/code>Following our formula:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># i*stride_row + j*stride_col&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">offset&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">1&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="mi">4&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">2&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="mi">1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">6&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># torch: 6th index of [9,2,4,6,-1,3,7,0] is 7&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># matlab: 6th index of [9,-1,2,3,4,7,6,0] is 6&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>The stride cannot be the same because the underlying memory is also not the same. In torch, we see that values in each &lt;em>row&lt;/em> are adjacent (9 is next to 2), but in MATLAB, we see that values in each &lt;em>column&lt;/em> are adjacent in memory (9 is next to -1). So in our column-major view, to get to the next row we just step along the column, which we established is contiguous. Therefore, the innermost stride is now the &lt;em>leftmost&lt;/em> index. To get to the next column, we step by the number of values in a full column, which is the size of the rows. Let&amp;rsquo;s redo our example from &lt;a class="link" href="#row-major-the-first-layer-of-hell" >above&lt;/a>:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;span class="lnt">7
+&lt;/span>&lt;span class="lnt">8
+&lt;/span>&lt;span class="lnt">9
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">shape&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">row_major_stride&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// new innnermost stride is 1, full column is size _2
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">col_major_stride&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_2&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">//////////////////////////////////////////////
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">shape&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">5&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">7&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">9&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">row_major_stride&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">630&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">126&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">18&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">col_major_stride&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">15&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">105&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">945&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;blockquote>
+&lt;p>&lt;strong>Tip&lt;/strong>: Telling row-major vs col-major apart is easy. Any matrix with leftmost stride 1 is column-major and any matrix with rightmost stride 1 is row-major.&lt;/p>
+&lt;/blockquote>
+&lt;h2 id="indexing-hell-in-what-context">Indexing Hell: In What Context?&lt;/h2>
+&lt;p>We tool between row- and column-major, we expect the indices to have the same meaning. For some 2D matrix &lt;code>A[i][j]&lt;/code> we want the ith index to refer to the ith row and the jth index to refer to the jth row. When we iterate through the row-major or col-major version of A, we should get the exact same numbers because &lt;code>A_row_major[i][j] == A_col_major&lt;/code>.&lt;/p>
+&lt;blockquote>
+&lt;p>&lt;strong>Note&lt;/strong>: Although they may return the same numbers, depending on the order of iteration, one way will be more inefficient as it is jumping from address to address instead of iterating contiguously. For example, &lt;code>for i...for j&lt;/code> is great for row-major but potentially a cache disaster for col-major. This only applies to tensors stored in memory. In the register file, indexing is purely an abstraction.&lt;/p>
+&lt;/blockquote>
+&lt;p>So, what do I mean by: &amp;ldquo;in what context?&amp;rdquo; So far, we&amp;rsquo;ve been aiming to create an equivalent representation of A via a row or column major format. But, for CUDA kernels, there is no equivalence&amp;ndash;we are given some tensors in a predefined row or column major format. FA2 expects Q, K, V to be contiguous &lt;em>across&lt;/em> the &lt;code>head_dim&lt;/code>, i.e. &lt;code>(seqlen, head_dim)&lt;/code>. This means they are &lt;em>row-major&lt;/em> with respect to each &lt;em>token&lt;/em>, i.e. each token is one row in the matrix. In this case, there is only one valid way to load the data&amp;ndash;the row-major way since the underlying data is &lt;em>already fixed&lt;/em>.&lt;/p>
+&lt;h3 id="interpreting-fixed-data">Interpreting Fixed Data&lt;/h3>
+&lt;p>In our new view, we are reading some predefined data like we did in the &lt;a class="link" href="#tensors" >tensor section&lt;/a>, so now let&amp;rsquo;s make some sense of it. Let&amp;rsquo;s take a look at row-major vs. col-major indexing for the shape (2, 8).&lt;/p>
+&lt;blockquote>
+&lt;p>You can leverage the &lt;code>print_layout()&lt;/code> function from &lt;a class="link" href="#layouts-shapes-and-strides" >earlier&lt;/a> to view this in your shell.&lt;/p>
+&lt;/blockquote>
+&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/row_col_major.png"
+width="2344"
+height="1308"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/row_col_major_hu7363f3ddb81f2e4ee7ea8b7de3601ec8_208236_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/row_col_major_hu7363f3ddb81f2e4ee7ea8b7de3601ec8_208236_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/row_col_major_hu7363f3ddb81f2e4ee7ea8b7de3601ec8_208236_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/row_col_major.png 2344w"
+loading="lazy"
+alt="Row vs. col major indexing on a layout with shape (2, 8)."
+class="gallery-image"
+data-flex-grow="179"
+data-flex-basis="430px"
+>
+&lt;/p>
+&lt;p>In this graphic, we index into the tensors via &lt;code>(i, j)&lt;/code> labels, where the number inside the square refers to the &lt;em>original index in the underyling memory&lt;/em> (it is not the linear ordering). In the row-major view, element 1 is in the same row as element 0. In the column-major view, element 1 is in the same column as element 0. When it comes to indexing, it&amp;rsquo;s often in your best interest to separate the idea of contiguity, indexing, and reality. It&amp;rsquo;s often best to think in terms of the strides and offsets for your expected memory layout, since applying a row-major layout to column-major memory and vice-versa no longer make any physical sense. However, we&amp;rsquo;ll really have to grapple with this later.&lt;/p>
+&lt;blockquote>
+&lt;p>For example, if you read column-major memory using a row-major format, what does a &amp;ldquo;column&amp;rdquo; even mean? You might drive yourself mad trying to figure out what a &amp;ldquo;row&amp;rdquo; and &amp;ldquo;column&amp;rdquo; mean because they mean different things with respect to different memory views, tensors, and layouts.&lt;/p>
+&lt;/blockquote>
+&lt;h3 id="cute-default-is-column-major">CuTe Default is Column-Major&lt;/h3>
+&lt;p>By default, CuTe resolves to column-major layouts. This was a choice NVIDIA made for whatever reason, and you should just accept it. If you create a layout with a shape without a stride, it will default to the column-major stride. When dealing with your data layout, always specify the stride for clarity. CuTe provides us two primitives that make this job slightly easier: &lt;code>GenRowMajor{}&lt;/code> and &lt;code>GenColMajor{}&lt;/code>.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -204,13 +374,76 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;span class="lnt">4
 &lt;/span>&lt;/code>&lt;/pre>&lt;/td>
 &lt;td class="lntd">
-&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// (_8, _4): (_1, _8)
-&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">l1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}));&lt;/span>
-&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// ((_2, _4), _4):((_1, _2), _8)
-&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">l2&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}),&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// Stride(8, 1)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">layout&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">GenRowMajor&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// Stride(1, 4)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">layout1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">GenColMajor&lt;/span>&lt;span class="p">{});&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>In &lt;code>l2&lt;/code>, we iterate through the inner (left) shape in groups of 2, column major by default. In this case, the composed layout is purely decorative. We can still address a tensor with layout &lt;code>l1&lt;/code> or &lt;code>l2&lt;/code> with two coordinates &lt;code>(i, j)&lt;/code>. CuTe maps the translation underneath. However, you can split a for loop on the inner dimension of &lt;code>l2&lt;/code> into a nested for loop, but otherwise, it&amp;rsquo;s not accomplishing much in terms of utility. However, we&amp;rsquo;ll see it become a powerful tool during the &lt;a class="link" href="#fragment-reshape" >MMA tiling reshape&lt;/a>, where we cannot simply flatten a 3D tensor into a non-composed 2D tensor.&lt;/p>
+&lt;/div>&lt;p>Even if you specify all your layouts properly, there are some internal workings where you might see column major layouts pop up (e.g. tiling, Atoms, etc.). You should specify strides as much as possible to avoid confusing yourself when you start to get weird errors.&lt;/p>
+&lt;blockquote>
+&lt;p>&lt;strong>Note&lt;/strong>: The column-major default has &lt;strong>nothing to do with your underlying data&lt;/strong>. It&amp;rsquo;s just a consistent indexing pattern CuTe chose.&lt;/p>
+&lt;/blockquote>
+&lt;p>For FA2, Q, K, and V are all &lt;strong>row-major&lt;/strong> along the sequence (&lt;code>(seq_len, head_dim)&lt;/code>). This means each row represents a token. Most consumer applications or libraries like Pytorch or JAX are row-major by default, so this is the most obvious configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it&amp;rsquo;s also a choice in simplicity.&lt;/p>
+&lt;h3 id="linear-indexing-colex-indexing">Linear Indexing: Colex Indexing&lt;/h3>
+&lt;p>With our (2,8) shape layout from earlier, CuTe allows us to index it it with just one index-value, essentially treating &lt;code>(2, 3)&lt;/code> as a flat 6-element array&amp;ndash;we refer to this as &lt;strong>linear indexing&lt;/strong>. A programming language like C allows you to do the same:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="kt">int&lt;/span> &lt;span class="n">arr&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">][&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">]&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">{&lt;/span>&lt;span class="mi">9&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">-&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">},&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">{&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">6&lt;/span>&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kt">int&lt;/span> &lt;span class="n">val&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">arr&lt;/span>&lt;span class="p">[&lt;/span>&lt;span class="mi">4&lt;/span>&lt;span class="p">];&lt;/span> &lt;span class="c1">// val = 0
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>However, the way C and CuTe handle this internally is very different. C just treads the index &lt;code>[4]&lt;/code> as a memory offset; using its row-major memory layout, the 4th index grabs the 4th offset in memory, which travels into the second row (first row index) and second element (first column index). In this system, the value at &lt;code>(1, 0)&lt;/code> is &amp;ldquo;further along&amp;rdquo; than &lt;code>(0, 1)&lt;/code>, i.e. as you move from left to right and top to bottom, you are increasing the in the order of access. We call this &lt;em>lexicographical order&lt;/em>. In lexicographical ordering, the index &lt;code>arr[4]&lt;/code> on shape (2,3) maps to &lt;code>arr[1][1]&lt;/code>.&lt;/p>
+&lt;blockquote>
+&lt;p>In English, we read from left to right, top to bottom&amp;ndash;that&amp;rsquo;s where this ordering gets this name. You can think of it as simply row-major indexing. Since C simply just works with offsets rather than linearly mapping index &lt;code>[4]&lt;/code> to &lt;code>[1][1]&lt;/code>, we typically refer to it as &lt;strong>flat indexing&lt;/strong>.&lt;/p>
+&lt;/blockquote>
+&lt;p>On the other hand, CuTe uses &lt;strong>colexicographical indexing&lt;/strong> (i.e. colex indexing), which is the opposite&amp;ndash;order increases first from top to bottom, and then left to right. In this transposed view, index &lt;code>(1, 0)&lt;/code> is adjacent to &lt;code>(0, 0)&lt;/code> and is &amp;ldquo;before&amp;rdquo; the indeex &lt;code>(0, 1)&lt;/code>. As before, it&amp;rsquo;s pretty much just the column-major order. It&amp;rsquo;s CuTe&amp;rsquo;s way of consistenly enforcing 1D-&amp;gt;N-dimensional indexing across layout algebra.&lt;/p>
+&lt;p>The difference in CuTe is it is intentional about this order, unlike C. In C, the order is a side effect of the memory offset. In CuTe, the compiler actually performs the conversion between 1D and 2D. For example, if we index tensor &lt;code>t(idx)&lt;/code> for a tensor of shape &lt;code>(M, N)&lt;/code>, the index split becomes:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># Example, shape (2, 3), idx 4&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># [[9, 2, -1],[3, 0, 6]]&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># intentional colex indexing&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">i&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">idx&lt;/span> &lt;span class="o">%&lt;/span> &lt;span class="n">M&lt;/span> &lt;span class="c1"># 4 % 2 = 0&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">j&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">idx&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="n">M&lt;/span> &lt;span class="c1"># 4 / 2 = 2&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># a[0][2] = -1&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># typical lex indexing&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># C just uses memory offset, which is functionally&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># the same for its row-major mem layout&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">i&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">idx&lt;/span> &lt;span class="o">%&lt;/span> &lt;span class="n">N&lt;/span> &lt;span class="c1"># 4 % 3 = 1&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">j&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">idx&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="n">N&lt;/span> &lt;span class="c1"># 4 / 3 = 1&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1"># a[1][1] = 0&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>The default colex indexing just goes hand-in-hand with the column-major layout standard. It&amp;rsquo;s for consistency and has no practical meaning outside of this. But it does mean if you&amp;rsquo;re working with row-major layouts, &lt;em>you still have to use colex indexing if you&amp;rsquo;re indexing linearly into a multidimensional tensor&lt;/em>. Indexing it like you would in C or torch will simply produce wrong results, and you might sit there for a twidding your thumbs wondering why your code isn&amp;rsquo;t working. Don&amp;rsquo;t worry, it happens to the best of us.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
@@ -226,7 +459,51 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;span class="lnt">11
 &lt;/span>&lt;/code>&lt;/pre>&lt;/td>
 &lt;td class="lntd">
-&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="kt">int&lt;/span> &lt;span class="o">*&lt;/span>&lt;span class="n">a&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">{&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="p">...,&lt;/span> &lt;span class="mi">31&lt;/span>&lt;span class="p">};&lt;/span>
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// linear printing colex example: it&amp;#39;s weird
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kt">int&lt;/span> &lt;span class="o">*&lt;/span>&lt;span class="n">data&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">{&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">4&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">5&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">6&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">7&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">9&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">10&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">11&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">12&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">13&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">14&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">15&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">16&lt;/span>&lt;span class="p">};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">layout&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_8&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">tensor&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">layout&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="mi">16&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="o">++&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">print&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">i&lt;/span>&lt;span class="p">));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">printf&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="s">&amp;#34;, &amp;#34;&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// output: 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 5, 8, 16
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;h2 id="composedhierarchical-layouts">Composed/Hierarchical Layouts&lt;/h2>
+&lt;p>Where you might run into colex indexing issues is if you&amp;rsquo;re dealing with &lt;strong>hierarchical layouts&lt;/strong>. CuTe lets us nest layouts for more granular layout interpretations that wouldn&amp;rsquo;t be possible with non-nested layouts. For example, we can easily reinterpret a flat tensor of shape &lt;code>(8, )&lt;/code> as &lt;code>(2, 4)&lt;/code> or &lt;code>(4, 2)&lt;/code> in CuTe, but let&amp;rsquo;s take this a step further:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;span class="lnt">15
+&lt;/span>&lt;span class="lnt">16
+&lt;/span>&lt;span class="lnt">17
+&lt;/span>&lt;span class="lnt">18
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// (_8, _4): (_1, _8)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">l1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// ((_2, _4), _4):((_1, _2), _8)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">l2&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// Toy example
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="o">*&lt;/span>&lt;span class="n">a&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">{&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="p">...,&lt;/span> &lt;span class="mi">31&lt;/span>&lt;span class="p">};&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// [0, 1, 2, 3, ..., 7]
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// [8, 9, 10, 11, ..., 15]
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// [16, 17, 18, 19, ..., 23]
@@ -236,26 +513,10 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kt">int&lt;/span> &lt;span class="n">v1&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">t1&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="c1">// 19
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">v2&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">t2&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="c1">// 19
-&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">v3&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">t2&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_coord&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">);&lt;/span>
-&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">v3&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">t2&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_coord&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="c1">// 19
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;h2 id="colex-indexing">Colex Indexing&lt;/h2>
-&lt;p>CuTe uses column-major indexing, which is their way of consistenly enforcing 1D-&amp;gt;N-dimensional indexing across layout algebra. If we index tensor &lt;code>t(idx)&lt;/code> for a tensor of shape &lt;code>(M, N)&lt;/code>, the index split becomes:&lt;/p>
-&lt;div class="highlight">&lt;div class="chroma">
-&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
-&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
-&lt;/span>&lt;span class="lnt">2
-&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
-&lt;td class="lntd">
-&lt;pre tabindex="0" class="chroma">&lt;code class="language-python" data-lang="python">&lt;span class="line">&lt;span class="cl">&lt;span class="n">i&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">idx&lt;/span> &lt;span class="o">%&lt;/span> &lt;span class="n">M&lt;/span>
-&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">j&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">idx&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="n">M&lt;/span>
-&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
-&lt;/div>
-&lt;/div>&lt;p>For 3D+ tensors, it means stride increases from left to right, starting at &lt;code>_1{}&lt;/code>.&lt;/p>
-&lt;p>Again, this is the opposite of the C/C++/Pytorch row-major standard. As long as you remember this column-major indexing system, everything will be fine. If not, then you&amp;rsquo;ll probably end up scratching your head for hours. This means for many composed layouts, you&amp;rsquo;ll likely have to flip the order for composed shapes for the indices to be row-major adjacent. If you think this sucks, I agree. This is probably &lt;em>the&lt;/em> most annoying part of learning CuTe because things do not align with your expectations. Unfortunately, the only way to learn is via trial by fire.&lt;/p>
-&lt;blockquote>
-&lt;p>&lt;strong>Tip&lt;/strong>: Most of the time, you will be specifying the shape and stride. When you deal with certain tiled copies or MMAs, you might end up having colex indexing for something that is row-major. In this case, it just means your row/column indices are flipped. What you expect to be &lt;code>A[i][j]&lt;/code> should be &lt;code>A[j][i]&lt;/code>. That&amp;rsquo;s it&amp;ndash;it doesn&amp;rsquo;t actually change your underlying memory layout, just the indexing changes. If you indexed into 2D with just an integer (i.e. &lt;code>A[idx]&lt;/code>), both colex/rolex return the same memory address.&lt;/p>
-&lt;/blockquote>
+&lt;/div>&lt;p>In &lt;code>l2&lt;/code>, we iterate through the inner (left) shape in groups of 2, column major by default. In this case, the composed layout is purely decorative. We can still address a tensor with layout &lt;code>l1&lt;/code> or &lt;code>l2&lt;/code> with two coordinates &lt;code>(i, j)&lt;/code>, and CuTe maps the translation underneath. However, we are now also grouping the inner dimension as four groups of two. We&amp;rsquo;ll see nested layouts become a powerful tool during the &lt;a class="link" href="#fragment-reshape" >MMA tiling reshape&lt;/a>, where we cannot simply flatten a 3D tensor into a non-nested 2D tensor for our specific access pattern.&lt;/p>
 &lt;h1 id="cute-copy-then-cry">CuTe, Copy, then Cry&lt;/h1>
 &lt;h2 id="a100-ampere-specs">A100 (Ampere) Specs&lt;/h2>
 &lt;p>The entire point of FA2 or even GPU optimization in general is to maximize compute by overlapping it with memory loads. Here are the memory and card specs of A100 GPU (Ampere):&lt;/p>
@@ -601,7 +862,7 @@ data-flex-basis="369px"
 &lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">SmemCopyAtom&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Copy_Atom&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">SM75_U32x4_LDSM_N&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>Our copy atom this time leverages the &lt;code>LDSM&lt;/code> PTX instruction: Load from Shared Memory with the &amp;ldquo;N&amp;quot;ormal row-major/no-transpose layout. It moves 4 words = 128 bits per instruction, similar to our async load from before. However, this instruction is specialized to copy from shared memory to the correct registers for MMA, vectorizing per-warp loads and bypassing bank conflicts. However, unlike for GMEM-&amp;gt;SMEM, our tiled copy has to be aware of the MMA layout as well as the relevant thread fragments, which differ between fragments A, B, and C.&lt;/p>
+&lt;/div>&lt;p>Our copy atom this time leverages the &lt;code>LDSM&lt;/code> PTX instruction: Load from Shared Memory with the &amp;ldquo;N&amp;quot;ormal row-major/no-transpose layout. It moves 4x32-bit words = 128 bits per instruction, similar to our async load from before. However, this instruction is specialized to copy from shared memory to the correct registers for MMA, vectorizing per-warp loads and bypassing bank conflicts. However, unlike for GMEM-&amp;gt;SMEM, our tiled copy has to be aware of the MMA layout as well as the relevant thread fragments, which differ between fragments A, B, and C.&lt;/p>
 &lt;h3 id="tiled-mma">Tiled MMA&lt;/h3>
 &lt;p>Getting deja vu yet? This time, we define the tiling for the MMA GEMM. We define the following Tiled MMA atom:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
@@ -1082,12 +1343,18 @@ width="1920"
 height="1080"
 srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_v_layout_hu0ed971fc0e6f32098603b2d6f2c28536_106126_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_v_layout_hu0ed971fc0e6f32098603b2d6f2c28536_106126_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_v_layout.png 1920w"
 loading="lazy"
-alt="alt text"
+alt="SMEM phyiscal layout for our MMAs."
 class="gallery-image"
 data-flex-grow="177"
 data-flex-basis="426px"
 >
 &lt;/p>
+&lt;blockquote>
+&lt;p>&lt;strong>Note&lt;/strong>: The tiled MMA visualization in our &lt;a class="link" href="#tiled-mma" >tiled MMA section&lt;/a> was a human-friendly view which is actually what &lt;code>SV&lt;/code> looks like here but doesn&amp;rsquo;t represent the physical SMEM layout we actually have.&lt;/p>
+&lt;/blockquote>
+&lt;p>As we can see, Q and K are both row-contiguous along &lt;code>kHeadDim&lt;/code>, which they matmul across. S and V matmul across &lt;code>kBlockN&lt;/code>, not kHeadDim, so V is not row-contiguous along the concatenation dimension. As a result we have to tile it &amp;ldquo;vertically&amp;rdquo; along the columns for the tiled MMA.&lt;/p>
+&lt;p>But what does &amp;ldquo;vertically&amp;rdquo; even mean? We were pretty hand-wavy about the &lt;code>SM75_U32x4_LDSM_N&lt;/code> atom from earlier, so let&amp;rsquo;s clarify this now:&lt;/p>
+&lt;h4 id="ldsm-copy-atom">LDSM Copy Atom&lt;/h4>
 &lt;p>but now we have to reinterpret the memory in column-major format in order to perform the SMEM-&amp;gt;register tiled copy. The way we do this is by composing&lt;/p>
 &lt;p>provides us with some &lt;code>ldmatrix&lt;/code> hardware instructions that does a transpose on the fly via the &lt;code>LDSM_T&lt;/code> (t for transposed) Atom.&lt;/p>
 &lt;p>TODO: finish this section:&lt;/p>
