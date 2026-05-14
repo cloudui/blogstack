@@ -83,12 +83,14 @@ The overall pseudocode for a tile Q is:
 Only 11 steps and they're all pretty simple in concept...Let's take a deeper look into the implementation details.
 
 # CuTe, the Basics
-Bombarding you up front with all the design choices in CuTe/CUTLASS will only confuse you, and the best way to learn is honestly by necessity. However, having some basic info is still probably required, so I will bombard you with some sadness before we move onto the "cool" stuff.
+Bombarding you up front with all the design choices in CuTe/CUTLASS will only confuse you, and the best way to learn is by necessity. I skipping to the FA2 implementation and coming back to this section when you become lost. It's hard to internalize the motivations for certain CuTe features until you actually encounter the problems they are meant to solve.
+
+In this section, I won't cover or explain all the APIs. You can intuit 90% of them from the examples and the FA2 code. However, you can always refer to CuTe's documentation for all of the library and syntax details: https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html.
 
 ## Background
-CuTe is essentially a templating engine that allows you to manipulate memory using tensors, shapes, layouts, data types, and strides, sort of similar to pytorch's `torch.Tensor` object. Unfortunately, it's not nearly as friendly. But, if you're familiar with any deep learning library, these concepts should click pretty quickly. It allows you to declare a general "shape" once and if you template it with a fp32 vs fp16, you can just pass the relevant parameters to your kernel template.
+CuTe is essentially a templating engine that allows you to manipulate memory using tensors, shapes, layouts, data types, and strides, quite similar to pytorch's `torch.Tensor` object. Unfortunately, it's not nearly as friendly and much more powerful. But, if you're familiar with any deep learning library, these concepts should click pretty quickly. It allows you to declare a general "shape" once and if you template it with a fp32 vs fp16, you can just pass the relevant parameters to your kernel template.
 
-However, you are still responsible for all of the sizes. It may be able to extract fp16 from a 128-bit load, but you'll have to figure out that 128-bits is 8 fp16 numbers. It just handles the typing on your behalf and lets you index stuff more easily. This will click later.
+In CuTe, you are still responsible for all of the sizes. The code may be able to extract fp16 from a 128-bit load, but you'll have to figure out that 128-bits is 8 fp16 numbers. It just handles the typing on your behalf and lets you index things with some nicer code. It certainly is not "easier" and is often a nightmare to read. You'll see why pretty soon.
 
 ## Layouts, Shapes, and Strides
 Ah yes, back to tensor school. A shape and stride is precisely the same concept as in PyTorch. A layout is just a composition of a shape and a stride.
@@ -96,20 +98,29 @@ Ah yes, back to tensor school. A shape and stride is precisely the same concept 
 ```cpp
 #include <cute/tensor.hpp>
 // runnable just like this without GPU
-auto layout = Layout<Shape<_8, _16>, Stride<_1, _8>>{};
-auto layout_1 = make_layout(make_shape(Int<8>{}, Int<16>{}),
-        make_stride(_1{}, _8{}));
+auto layout = Layout<Shape<_2, _8>, Stride<_8, _1>>{};
+auto layout_1 = make_layout(make_shape(Int<2>{}, Int<8>{}),
+        make_stride(_8{}, _1{}));
 print_layout(layout);
 // this is the shape of a torch.tensor([[0]*8 for _ in range(16)]).T
+
+// print
+(_2,_8):(_8,_1)
+       0    1    2    3    4    5    6    7
+    +----+----+----+----+----+----+----+----+
+ 0  |  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 |
+    +----+----+----+----+----+----+----+----+
+ 1  |  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 |
+    +----+----+----+----+----+----+----+----+
 ```
 
-A shape of (8, 16) with stride (1, 8). Pretty simple. Both declarations are identical. So what's with the freaky underscores?
+A shape of (2, 8) with stride (8, 1), and CuTe provides us with a nice `print_layout` function to see the shape and indexing. Pretty simple. Both declarations are identical. So what's with the freaky underscores?
 
 ## Statically vs. Dynamically Typed
 Any standard C++ integer passed into a layout, shape, or stride is dynamically typed, i.e. its value is only known at runtime (e.g. int, const int, static int). Even CUDA's `constexpr int` is treated as such by CuTe. Any time you index into a tensor, the library will compute
 
 ```cpp
-A[i][j] = i*stride_i + j*stride_j
+A[i][j] = i*stride_row + j*stride_col
 ```
 
 Each index operation is a multiply and add, which can be quite costly. Instead, when we can, we opt to use for statics: type wrappers used by CUTLASS to allow the value to be known at compile time. It's just a C++ compiler trick that allows CuTe to compute all indexing during compilation rather at runtime, saving the GPU from having to do so while its running. Obviously, you can only do this if sizes are predetermined, either because they are definite, templated, or constant. So instead of passing in `make_stride(2, 4)`, we can pass in `make_stride(Int<2>{}, _4{})`. Functionally, these are the same, but any subsequent indexing done will be done at compile time for the latter.
@@ -158,30 +169,194 @@ int n_row = t_row_major(2, 3); // 12
 int n_col = t_col_major(2, 3); // 15
 ```
 
-## Row and Column Major
-In row-major formats, data is stored row-contiguous (C, C++ style), i.e. `A[0][1]` and `A[0][2]` are contiguous in memory.
+## Layout Hell: Row and Column Major
 
-In column-major formats, data is stored column-contiguous (Fortran style), i.e. `A[0][1]` and `A[1][1]` are contiguous in memory.
+Welcome to layout hell. The layout intro from earlier probably seemed easy enough, but you'll realize that 90% of the difficulty in understanding CuTe comes from layout algebra. You might think you understand easy concepts row-major or column-major, but I'm here to tell you that unless you've sat down and drawn these stupid squares over and over again, you probably don't.
 
-The way to tell is by the stride; for any 2D matrix with stride $(a, b)$, the matrix is row-major if $b=1$ and column-major if $a=1$. In CuTe, any layout without a provided stride is a **column-major** layout by default.
+### Row-Major: The First Layer of Hell
+A standard human math matrix follows a row-major paradigm. There are M rows and N rows and element $(i, j)$ points to the element in the `i-th` row along M and `j-th` column along N. If you've made arrays in most programming languages like C, Go, or numpy/torch, it's precisely the same. Here's a 4x6 row-major matrix that's zero-indexed. We will call this the **logical view**.
 
-> **Note**: The column-major default has **nothing to do with your underlying data**. It's just a consistent indexing pattern that NVIDIA chose.
+$$
+\begin{bmatrix}
+a_{00} & a_{01} & a_{02} & a_{03} & a_{04} & a_{05} \\\\
+a_{10} & a_{11} & a_{12} & a_{13} & a_{14} & a_{15} \\\\
+a_{20} & a_{21} & a_{22} & a_{23} & a_{24} & a_{25} \\\\
+a_{30} & a_{31} & a_{32} & a_{33} & a_{34} & a_{35}
+\end{bmatrix}
+$$
 
-For FA2, Q, K, and V are all **row-major** along the sequence (`(seq_len, head_dim)`). This means each row represents a token or activation. Although somewhat arbitrary, most consumer applications or libraries like Pytorch or JAX are row-major by default, so this is the most obvious configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it's also a choice in simplicity.
+> Math majors might find this zero-indexing sacriligeous, but I'd imagine they're not reading this blog anyway.
 
-## Composed/Hierarchical Layouts
-The last bit of confusing layout algebra is hierarchical layouts. CuTe lets us compose layouts into multiple dimensions. For example, a layout of shape `Shape<_8>` can be composed to be `Shape<_4, _2>` or `Shape<_2, _4>`. We can iterate over the 8 block in groups of 1, 2, 4, or 8. The strides determine which direction we do so (row or column major). This is no different than normal layout re-interpretation from the [tensor section above](#tensors), but CuTe allows us to nest layouts for extremely granular layout interpretation.
+In the context of programming languages and memory, row-major also means that the items in each row are contiguous in memory, i.e. contiguous *along* the columns. This means $a_{j}$ is NEXT TO $a_{i,j+1}$ in memory. For a 2D row-major tensor (M, N), the N-stride is the *innermost* dimension--the one where elements are adjacent in memory. The N-stride stride is always $1$. The M-stride is simply the number of columns N; to get to the next row, you offset by the N adjacent elements in the current row.
 
 ```cpp
+// for row-major of shape 2,8
+auto shape = Shape<_2, _8>{};
+// the N-stride is always 1.
+// With 8 columns per row, the m-stride is 8
+auto row_major_stride = Stride<_8, _1>{};
+```
+
+Extrapolating to an N-D row-major tensor of shape $(d_{n-1}, d_{n-2}, \dots, d_0)$, the 0th dim stride is 1, the 1st dim stride is $d_{0}$. For each subsequent dimension, we have to step by the number of elements in the entire block inside--the second dim has $d_{1}\cdot d_{0}$ values for each of its "columns." Therefore:
+
+$$\text{stride}(x) = \Pi_{i=0}^{x-1} d_i$$
+
+```cpp
+auto shape = Shape<3, 5, 7, 9, 2>{};
+auto row_major_stride = Stride<630, 126, 18, 2, 1>{};
+```
+
+Each stride is just the size of the next dimension. Easy enough.
+
+### Column-Major: One Bigger Step into the Pit
+
+Column-major paradigms are far less common (e.g. Fortran, MATLAB) and assume that columns are adjacent in memory. Before things become more confusing, let's compare PyTorch and MATLAB using a 2x4 example tensor:
+
+```python
+# python
+A = torch.tensor([[9, 2, 4, 6], [-1, 3, 7, 0]])
+```
+
+```matlab
+% MATLAB
+A = [9, 2, 4, 6; -1, 3, 7, 0]
+```
+
+When you create `A` in torch, we allocate 8-int memory chunk that's stores the values in the order we gave to it: `[9,2,4,6,-1,3,7,0]`. On the other hand, MATLAB will allocate the same 8-int memory chunk but store the values along the columns instead: `[9,-1,2,3,4,7,6,0]`. When we index `(i, j)` into torch and MATLAB (bless their souls for being 1-indexed), we obtain the same value:
+
+```matlab
+% some MATLAB version that's 0-indexed, technically A(2, 3)
+A(1, 2) = 7
+```
+
+```python
+A[1, 2] = 7
+```
+
+But now, we realize the strides *cannot* be the same. We know our row-major stride must be `Stride<4, 1>`Following our formula:
+
+```python
+# i*stride_row + j*stride_col
+offset = 1 * 4 + 2 * 1 = 6
+
+# torch: 6th index of [9,2,4,6,-1,3,7,0] is 7
+# matlab: 6th index of [9,-1,2,3,4,7,6,0] is 6
+```
+
+The stride cannot be the same because the underlying memory is also not the same. In torch, we see that values in each *row* are adjacent (9 is next to 2), but in MATLAB, we see that values in each *column* are adjacent in memory (9 is next to -1). So in our column-major view, to get to the next row we just step along the column, which we established is contiguous. Therefore, the innermost stride is now the *leftmost* index. To get to the next column, we step by the number of values in a full column, which is the size of the rows. Let's redo our example from [above](#row-major-the-first-layer-of-hell):
+
+```cpp
+auto shape = Shape<_2, _8>{};
+auto row_major_stride = Stride<_8, _1>{};
+// new innnermost stride is 1, full column is size _2
+auto col_major_stride = Stride<_1, _2>{};
+
+//////////////////////////////////////////////
+auto shape = Shape<3, 5, 7, 9, 2>{};
+auto row_major_stride = Stride<630, 126, 18, 2, 1>{};
+auto col_major_stride = Stride<1, 3, 15, 105, 945>{};
+```
+
+> **Tip**: Telling row-major vs col-major apart is easy. Any matrix with leftmost stride 1 is column-major and any matrix with rightmost stride 1 is row-major.
+
+## Indexing Hell: In What Context?
+
+We tool between row- and column-major, we expect the indices to have the same meaning. For some 2D matrix `A[i][j]` we want the ith index to refer to the ith row and the jth index to refer to the jth row. When we iterate through the row-major or col-major version of A, we should get the exact same numbers because `A_row_major[i][j] == A_col_major`.
+
+> **Note**: Although they may return the same numbers, depending on the order of iteration, one way will be more inefficient as it is jumping from address to address instead of iterating contiguously. For example, `for i...for j` is great for row-major but potentially a cache disaster for col-major. This only applies to tensors stored in memory. In the register file, indexing is purely an abstraction.
+
+So, what do I mean by: "in what context?" So far, we've been aiming to create an equivalent representation of A via a row or column major format. But, for CUDA kernels, there is no equivalence--we are given some tensors in a predefined row or column major format. FA2 expects Q, K, V to be contiguous *across* the `head_dim`, i.e. `(seqlen, head_dim)`. This means they are *row-major* with respect to each *token*, i.e. each token is one row in the matrix. In this case, there is only one valid way to load the data--the row-major way since the underlying data is *already fixed*.
+
+### Interpreting Fixed Data
+In our new view, we are reading some predefined data like we did in the [tensor section](#tensors), so now let's make some sense of it. Let's take a look at row-major vs. col-major indexing for the shape (2, 8).
+
+> You can leverage the `print_layout()` function from [earlier](#layouts-shapes-and-strides) to view this in your shell.
+
+![Row vs. col major indexing on a layout with shape (2, 8).](row_col_major.png)
+
+In this graphic, we index into the tensors via `(i, j)` labels, where the number inside the square refers to the *original index in the underyling memory* (it is not the linear ordering). In the row-major view, element 1 is in the same row as element 0. In the column-major view, element 1 is in the same column as element 0. When it comes to indexing, it's often in your best interest to separate the idea of contiguity, indexing, and reality. It's often best to think in terms of the strides and offsets for your expected memory layout, since applying a row-major layout to column-major memory and vice-versa no longer make any physical sense. However, we'll really have to grapple with this later.
+
+> For example, if you read column-major memory using a row-major format, what does a "column" even mean? You might drive yourself mad trying to figure out what a "row" and "column" mean because they mean different things with respect to different memory views, tensors, and layouts.
+
+### CuTe Default is Column-Major
+By default, CuTe resolves to column-major layouts. This was a choice NVIDIA made for whatever reason, and you should just accept it. If you create a layout with a shape without a stride, it will default to the column-major stride. When dealing with your data layout, always specify the stride for clarity. CuTe provides us two primitives that make this job slightly easier: `GenRowMajor{}` and `GenColMajor{}`.
+
+```cpp
+// Stride(8, 1)
+auto layout = make_layout(Shape<_4, _8>{}, GenRowMajor{});
+// Stride(1, 4)
+auto layout1 = make_layout(Shape<_4, _8>{}, GenColMajor{});
+```
+
+Even if you specify all your layouts properly, there are some internal workings where you might see column major layouts pop up (e.g. tiling, Atoms, etc.). You should specify strides as much as possible to avoid confusing yourself when you start to get weird errors.
+
+> **Note**: The column-major default has **nothing to do with your underlying data**. It's just a consistent indexing pattern CuTe chose.
+
+For FA2, Q, K, and V are all **row-major** along the sequence (`(seq_len, head_dim)`). This means each row represents a token. Most consumer applications or libraries like Pytorch or JAX are row-major by default, so this is the most obvious configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it's also a choice in simplicity.
+
+### Linear Indexing: Colex Indexing
+With our (2,8) shape layout from earlier, CuTe allows us to index it it with just one index-value, essentially treating `(2, 3)` as a flat 6-element array--we refer to this as **linear indexing**. A programming language like C allows you to do the same:
+
+```cpp
+int arr[2][3] = {
+  {9, 2, -1},
+  {3, 0, 6}
+};
+int val = arr[4]; // val = 0
+```
+
+However, the way C and CuTe handle this internally is very different. C just treads the index `[4]` as a memory offset; using its row-major memory layout, the 4th index grabs the 4th offset in memory, which travels into the second row (first row index) and second element (first column index). In this system, the value at `(1, 0)` is "further along" than `(0, 1)`, i.e. as you move from left to right and top to bottom, you are increasing the in the order of access. We call this *lexicographical order*. In lexicographical ordering, the index `arr[4]` on shape (2,3) maps to `arr[1][1]`.
+
+> In English, we read from left to right, top to bottom--that's where this ordering gets this name. You can think of it as simply row-major indexing. Since C simply just works with offsets rather than linearly mapping index `[4]` to `[1][1]`, we typically refer to it as **flat indexing**.
+
+On the other hand, CuTe uses **colexicographical indexing** (i.e. colex indexing), which is the opposite--order increases first from top to bottom, and then left to right. In this transposed view, index `(1, 0)` is adjacent to `(0, 0)` and is "before" the indeex `(0, 1)`. As before, it's pretty much just the column-major order. It's CuTe's way of consistenly enforcing 1D->N-dimensional indexing across layout algebra.
+
+The difference in CuTe is it is intentional about this order, unlike C. In C, the order is a side effect of the memory offset. In CuTe, the compiler actually performs the conversion between 1D and 2D. For example, if we index tensor `t(idx)` for a tensor of shape `(M, N)`, the index split becomes:
+
+```python
+# Example, shape (2, 3), idx 4
+# [[9, 2, -1],[3, 0, 6]]
+
+# intentional colex indexing
+i = idx % M # 4 % 2 = 0
+j = idx / M # 4 / 2 = 2
+# a[0][2] = -1
+
+# typical lex indexing
+# C just uses memory offset, which is functionally
+# the same for its row-major mem layout
+i = idx % N # 4 % 3 = 1
+j = idx / N # 4 / 3 = 1
+# a[1][1] = 0
+```
+
+The default colex indexing just goes hand-in-hand with the column-major layout standard. It's for consistency and has no practical meaning outside of this. But it does mean if you're working with row-major layouts, *you still have to use colex indexing if you're indexing linearly into a multidimensional tensor*. Indexing it like you would in C or torch will simply produce wrong results, and you might sit there for a twidding your thumbs wondering why your code isn't working. Don't worry, it happens to the best of us.
+
+```cpp
+// linear printing colex example: it's weird
+
+int *data = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
+auto layout = Layout<Shape<_2, _8>, Stride<_8, _1>>{};
+auto tensor = make_tensor(x, layout);
+
+for (int i = 0; i < 16; ++i) {
+  print(tensor(i));
+  printf(", ");
+}
+// output: 1, 9, 2, 10, 3, 11, 4, 12, 5, 13, 6, 14, 7, 5, 8, 16
+```
+
+## Composed/Hierarchical Layouts
+Where you might run into colex indexing issues is if you're dealing with **hierarchical layouts**. CuTe lets us nest layouts for more granular layout interpretations that wouldn't be possible with non-nested layouts. For example, we can easily reinterpret a flat tensor of shape `(8, )` as `(2, 4)` or `(4, 2)` in CuTe, but let's take this a step further:
+
+```cpp
+
 // (_8, _4): (_1, _8)
 auto l1 = make_layout(make_shape(_8{}, _4{}));
 // ((_2, _4), _4):((_1, _2), _8)
-auto l2 = make_layout(make_shape(make_shape(_2{}, _4{}), _4{}));
-```
+auto l2 = make_layout(Shape<Shape<_2, _4>, _4>{});
 
-In `l2`, we iterate through the inner (left) shape in groups of 2, column major by default. In this case, the composed layout is purely decorative. We can still address a tensor with layout `l1` or `l2` with two coordinates `(i, j)`. CuTe maps the translation underneath. However, you can split a for loop on the inner dimension of `l2` into a nested for loop, but otherwise, it's not accomplishing much in terms of utility. However, we'll see it become a powerful tool during the [MMA tiling reshape](#fragment-reshape), where we cannot simply flatten a 3D tensor into a non-composed 2D tensor.
-
-```cpp
+// Toy example
 int *a = {0, ..., 31};
 // [0, 1, 2, 3, ..., 7]
 // [8, 9, 10, 11, ..., 15]
@@ -192,21 +367,10 @@ Tensor t2 = make_tensor(a, l2);
 
 int v1 = t1(3, 2); // 19
 int v2 = t2(3, 2); // 19
-int v3 = t2(make_coord(1, 1), 2);
+int v3 = t2(make_coord(1, 1), 2); // 19
 ```
 
-## Colex Indexing
-CuTe uses column-major indexing, which is their way of consistenly enforcing 1D->N-dimensional indexing across layout algebra. If we index tensor `t(idx)` for a tensor of shape `(M, N)`, the index split becomes:
-
-```python
-i = idx % M
-j = idx / M
-```
-For 3D+ tensors, it means stride increases from left to right, starting at `_1{}`.
-
-Again, this is the opposite of the C/C++/Pytorch row-major standard. As long as you remember this column-major indexing system, everything will be fine. If not, then you'll probably end up scratching your head for hours. This means for many composed layouts, you'll likely have to flip the order for composed shapes for the indices to be row-major adjacent. If you think this sucks, I agree. This is probably *the* most annoying part of learning CuTe because things do not align with your expectations. Unfortunately, the only way to learn is via trial by fire.
-
-> **Tip**: Most of the time, you will be specifying the shape and stride. When you deal with certain tiled copies or MMAs, you might end up having colex indexing for something that is row-major. In this case, it just means your row/column indices are flipped. What you expect to be `A[i][j]` should be `A[j][i]`. That's it--it doesn't actually change your underlying memory layout, just the indexing changes. If you indexed into 2D with just an integer (i.e. `A[idx]`), both colex/rolex return the same memory address.
+In `l2`, we iterate through the inner (left) shape in groups of 2, column major by default. In this case, the composed layout is purely decorative. We can still address a tensor with layout `l1` or `l2` with two coordinates `(i, j)`, and CuTe maps the translation underneath. However, we are now also grouping the inner dimension as four groups of two. We'll see nested layouts become a powerful tool during the [MMA tiling reshape](#fragment-reshape), where we cannot simply flatten a 3D tensor into a non-nested 2D tensor for our specific access pattern.
 
 # CuTe, Copy, then Cry
 ## A100 (Ampere) Specs
@@ -395,7 +559,7 @@ Each warp does one MMA in one tensor core cycle and the warps synchronize with o
 using SmemCopyAtom = Copy_Atom<SM75_U32x4_LDSM_N, cute::half_t>;
 ```
 
-Our copy atom this time leverages the `LDSM` PTX instruction: Load from Shared Memory with the "N"ormal row-major/no-transpose layout. It moves 4 words = 128 bits per instruction, similar to our async load from before. However, this instruction is specialized to copy from shared memory to the correct registers for MMA, vectorizing per-warp loads and bypassing bank conflicts. However, unlike for GMEM->SMEM, our tiled copy has to be aware of the MMA layout as well as the relevant thread fragments, which differ between fragments A, B, and C.
+Our copy atom this time leverages the `LDSM` PTX instruction: Load from Shared Memory with the "N"ormal row-major/no-transpose layout. It moves 4x32-bit words = 128 bits per instruction, similar to our async load from before. However, this instruction is specialized to copy from shared memory to the correct registers for MMA, vectorizing per-warp loads and bypassing bank conflicts. However, unlike for GMEM->SMEM, our tiled copy has to be aware of the MMA layout as well as the relevant thread fragments, which differ between fragments A, B, and C.
 
 ### Tiled MMA
 Getting deja vu yet? This time, we define the tiling for the MMA GEMM. We define the following Tiled MMA atom:
@@ -702,7 +866,19 @@ Tensor tVsV = gmem_thr_copy_QKV.partition_D(sV);
 ### V: SMEM->Register
 This is the step where we have to tread a bit carefully. V is sitting in SMEM in the same format as Q and K--contiguous along our `kHeadDim`, so we can't just copy our SMEM->register pipeline from earlier. This part is a bit confusing, so let's visualize our problem first:
 
-![alt text](mma_v_layout.png)
+![SMEM phyiscal layout for our MMAs.](mma_v_layout.png)
+
+> **Note**: The tiled MMA visualization in our [tiled MMA section](#tiled-mma) was a human-friendly view which is actually what `SV` looks like here but doesn't represent the physical SMEM layout we actually have.
+
+As we can see, Q and K are both row-contiguous along `kHeadDim`, which they matmul across. S and V matmul across `kBlockN`, not kHeadDim, so V is not row-contiguous along the concatenation dimension. As a result we have to tile it "vertically" along the columns for the tiled MMA.
+
+But what does "vertically" even mean? We were pretty hand-wavy about the `SM75_U32x4_LDSM_N` atom from earlier, so let's clarify this now:
+
+#### LDSM Copy Atom
+
+
+
+
 
 but now we have to reinterpret the memory in column-major format in order to perform the SMEM->register tiled copy. The way we do this is by composing
 
