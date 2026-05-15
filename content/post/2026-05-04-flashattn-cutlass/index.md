@@ -65,7 +65,7 @@ Let's establish the specifics of the FA2 algorithm at a high level.
 - Our grid is `batch/head` x `q_tile`. The batch/head dimensions are independent and can be grouped. The `q_tile` determines which tile of Q we get, and we make it the last dimension for better cache locality between thread blocks.
 - Q is of shape `(kBlockM, kHeadDim)`. The main computation on any thread block revolves around the Q tile. This Q tile does not change for the duration of the thread block. We iterate over the relevant K, V tile per thread block to get an output tile. Each q tile maps to exactly the same size output tile, which is necessary as we need to manifest a whole row of P to do the softmax.
 - We load each tile from global memory (GMEM) to shared memory (SMEM) for staging. When we need to do our GEMM, we load from SMEM to the register file as we loop over K and V.
-- Our GMEM->SMEM copying are all async (`cp.async` on Ampere). Q technically doesn't really have to since it doesn't overlap that much compute but is a micro-optimization.
+- Our GMEM->SMEM copying are all async (`cp.async` on Ampere). Q technically doesn't really have to be since it doesn't overlap that much compute but is a micro-optimization nonetheless.
 
 The overall pseudocode for a tile Q is:
 1. Define GMEM, SMEM, register files, hardware copy/GEMM instructions, and mappings
@@ -686,7 +686,7 @@ The tiled MMA register tensors (`tSsQ`, `tSsK`) have shape `(MMA, MMA_X, MMA_Y)`
 - `MMA_X` is the number of tiles along X and
 - `MMA_Y` is the number of tiles along Y. In this case, `X=kBlockM` and `Y=kHeadDim` for `tSsQ`. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.
 
-### MMA Loop
+### MMA Loop: QK^T GEMM
 We index these K-tiles via `register(_, _, i)` to grab the relevant K-fragment per loop iteration. The TiledMMA handles the the M and N dimension.
 
 ![Macro view of the MMA. We iterate over the K-dimension, each tile multiplying across and summing to form one output tile. The colors just mean they pair, not that they are the same. In the tiled MMA, CuTe handles all the M, N work on our behalf. We just have to concatenate via the K-dim.](mma_macro.png)
@@ -700,13 +700,13 @@ cute::copy(smem_tiled_copy_K, tSsK(_, _, _0{}), tXrK(_, _, _0{}));
 // compile-time static, registers only live per iteration
 #pragma unroll
 for (int i = 0; i < size<2>(tSrQ); i++) {
-    // prefetch next Q, K block
-    if (i < size<2>(tCrA) - 1) {
-      cute::copy(smem_tiled_copy_A, tSsQ(_, _, i + 1), tXrQ(_, _, i + 1));
-      cute::copy(smem_tiled_copy_B, tSsK(_, _, i + 1), tXrK(_, _, i + 1));
-    }
-    // MMA on frags
-    cute::gemm(tiled_mma, tSrQ(_, _, i), tSrK(_, _, i), acc);
+  // prefetch next Q, K block
+  if (i < size<2>(tCrA) - 1) {
+    cute::copy(smem_tiled_copy_A, tSsQ(_, _, i + 1), tXrQ(_, _, i + 1));
+    cute::copy(smem_tiled_copy_B, tSsK(_, _, i + 1), tXrK(_, _, i + 1));
+  }
+  // MMA on frags
+  cute::gemm(tiled_mma, tSrQ(_, _, i), tSrK(_, _, i), acc);
 }
 ```
 
@@ -1067,10 +1067,49 @@ If we do a bit of digging into `partition_fragment`'s source code[^7], we find t
 
 This is the infuriating aha moment. The fragment attempts to copy the layout of the source as-is but strictly maintains the 0th dim shape with a column-major stride. If we look at our [fragment shape prints from earlier](#breaking-the-fragment-shapes), we see the "correct" and botched fragments have the same 0th dim shape with default column-major strides. In you recall, this dim in the tiled MMA represents the value layout within a given tile. And slowly, we realize this is the only register indexing that matters. Although the tile outer dims are different, they only represent a register mapping and no physical memory; since all the load and store operations to the register fragments are consistent, the copy and MMA ops are mathematically consistent. Each tile is just somewhere else but consistently referenced. Since its value layout is necessarily correct, the kernel is right just the same.
 
+#### A Hilariously Simple Fix
+Remember when we simply let FA2 slide with this swizzle declaration?
 
-## The Actual Copy Loop Order
+```cpp
+static constexpr int kSwizzle = (kBlockKSmem == 64) ? 3 : 2;
+...Swizzle<kSwizzle, 3, 3>{}...;
+```
 
+Yeah, me neither. But, for `kBlockKSmem=32`, we did say that `B=2` because there are only four 8-half columns per row (2 bits). But does it have to be? Physical SMEM is just L1 cache and has no concept of a layout--that's purely software. We can simply treat each even-odd row pair as one 64-half row by setting `kSwizzle=3`. Our `B` bitmask just treats the underlying SMEM as if it were 64 in width again. Just like before, each pseudo-row is conflict-free and the tiled layout still extends 8 rows deep for our thread copy. I scratched my head for a while thinking that this fixes all the shape problems from earlier, but I imagined that it would break some access pattern somewhere else. Like a good engineer, I simply changed `kSwizzle=3` in my code and tested it...and
 
+![Testing passed.](tests_pass.png)
+
+So it seems that having variable `kSwizzle` pattern is not necessary even for smaller hdims. We don't need to replicate our physical SMEM layout, we just need the swizzle to do its job, and it does its job just the same with a constant `Swizzle<3,3,3>`. So honestly, we found a simplication after clawing at our faces for hours on end--a one line change. Worth it.
+
+> Like the Q and K SMEM copy, the V SMEM Copy is done in its GEMM loop. We'll cover this [after we cover softmax](#putting-it-all-together), as we have to compute `S` first.
+
+## The Actual Async Copy Strategy
+At this point, we've more than covered how to copy. Now, we explain when to copy.
+
+We cover much of the strategy all the way back at the [beginning](#basic-structure), so feel free to take a moment to review.
+
+### First Up: Q-Tile and K-Tile Prefetch
+The Q tile remains the same throughout the entire thread block, so it's arguably the one that benefits the least from the async copy. We can still overlap a small amount of compute before our main loop. At the same time, we can fetch our 0th K-tile to prepare for the immediate $QK^T$ once we hit the main loop.
+
+```cpp
+cute::copy(gmem_tiled_copy_QKV, tQgQ, tQsQ);
+// issue first K copy tile "0"
+cute::copy(gmem_tiled_copy_QKV, tKgK(_, _, _, _0{}), tKsK);
+cute::cp_async_fence();
+```
+
+The QK copies are immediately issued into the background, and we add a `cute::cp_async_fence()` to establish a commit point (i.e. a barrier) to track all the async copies before it (in this case, two). This function is used in tandem with `cute::cp_async_wait<N>()`, which blocks the current thread until there are only N batches of async copies still outstanding (e.g., `cp_async_wait<0>()` waits until all batches are completely finished).
+
+This fence-wait pattern is extremely common for software pipelining. For example, each loop, we could fetch the next 10 K blocks if we had enough compute to overlap the loads. In most production GEMM kernels, each loop typically fetches two or three blocks in advance. At each loop, you might call `wait<1>` to wait for the latest block. You might be able to do multiple loop iterations without stalling instead of having to wait for the next block each time.
+
+FA2 only uses a one-block prefetch. At each iteration, we simply prefetch the next block. The three main reasons are register pressure, SMEM limits, and tile sizing. FA2 gets quite close to the register limit for each thread since each one has to store Q, K, V, and the accumulator fragment, softmax statistics, and giant unrolled loops. Adding more memory address tracking and heavier loops is pushing near the register ceiling. Furthermore, each prefetch means adding an extra buffer in SMEM to store it. Our tiles are up to size $128\times 128$, which have a huge SMEM footprint. Doubling or tripling up these buffers would likely crush occupancy. It's reasonable to assume FA2 tested the near-optimal pipelining strategy and block-sizes, so we're simply just going to follow suit.
+
+### Main Loop
+
+mention simple wait<0> strategy:
+In our main loop, we have to prefetch K and V every iteration to keep the next blocks coming in while we do our MMAs and Softmax. We issue the K prefetch during Softmax and the $SV$ Gemm and the V prefetch during the $QK^T$ to maximize our overlap. At the start of each iteration, we wait on our K-tile. Once it's loaded, we issue our V prefetch and immediately begin our MMA so the V-copy overlaps this compute period. Then, we wait on the V-tile. Once it's loaded, we issue our K copy and immediately begin our V
+
+FINISH
 
 # Online Softmax
 After $QK^T$, we now deal with the online softmax. Fortunately, this step isn't terribly difficult because of the way we set up the threads. To review, the softmax portion has a couple of steps:
@@ -1428,7 +1467,11 @@ __device__ __forceinline__ void normalize_softmax(Tensor0 &acc_o) {
 
 This function is called in the epilogue after the main loop before we store the output back to GMEM. Overall, the softmax step is not particularly complicated. There's some funky confusing layout reshaping and learning warp reduce primitives but everything else pieces together nicely once you understand the MMA thread layout.
 
-# Putting Everything Together
+# Putting It All Together
+## Softmax Rescale Call
+
+## MMA Loop: SV GEMM
+This GEMM is almost exactly the same as the one before, with the main exception that S is already in the registers. This means we only need to deal with V SMEM copies.
 
 
 # Epilogue: Output->GMEM
