@@ -109,14 +109,14 @@ auto layout_1 = make_layout(make_shape(Int<2>{}, Int<8>{}),
 print_layout(layout);
 // this is the shape of a torch.tensor([[0]*8 for _ in range(16)]).T
 
-// print
+// stdout
 (_2,_8):(_8,_1)
-       0    1    2    3    4    5    6    7
-    +----+----+----+----+----+----+----+----+
- 0  |  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 |
-    +----+----+----+----+----+----+----+----+
- 1  |  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 |
-    +----+----+----+----+----+----+----+----+
+      0    1    2    3    4    5    6    7
+  +----+----+----+----+----+----+----+----+
+0  |  0 |  1 |  2 |  3 |  4 |  5 |  6 |  7 |
+  +----+----+----+----+----+----+----+----+
+1  |  8 |  9 | 10 | 11 | 12 | 13 | 14 | 15 |
+  +----+----+----+----+----+----+----+----+
 ```
 
 A shape of (2, 8) with stride (8, 1), and CuTe provides us with a nice `print_layout` function to see the shape and indexing. Pretty simple. Both declarations are identical. So what's with the freaky underscores?
@@ -173,6 +173,16 @@ auto t_col_major = make_tensor(x, l_col_major);
 int n_row = t_row_major(2, 3); // 12
 int n_col = t_col_major(2, 3); // 15
 ```
+
+## Registers Aren't Memory
+One critical clarification before we go further. CuTe gives you `Tensor` objects backed by GMEM, SMEM, *and* registers, and they all look identical in the code. You index them, you read layouts, and pass them to different functions. However, the register tensor is lying to you in a benign way: **registers are not addressable memory**. They are hardcoded slots wired into the cores. There is no "register address." The "layout" on a register tensor is purely a compiler-side mapping from a logical index (e.g. `frag(0, 1)`) to a specific physical register name (e.g. `%r17`). You should treat it like a 1-1 lookup table, not as something with strides you can do pointer arithmetic on.
+
+This matters because:
+- A register tensor "stride" is a code abstraction. A "column-major" register fragment doesn't have any physical column-major memory underneath it -- there is no memory underneath at all.
+- You cannot vectorize across register layout the way you can across SMEM. Vectorization on registers depends on what values a thread holds and what hardware store/load instructions exist for that combination -- not what the layout looks like.
+- A register tensor is implicitly *per-thread*. Every thread in the warp has its own copy of the same `Tensor` object referring to its own physical registers. There is no shared register pool like SMEM.
+
+We'll lean on this every time we touch fragments. If a fragment-related thing seems impossible to reconcile with the layout you're staring at, the answer is almost always "the layout is a fiction, the registers are real." As simple as this sounds, you'll see how this can be a huge point of confusion later.
 
 ## Layout Hell: Row and Column Major
 
@@ -634,7 +644,7 @@ SMEM->register copies operate on fragments. As mentioned earlier, a fragment is 
 
 > **Note**: We explore a huge caveat with `partition_fragment()` when we discuss [the fragment shape for V](#v-fragment-shape-the-worst-line-in-the-source-code).
 
-CuTe treats the eventual register fragments like tensors in code, but they are not in reality. Registers are not memory and are not addressable--they are hardcoded pieces of hardware that the actual cores operate on. CuTe wraps them in a Tensor object that gives us a way to index into the register file, but you should treat these as 1-1 mappings (e.g. idx 4 -> register 42), not addressing. Even though they have a layout and stride like GMEM or SMEM, they are purely a code abstraction for the compiler that makes operating on them easy.
+As covered in [Registers Aren't Memory](#registers-arent-memory), the register fragment looks like a tensor but it's a 1-1 mapping into the register file, not addressable memory. Keep that in mind in this section.
 
 #### Q, K SMEM->Register Tiled Copy
 The code pattern is mostly the same as our GMEM->SMEM copy, with some SMEM->register specifics. Mainly, the tiled copy interacts with our tiled MMA. So first, we have to declare our tiled MMA and the destination fragment registers:
@@ -673,22 +683,26 @@ auto tSsQ = smem_thr_copy_Q.partition_S(sQ);
 auto tSsK = smem_thr_copy_K.partition_S(sK);
 ```
 
-Before the actual copy and GEMM, notice how we don't partition the destination registers. Remember, unlike GMEM or SMEM, **registers belong to a thread**. For the GMEM->SMEM copy, we partition both GMEM and SMEM, which tells the compiler: "thread A takes this part of GMEM and places it in that part of SMEM." For the SMEM->register copy, the destination is *already* a thread's personal registers. Each partition of SMEM necessarily ends up with one thread. There is no "shared register pool" to partition.
-
-However, we do have to *retile* the destination registers. We created the register mapping based on the MMA atom, not the copy atom. Even though these registers all belong to the same thread, we have to make sure the copy atom puts the right data in the right registers according to its expected layout. We do this in CuTe via `thr_copy.retile_D()`:
+Notice we don't partition the destination registers here -- only the SMEM source. We *do* call `retile_D` on the register fragment though. The full rule is explained in the next subsection.
 
 ```cpp
 Tensor tXrQ = smem_thr_copy_Q.retile_D(tSrQ);
 Tensor tXrK = smem_thr_copy_K.retile_D(tSrK);
 ```
 
-> **Tip**: Do I call partition or retile?
-> | Source/Dest | Mem Type | Function |
-> | :--- | :--- | :--- |
-> | Source | GMEM/SMEM | `partition_S()` |
-> | Dest | GMEM/SMEM | `partition_D()` |
-> | Source | Registers | `retile_S()`|
-> | Dest | Registers | `retile_D()` |
+### Partition vs. Retile
+Every tiled copy in this kernel boils down to one decision: do I `partition` the source/destination, or `retile` it? The answer depends entirely on whether the tensor is in shared/global memory or in registers, and whether it's the source or destination of the copy.
+
+| Source/Dest | Mem Type | Function |
+| :--- | :--- | :--- |
+| Source | GMEM/SMEM | `partition_S()` |
+| Dest | GMEM/SMEM | `partition_D()` |
+| Source | Registers | `retile_S()` |
+| Dest | Registers | `retile_D()` |
+
+Why the asymmetry? **GMEM and SMEM are shared across threads, so they need to be sliced. The partitioner hands each thread its piece of the source/destination region.** Registers are the opposite: each thread already owns its own set, there's no shared pool ([Registers Aren't Memory](#registers-arent-memory)). So you don't *partition* a register tensor -- there's nothing to slice. But, you do still need to *retile* it, because the register fragment was originally laid out for the MMA atom, and the copy atom may want a different layout in the same set of physical registers. `retile_D/S` rebinds the layout without moving anything; it tells the copy atom which logical register goes where.
+
+> **Note**: You'll see this rule apply everywhere: Q/K SMEM->register (above), V SMEM->register, the output register->SMEM and SMEM->register staging.
 
 ## Register Copy and MMA
 Unlike the GMEM->SMEM transaction where we copy the whole tile in one go, we can pseudo-pipeline the fragment loads while performing the GEMM loop across dimension K. For the tiled MMA, we MMA over dim-K, loading the next tile fragment every iteration. This interleaves the `ldmatrix` load with some compute and might save a bit of time due to memory controller and tensor core overlap (functional units can execute independently). But mainly, by explicitly telling the compiler when certain fragments need to be ready, we can conserve register pressure by only having them available when they are needed. In our case, if we prefetch the next block every iteration, we only really need two register fragments available at any time.
@@ -1529,13 +1543,13 @@ using SmemCopyAtomO =
 
 Why is this lazy? Because `AutoVectorizing...` just tells the compiler to find the largest vectorized chunk it can store in one go according to the tiled MMA and fragment layouts. Since 128-bit loads/stores are the maximum size, we're essentially telling the kernel: hey, you optimize it for me. Reading this bit of FA2 source code can lead you to think a 128-bit vectorized store is possible here, but it unfortunately is not. Let's examine why:
 
-Recall that in the output fragment, each thread holds 4 values per tile. In our [thread reduce](#thread-reduce) section, we saw how thread 0 holds `(0, 0), (0, 1), (8, 0), (8, 1)`. Although these fragments have a layout, registers do not behave as memory--you cannot address them. Rather, it's a mapping between an "address" and its physical register name/location. So even though our fragment layout is "column-major", there is no physical column-major memory anywhere. The limitation on our vectorized store depends on how many values each thread can store contiguously in the *output SMEM*--"contiguous" registers don't exist. For example, the hardware PTX `st.shared.v2.b16` takes any two registers with fp16s and stores them at one fp32 address. Each thread holds 2 contiguous halfs, so the max vectorization we can get is 32 bits. This is a hardware limitation, so we can't optimize this any further. Given that this is the final store and that we can vectorize SMEM->GMEM, this isn't a huge problem and by far not the worst bottleneck.
+Recall that in the output fragment, each thread holds 4 values per tile -- thread 0 holds `(0, 0), (0, 1), (8, 0), (8, 1)` (see [thread reduce](#thread-reduce)). And as we established in [Registers Aren't Memory](#registers-arent-memory), the fragment's "column-major" layout is fiction; there is no physical column-major memory underneath. So the vectorization here is bounded by what each thread can write contiguously to the *output SMEM*, not by what the fragment layout looks like. The hardware PTX `st.shared.v2.b16` takes any two registers with fp16s and stores them at one fp32 address. Each thread holds 2 contiguous halfs, so the max vectorization is 32 bits. This is a hardware limit, and we can't optimize further. Since the SMEM->GMEM step is fully vectorized, this isn't a meaningful bottleneck.
 
 If you want to be exact, you can replace the copy atom above with the one below for superior clarity:
 
 ```cpp
 using SmemCopyAtomO =
-    Copy_Atom<UniversalCopy<cute::uint32_t>, cute::half_t>;
+  Copy_Atom<UniversalCopy<cute::uint32_t>, cute::half_t>;
 ```
 
 This is technically more accurate than what the source code specifies. You can check by compiling the full kernel with fixed-size universal copies until it compiles--if it's not compatible, it'll throw an error. Other ways to verify include printing the per-thread shapes to see the strides, looking at the raw PTX instructions, or, unfortunately, using your brain.
@@ -1549,7 +1563,7 @@ auto smem_tiled_copy_O =
 auto smem_thr_copy_O = smem_tiled_copy_O.get_thread_slice(tid);
 ```
 
-This time we have to retile the registers (now the source) to fit this new copy atom, and partition the SMEM destination. Then we can issue our copy.
+This time we have to retile the registers (now the source) to fit this new copy atom, and partition the SMEM destination -- per the [partition vs. retile rule](#partition-vs-retile), it's `retile_S` for the register source and `partition_D` for the SMEM destination. Then, we can issue our copy.
 
 ```cpp
 // retile_S this time, since it's the source
