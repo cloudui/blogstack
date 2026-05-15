@@ -971,6 +971,9 @@ auto tOsVt = smem_thr_copy_V.partition_S(sVt);
 As you can see, we use `sV` for our GMEM tiled copy since we preserve the row-major shape. Only when we copy from SMEM->registers do we transpose the SMEM view for `LDSM_T`.
 
 ### V-Fragment Shape: The Worst Line in the Source Code
+
+> **Tip**: I recommend skipping this section if you're trying to implement a working FA2 first. Come back when you have nothing left to lose.
+
 Oh man, time to deal with the most frustrating line in the entire repo. Frustrating because it's so simply declared, not explained, leads you down multiple rabbit holes, only to realize it literally does nothing at all. I lost my sanity over this, and I'm convinced that the authors of FA2 did not fully understand this line, either. Fortunately, my despair is now your enlightenment. Allow me to show you the way.
 
 If you look at the FA2 source code, you'll actually see that it defines one last V SMEM view:
@@ -992,6 +995,10 @@ If we compile the code for `hdim=64,128` but pass in `sVt` to `partition_fragmen
 
 ```cpp
 ========== kHeadDim=32 kBlockN=64 (kBlockKSmem=32 kSwizzle=2) ==========
+SmemLayoutKV         : Sw<2,3,3> o _0 o (_64,_32):(_32,_1)
+SmemLayoutVt         : Sw<2,3,3> o _0 o (_32,_64):(_1,_32)
+SmemLayoutVtNoSwizzle: (_32,_64):(_1,_32)
+
 fragment_B(sVtNoSwizzle) : ((_2,_2),_4,_4):((_1,_2),_4,_16)
 fragment_B(sVt)          : ((_2,_2),(_2,_2),_4):((_1,_2),(_16,_32),_4)
 // print non-swizzled sQ as well
@@ -999,32 +1006,18 @@ fragment_A(sQNoSwizzle)  : ((_2,_2,_2),_2,_2):((_1,_2,_4),_16,_8)
 fragment_A(sQ)           : ((_2,_2,_2),_2,_2):((_1,_2,_4),_8,_16)
 ```
 
-So something "breaks" the fragments when we switch to non-multiples of 64. The second dimension of the V-fragment changes from a flat `4` to a nested `(2, 2)` layout. The Q-fragment strides flip
+A couple of observations:
+- The default `print` function on the SMEM layouts print some pseudo layout that shows the composition of our different pieces. The reason is because there is no homogenous shape/stride combo that can represent the swizzle logic. We will take a look at the layout visually in a bit.
+- Something clearly "breaks" the fragments when we switch to non-multiples of 64. The second dimension of the V-fragment changes from a flat `4` to a nested `(2, 2)` layout. The Q-fragment's outer strides flip as well. However, both shapes are still the same size in total.
 
+To understand what's going on, we have to understand what `partition_fragment` is actually doing. Canonically, we have passed in tensors as its argument, e.g. `tiled_mma.partition_fragment_A(sQ)`. However, this is a bit of a red herring, since the partioning *only needs the layout*. We already saw this with `partition_fragment_C`, which is a standalone function that only takes in the tiled MMA and a shape. In the source code[^7], the function only uses the tensor's layout and nothing else. The tensor argument exists solely to anchor the partitioning to the physical SMEM buffer--a readability convention, not a functional requirement.
 
+We can see how the `nonswizzle` function simply chops off the swizzle component on the left of the layout and leaves us with the raw non-swizzled shape. We realize that using the non-swizzled shape is actually ideal. We only need to partition the SMEM shape to extract the correct fragment tiles--the copy operation is independent of the underlying swizzling pattern. The dumb conclusion here is that **we should have passed in a non-swizzled `sQ` and `sK` to the partitioner as well.**
 
-In our setup, `kHeadDim` is a multiple of 64 and this reshape is actually completely unncessary since the stride math works out evenly. We can use `partition_fragment_B(sVt)` just the same. This reshape is actually only required for `kHeadDim` that are a multiple of 32 and not 64 (practically, the only ones used are 32 and 96).
+However, the fact that the copy works regardless means there's some deeper reason as to how the fragment shapes stay consistent for `hdim=64,128` and break for `hdim=32,96`. If you've gotten to this point, you should just take the above conclusion and run. If you want to continue to lose your sanity, we're going to understand why.
 
-The underlying reason is extremely convoluted, and the takeaway here is that we honestly should have created a `NoSwizzle` version of `sQ` and `sK` as well. Knowing the underlying reason is truly a bit of a headache  It happens to work out since the swizzle is aligned with our row-major layout when the swizzle fully covers each row (dim 64). This section is more made to explain why the source code had to include this snippet. For best practice, just pass the non-swizzled layout to the fragment and skip this section. It makes more sense and costs nothing.
-
-
-
-```cpp
-========== kHeadDim=32 kBlockN=64 (kBlockKSmem=32 kSwizzle=3) ==========
-
-SmemLayoutKV: Sw<3,3,3> o _0 o (_64,_32):(_32,_1)
-SmemLayoutVt: Sw<3,3,3> o _0 o (_32,_64):(_1,_32)
-SmemLayoutVtNoSwizzle: (_32,_64):(_1,_32)
-```
-
-We can see the no-swizzle layout simply chops off the swizzle stuff at the beginning. The true layout cannot really be shown from an in-line print, since swizzling no longer returns a linearly-traceable layout, but we'll take a look at it next. The `partition_fragment` function only cares about the shape of the resulting layout to make the fragments--after all, registers don't have memory addressing and CuTe simply stores a mapping. For our multiples of 64 dims or the Q, K layouts, it can just chop off the swizzle and steal the shape; For `SmemLayoutKV` above, it would just use `(_64, _32)`. But, for some reason, after the swizzling and transpose on V, it breaks down. We can even print the fragment shapes for the example above (TODO: link file):
-
-```cpp
-fragment_B(sVtNoSwizzle) o ((_2,_2),_4,_4):((_1,_2),_4,_16)
-fragment_B(sVt): ((_2,_2),(_2,_2),_4):((_1,_2),(_16,_32),_4)
-```
-
-The fragment we want has shape `((_2,_2),_4,_4)` and the one we get using `sVt` is `((_2,_2),(_2,_2),_4)`. This means the swizzle and transpose somehow force  `SmemLayoutVt` into a nested shape. The reason is because of how the source code handles the 32/96 blocks:
+#### Ok, Let's Figure Out Why
+The reason `hdim=32` breaks our fragment shapes is due to how the source code handles swizzling for non-multiples of 64:
 
 ```cpp
 static constexpr int kBlockKSmem = (kHeadDim % 64 == 0) ? 64 : 32;
@@ -1035,11 +1028,45 @@ using SmemLayoutAtomQ = decltype(composition(
   Layout<Shape<_8, Int<kBlockKSmem>>, Stride<Int<kBlockKSmem>, _1>>{}));
 ```
 
-These constants are what we defined earlier except the source code handles 32 and 96 with a smaller `kBlockKSmem` and `kSwizzle` to fit the tile shapes. Since the smem width is only 32, we only have bank conflicts if we access more than 2 rows at a time per warp. We now only have $32 / 8 = 4$ columns for 128-bit load, and we only need to permute every group of two rows. Therefore, we can use `Swizzle<2, 3, 3>` like above.
+These constants are the same as what we defined in earlier sections, except the source code handles hdims 32 and 96 with a smaller `kBlockKSmem` and `kSwizzle` to fit the tile shapes. Since the SMEM width is only 32 halfs, we only have bank conflicts if we access more than two rows at a time per warp. We now only have $32 / 8 = 4$ columns for 128-bit load, and we only need to permute every group of two rows. Therefore, we can use `Swizzle<2, 3, 3>` like we see above.
 
-When `kBlockKSmem=64`, the swizzle is predictable. In the final layout, let's compute which blocks belong in the 0th column of each row
-- Row 0: Column 0, `0 xor 0 = 0`
-- Row 1: Column 0, `1 xor
+However, we now notice our row and column bits S and B are no longer adjacent:
+
+![Swizzle bit masks for <3,3,3> and <2,3,3>.](swizzle_233_333.png)
+
+For the `Swizzle<2, 3, 3>` pattern, two rows $2n, 2n+1$ map to the same "row" since bank conflicts cycle every 64 halfs. It preserves the 5th offset bit so the swizzling only permutes the blocks in each true SMEM row. When we print out the resulting layout for `sQ` and `sVt`, we begin to understand:
+
+![Layout of sK and sVt, kHeadDim=32, Swizzle<2,3,3>.](sk_svt_layout.png)
+
+> **Tip:** You can print any layout in latex with `print_latex(layout)`. I rendered this in [overleaf](https://overleaf.com).
+
+True to its definition, `sVt`'s layout is a pure transposition of `sK`. Notice something quite peculiar: for `sK`, the index stride alternates between 32 and 40. If we think about our swizzle pattern for a second, this makes sense. Let's take a look at which offsets end up in column 0:
+
+| SMEM Rows | Shared Bit-Mask Row | Column to XOR to make 0 | Actual Addresses |
+| :--- | :--- | :--- | :--- |
+| Row 0, 1 | Row 0 | Column 0  | `0=0b0`, `32=0b100000` |
+| Row 1, 2 | Row 1 | Column 1  | `0b1001000=72`, `0b1101000=104` |
+
+Since each even-odd SMEM row pair share a bit row, the only offset bit difference is in the 5th untouched bit position, so the difference is 32. Between even-odd row pairs, the only way $a \oplus b = 0$ is when $a=b$. Therefore, when we increment our row by 1, the column also increments by 1. The offset therefore increments by `0b1010000`, which is 40.
+
+For `Swizzle<3,3,3>` no SMEM rows share a bit-mask row. Therefore, an offset in the same column as the row before it must increment by `0b1001000`, which is 72. Each index going down each column in `sK` or row in `sVt` is a constant 72 stride away. Since hdims that are a multiple of 64 use `kBlockKSmem=64`, we have a fully unique set of row and column bits with a constant 72 stride. This is not true for pure multiples of 32. This one vs. two-way stride inconsistency hints that `partition_fragment` cannot extract out a simple shape/stride pattern from the 32-hdim swizzled layout.
+
+When I figured this out, I did not bother looking into how CuTe actually computes the output fragment. The culprit is clearly some inability to extract out a flat layout, whatever the reason might be. Furthermore, even though FA2 non-swizzles `sVt`, it still uses a botched-up version of `sQ`...but the algorithm still works. So I wondered, what if I just replaced `sVtNoSwizzle` with `sVt`, even for `hdim=32`. Something must break, right?
+
+#### Bruh
+Yeah nope, I tested the kernel and it worked perfectly--exact same output as the non-swizzled version, to the decimal. At this point, I had spent 6 or 7 hours trying to figure out why this stupid line was there, only to realize it never mattered anyway. Someone at some point must've copied some snippets from some CuTe example or other kernel or got scared that the debug prints for the layouts looked wrong.
+
+This still begs the question, how does the kernel work despite these wonky layouts? The hint actually lies in the CuTe source code.
+
+#### CuTe Source Code
+If we do a bit of digging into `partition_fragment`'s source code[^7], we find the call stack eventually calls `make_fragment_like`, which has this cute little comment next to it[^8]:
+
+> `make_fragment_like`: Make a tensor the same shape and (if possible) order as another tensor, with special
+> consideration of the 0th mode. The 0th mode is commonly used for MMA_Atoms or Copy_Atoms
+> so this allocates the 0th mode with LayoutLeft regardless of the reference layout.
+
+This is the infuriating aha moment. The fragment attempts to copy the layout of the source as-is but strictly maintains the 0th dim shape with a column-major stride. If we look at our [fragment shape prints from earlier](#breaking-the-fragment-shapes), we see the "correct" and botched fragments have the same 0th dim shape with default column-major strides. In you recall, this dim in the tiled MMA represents the value layout within a given tile. And slowly, we realize this is the only register indexing that matters. Although the tile outer dims are different, they only represent a register mapping and no physical memory; since all the load and store operations to the register fragments are consistent, the copy and MMA ops are mathematically consistent. Each tile is just somewhere else but consistently referenced. Since its value layout is necessarily correct, the kernel is right just the same.
+
 
 ## The Actual Copy Loop Order
 
@@ -1545,4 +1572,6 @@ My AI learning guide had led me astray more times than I could count, but someho
 [^3]: A word is 4 bytes (32-bits). This term is slightly ambiguous based on architecture or context, e.g. a word for a n-bit CPU processor means n-bits. But in CUDA, it almost always means 32-bits. Other alternatives include scalars, floats, or bank-widths, but we will stick to the word "word" when discussing bank conflicts.
 [^4]: https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html
 [^5]: https://developer.nvidia.com/blog/using-cuda-warp-level-primitives/
-[^6]: Oxford shuffle lecture notes, p. 6 for xor shuffle: https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf
+[^6]: Oxford shuffle lecture notes, p.6 for XOR warp shuffle: https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf
+[^7]: CuTe `partition_fragment()` source: https://github.com/NVIDIA/cutlass/blob/e406c186f510a15091cce01f782020ceb7ba8eb5/include/cute/atom/mma_atom.hpp#L508
+[^8]: CuTe `make_fragment_like()` source: https://github.com/NVIDIA/cutlass/blob/e406c186f510a15091cce01f782020ceb7ba8eb5/include/cute/tensor_impl.hpp#L463
