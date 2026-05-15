@@ -22,7 +22,7 @@ We'll walk through FlashAttention-2 end-to-end on an A100, implemented in C++ Cu
 
 A quick note on what this blog is supposed to be. CuTe's documentation is a reference, not a tutorial. You can read it cover to cover and walk away still not knowing CuTe; it's only really worth consulting once you're already trying to do something specific and have hit a wall. This post attempts to be that something specific, and we're going to run straight into those walls together. Most public CuTe writing covers one layer at a time--a layout here, a swizzle there, an MMA atom over there. Tying them into a real kernel is where the difficulty actually lies, and that's the gap this post is trying to fill.
 
-The code we'll walk through is a stripped-down mirror of Tri Dao's production FA-2: same idioms, same building blocks, often the same lines, but with the causal/RoPE/dropout/KV-cache/QK-smem-sharing branches removed. The load-bearing logic is visible instead of buried under config flags that bloat up the repo. Where it matters, our kernel reaches close to parity with the source. Where it diverges, that's usually because I found something -- an inconsistency, a copy-paste from a CuTe example that nobody really understands, a one-line simplification, a choice that turns out to be critical for a non-obvious reason. Those moments are flagged in-line throughout the post, and at least one of them ([the `sVtNoSwizzle` line](#v-fragment-shape-the-worst-line-in-the-source-code)) appears to be a no-op holdover that nobody in the lineage of this code understood. Make of that what you will.
+The code we'll walk through is a stripped-down mirror of Tri Dao's production FA-2: same idioms, same building blocks, often the same lines, but with the causal/RoPE/dropout/KV-cache/QK-smem-sharing branches removed. The load-bearing logic is visible instead of buried under config flags that bloat up the repo. Where it matters, our kernel reaches close to parity with the source. Where it diverges, that's usually because I found something -- an inconsistency, a copy-paste from a CuTe example that nobody really understands, a one-line simplification, a choice that turns out to be critical for a non-obvious reason. Those moments are flagged in-line throughout the post, and at least one of them ([the `sVtNoSwizzle` line](#svtnoswizzle-the-no-op-nobody-caught)) appears to be a no-op holdover that nobody in the lineage of this code understood. Make of that what you will.
 
 What this isn't: a summary of the FA-2 paper, a Hopper/Blackwell post (the algorithm is meaningfully different on newer hardware), or a CuTe tutorial. This is Ampere-specific, code-level, and committed to the bit that we don't move on from a line until fully understand why it's there.
 
@@ -647,7 +647,7 @@ We flagged this M-tiling design choice in the [Basic Structure section](#basic-s
 #### What is a Fragment?
 SMEM->register copies operate on fragments. As mentioned earlier, a fragment is simply each thread's share of the A, B, or C matrix used in the tensor core. We can see which piece each thread gets from the layout in the previous section, although this will become clearer in your head once we begin to work with it in detail. Since we are tiling our Q, K, and V with these MMA atoms, each thread gets multiple fragments (see [MMA shape](#mma-shape) later) based on the number of atoms it takes to tile our SMEM. As a result, CuTe provides `partition_fragment_A/B/C()` functions to partition our SMEM depending on whether the tensor is A, B, or C in the MMA, since each role has a different thread layout.
 
-> **Note**: We explore a huge caveat with `partition_fragment()` when we discuss [the fragment shape for V](#v-fragment-shape-the-worst-line-in-the-source-code).
+> **Note**: We explore a huge caveat with `partition_fragment()` when we discuss [the fragment shape for V](#svtnoswizzle-the-no-op-nobody-caught).
 
 As covered in [Registers Aren't Memory](#registers-arent-memory), the register fragment looks like a tensor but it's a 1-1 mapping into the register file, not addressable memory. Keep that in mind in this section.
 
@@ -888,7 +888,7 @@ You'll see this swizzle pattern a lot for fp16, since the bank-conflict repeat c
 static constexpr int kBlockKSmem = (kHeadDim % 64 == 0) ? 64 : 32;
 ```
 
-> For `hdim=32`, you still have to redeclare some things, for example `B=2` for the swizzle atom. I bring this stipulation up because it's the path the FA2 source code took. It's not the only implementation and not necessarily the best one--it just might be a point of confusion when reading their `kernel_traits.h` definition. We'll cover another huge stipulation in our [V-fragment section](#v-fragment-shape-the-worst-line-in-the-source-code).
+> For `hdim=32`, you still have to redeclare some things, for example `B=2` for the swizzle atom. I bring this stipulation up because it's the path the FA2 source code took. It's not the only implementation and not necessarily the best one--it just might be a point of confusion when reading their `kernel_traits.h` definition. We'll cover another huge stipulation in our [V-fragment section](#svtnoswizzle-the-no-op-nobody-caught).
 
 #### Swizzle Composition
 Now let's actually make the SMEM layout. Since we have a swizzle and the actual SMEM dimensions, our resulting `SmemLayout` is a tiled layout--we have to tile the swizzle on top of the underlying memory. We first create our tile atom and then tile the atom to our SMEM shape.
@@ -1003,7 +1003,7 @@ auto tOsVt = smem_thr_copy_V.partition_S(sVt);
 
 As you can see, we use `sV` for our GMEM tiled copy since we preserve the row-major shape. Only when we copy from SMEM->registers do we transpose the SMEM view for `LDSM_T`.
 
-### V-Fragment Shape: The Worst Line in the Source Code
+### sVtNoSwizzle: The No-Op Nobody Caught
 
 > **Tip**: I recommend skipping this section if you're trying to implement a working FA2 first. Come back when you have nothing left to lose.
 
@@ -1113,6 +1113,27 @@ Yeah, me neither. For `kBlockKSmem=32`, we said that `B=2` because there are onl
 ![Testing passed.](tests_pass.png)
 
 So it seems that a variable `kSwizzle` pattern isn't necessary, even for smaller hdims. We don't need to replicate our physical SMEM layout--we just need the swizzle to do its job, and it does its job just the same with a constant `Swizzle<3,3,3>`. Honestly, we found a simplification after clawing at our faces for hours on end--a one line change. Worth it.
+
+#### There are Multiple Options
+There's technically nothing wrong with the code as-is, but we have a few options to improve the confusion that `sVtNoSwizzle` introduces:
+
+1. Add no-swizzle versions for Q and K as well. This is the most clear about what `partition_fragment` is supposed to care about--the unswizzled shape. It might read as a requirement, which it is not, but it is the most direct with its intention.
+2. Remove `sVtNoSwizzle`. It's not strictly necessary, and it introduces the underlying assumptions that we now know don't exist. I assume it was added because a debug print statement showed that the V fragment had a strange shape, which may cause confusion to developers.
+3. Change the swizzle pattern to `Swizzle<3,3,3>` for all relevant hdims. We can pair this with 2., which fully removes any shape inconsistencies. The swizzle pattern doesn't match the physical SMEM layout at `hdim=32,96`, but to be fair, neither using `kBlockKSmem=64` for `hdim=128`.
+
+The choice is ultimately up to you. I like number 3 since its the simplest and cause no shape inconsistencies, which is what I will use below. Let's refactor the code snippet we introduced in this subsection:
+
+```cpp
+static constexpr int kBlockKSmem = (kHeadDim % 64 == 0) ? 64 : 32;
+
+using SmemLayoutAtomQ = decltype(composition(
+  Swizzle<3, 3, 3>{},
+  Layout<Shape<_8, Int<kBlockKSmem>>, Stride<Int<kBlockKSmem>, _1>>{}));
+  make_tensor(sK.data() + size(sK), SmemLayoutKV{});
+...
+Tensor sVt = make_tensor(sV.data(), SmemLayoutVt{});
+Tensor tOrV = thr_mma.partition_fragment_B(sVt);
+```
 
 > Like the Q and K SMEM copy, the V SMEM copy is done inside its GEMM loop. We'll cover this [after we cover softmax](#putting-it-all-together), since we have to compute `S` first.
 
