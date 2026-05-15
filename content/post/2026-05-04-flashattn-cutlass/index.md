@@ -1317,8 +1317,12 @@ We make a function to compute `exp(Q@K.T)`. Cuda has functional primitives for e
 
 > `__expf()` is a lower-precision and significantly faster version of `expf()`, and it might even use `exp2f` under the hood. But since the FA2 source code uses `exp2f` we will opt for that as well.
 
-In order to use `exp2f(x)`, we have to scale `x` by `log2(e)`, as $2^{\log_2(e)x} = \exp(x)$. Instead of computing $\log_2(e)$, we can simply just store it as a float constant, which saves us from computing it again and again, which would limit our performance gain.
+In order to use `exp2f(x)`, we have to scale `x` by `log2(e)`, as $2^{\log_2(e)x} = \exp(x)$.
 
+### `softmax_scale_log2`: Don't Forget the Sccaling Factor!
+Instead of computing $\log_2(e)$, we can store it as a float constant, which saves us from computing it again and again, which would limit our performance gain. Furthermore, we've completely neglected the denominator scale factor $1/\sqrt{d_h}$. Since this happens any any point computing $QK^T$, we can simply fold it into this  scale factor, as it is constant for the entire kernel. During the kernel dispatch, we can just pass in this precomputed scale factor as an argument.
+
+### Exp Loop
 For the exp loop, we just iterate over the rows again, scaling the max and each value by the log2 scale factor before `exp2f`:
 
 ```cpp
