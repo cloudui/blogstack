@@ -200,7 +200,7 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">_4&lt;/span>&lt;span class="p">{}));&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">t_col_major&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">x&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">l_col_major&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
-&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// tensor indexing
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// tensor indexing: we&amp;#39;ll cover the &amp;#34;why&amp;#34; next
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// i, j = 2, 3
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">n_row&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">t_row_major&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="c1">// 12
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">n_col&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">t_col_major&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="c1">// 15
@@ -335,7 +335,7 @@ $$&lt;/p>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;blockquote>
-&lt;p>&lt;strong>Tip&lt;/strong>: Telling row-major vs col-major apart is easy. Any matrix with leftmost stride 1 is column-major and any matrix with rightmost stride 1 is row-major.&lt;/p>
+&lt;p>&lt;strong>Tip&lt;/strong>: Telling row-major vs col-major apart is easy. Any matrix with leftmost stride 1 (e.g. &lt;code>(1, 8)&lt;/code>) is column-major and any matrix with rightmost stride 1 (e.g. &lt;code>(8, 1)&lt;/code>) is row-major.&lt;/p>
 &lt;/blockquote>
 &lt;h2 id="indexing-hell-in-what-context">Indexing Hell: In What Context?&lt;/h2>
 &lt;p>We tool between row- and column-major, we expect the indices to have the same meaning. For some 2D matrix &lt;code>A[i][j]&lt;/code> we want the ith index to refer to the ith row and the jth index to refer to the jth row. When we iterate through the row-major or col-major version of A, we should get the exact same numbers because &lt;code>A_row_major[i][j] == A_col_major&lt;/code>.&lt;/p>
@@ -517,7 +517,7 @@ data-flex-basis="430px"
 &lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>In &lt;code>l2&lt;/code>, we iterate through the inner (left) shape in groups of 2, column major by default. In this case, the composed layout is purely decorative. We can still address a tensor with layout &lt;code>l1&lt;/code> or &lt;code>l2&lt;/code> with two coordinates &lt;code>(i, j)&lt;/code>, and CuTe maps the translation underneath. However, we are now also grouping the inner dimension as four groups of two. We&amp;rsquo;ll see nested layouts become a powerful tool during the &lt;a class="link" href="#fragment-reshape" >MMA tiling reshape&lt;/a>, where we cannot simply flatten a 3D tensor into a non-nested 2D tensor for our specific access pattern.&lt;/p>
-&lt;h1 id="cute-copy-then-cry">CuTe, Copy, then Cry&lt;/h1>
+&lt;h1 id="cute-copy-mma-then-cry">CuTe, Copy, MMA, then Cry&lt;/h1>
 &lt;h2 id="a100-ampere-specs">A100 (Ampere) Specs&lt;/h2>
 &lt;p>The entire point of FA2 or even GPU optimization in general is to maximize compute by overlapping it with memory loads. Here are the memory and card specs of A100 GPU (Ampere):&lt;/p>
 &lt;table>
@@ -664,8 +664,8 @@ data-flex-basis="436px"
 &lt;p>&lt;strong>Memory coalescing only applies to GMEM/HBM&lt;/strong>, while vectorization applies to both GMEM and SMEM, although in slightly different ways. In both cases, we&amp;rsquo;re reducing instruction pressure and increasing our instruction-level parallelism (ILP). We&amp;rsquo;ll cover more details about bank conflicts and swizzling in our &lt;a class="link" href="#smem-registers" >SMEM-&amp;gt;register section&lt;/a> later.&lt;/p>
 &lt;/blockquote>
 &lt;h3 id="copy-atoms">Copy Atoms&lt;/h3>
-&lt;p>There are a boatload of copy PTX instructions in CUDA&amp;ndash;you can fetch 32 bytes, 64 bytes, one byte, synchronous or asynchronous alike. CuTe neatly packages these copy instructions into a core piece called an &lt;code>Atom&lt;/code>. These &amp;ldquo;atomic&amp;rdquo; pieces are the core hardware instructions that you eventually pass to the &lt;code>copy&lt;/code> function so it knows what instruction to use to copy your data.&lt;/p>
-&lt;p>Ampere has a specific asynchronous &lt;code>Copy_Atom&lt;/code> with the architecture name &lt;code>SM_80&lt;/code>: &lt;code>SM80_CP_ASYNC_CACHEGLOBAL&amp;lt;bit_size&amp;gt;&lt;/code> or &lt;code>SM80_CP_ASYNC_CACHEALWAYS&amp;lt;bit_size&amp;gt;&lt;/code>. The &lt;code>cache_global&lt;/code> and &lt;code>cache_always&lt;/code> map to the PTX instructions &lt;code>ld.global.cg.u32&lt;/code> and &lt;code>ld.global.ca.u32&lt;/code>; &lt;code>cache_global&lt;/code> loads straight from L2 to the destination, skipping over L1 cache, while &lt;code>cache_always&lt;/code> also loads the data into L1. Most kernels will use &lt;code>cache_always&lt;/code> by default because of improved spatial and temporal locality across threads. But, in FA2, we never reference Q, K, or V again once they are loaded into SMEM&amp;ndash;therefore, we can bypass the L2 cache, which is slightly faster. It also reduces thrashing at the L1 level and allows more important data to stay in-cache. In practice, this is a micro-optimization and relatively not that important.&lt;/p>
+&lt;p>Every NVIDIA GPU has a boatload of copy instructions&amp;ndash;you can fetch 32 bytes, 64 bytes, one byte, synchronous or asynchronous alike. CuTe neatly packages these copy instructions into a core piece called an &lt;code>Atom&lt;/code>. These &amp;ldquo;atomic&amp;rdquo; pieces are the core hardware instructions that you eventually pass to the &lt;code>copy&lt;/code> function so it knows what instruction to use to copy your data.&lt;/p>
+&lt;p>Ampere has a specific asynchronous &lt;code>Copy_Atom&lt;/code> with the architecture name &lt;code>SM_80&lt;/code>: &lt;code>SM80_CP_ASYNC_CACHEGLOBAL&amp;lt;bit_size&amp;gt;&lt;/code> or &lt;code>SM80_CP_ASYNC_CACHEALWAYS&amp;lt;bit_size&amp;gt;&lt;/code>. The &lt;code>cache_global&lt;/code> and &lt;code>cache_always&lt;/code> map to the PTX&lt;sup id="fnref:2">&lt;a href="#fn:2" class="footnote-ref" role="doc-noteref">2&lt;/a>&lt;/sup> instructions &lt;code>ld.global.cg.u32&lt;/code> and &lt;code>ld.global.ca.u32&lt;/code>; &lt;code>cache_global&lt;/code> loads straight from L2 to the destination, skipping over L1 cache, while &lt;code>cache_always&lt;/code> also loads the data into L1. Most kernels will use &lt;code>cache_always&lt;/code> by default because of improved spatial and temporal locality across threads. But, in FA2, we never reference Q, K, or V again once they are loaded into SMEM&amp;ndash;therefore, we can bypass the L2 cache, which is slightly faster. It also reduces thrashing at the L1 level and allows more important data to stay in-cache. In practice, this is a micro-optimization and relatively not that important.&lt;/p>
 &lt;p>The &lt;code>bit_size&lt;/code> supports up to 128-bit loads. &lt;strong>Bits&lt;/strong>, not bytes, as these atoms viewed through the &lt;strong>thread perspective&lt;/strong>. Hence, our atom loads a total of $128 \text{ bytes} \cdot 32 / 8 = 512 \text{ bytes}$. This means each 128-bit fetch across the 32 threads in a warp takes $512/128 =4$ memory transactions in four &amp;ldquo;phases&amp;rdquo; (more on this later). For our purposes, we want that full coalesced 128-bit power using &lt;code>cache_global&lt;/code>. We can define the &lt;code>Copy_Atom&lt;/code> with the following code:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -681,7 +681,7 @@ data-flex-basis="436px"
 &lt;/div>
 &lt;/div>&lt;p>We use the cute namespace types for robustness, and our source data type is fp16 (&lt;code>cute::half_t&lt;/code>). Each thread therefore loads $128/16=8$ halfs.&lt;/p>
 &lt;h4 id="how-do-32-threads-load-128-bits-each">How do 32 threads load 128 bits each?&lt;/h4>
-&lt;p>We have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes or 128 words&lt;sup id="fnref:2">&lt;a href="#fn:2" class="footnote-ref" role="doc-noteref">2&lt;/a>&lt;/sup> or 4x32 bank accesses (see &lt;a class="link" href="#bank-conflicts-and-smem-layout" >bank conflicts section&lt;/a> below). The GPU cannot physically load 512 bytes in one go, so the async proxy issues the load/store in &lt;strong>four phases&lt;/strong>, 8 threads at a time (called a quarter-warp).&lt;sup id="fnref:3">&lt;a href="#fn:3" class="footnote-ref" role="doc-noteref">3&lt;/a>&lt;/sup> In phase 1, threads 0-7 load the first 8 128-bit chunks. In phase 2, threads 8-15 do the next 8, and so on and so forth. In each phase, each quarter warp issues a contiguous 8x128-bit or 128-byte coalesced copy, which targets all 32 banks without any conflicts. So by design, our async copies perfectly copy our data using the full HBM bandwidth.&lt;/p>
+&lt;p>We have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes or 128 words&lt;sup id="fnref:3">&lt;a href="#fn:3" class="footnote-ref" role="doc-noteref">3&lt;/a>&lt;/sup> or 4x32 bank accesses (see &lt;a class="link" href="#bank-conflicts-and-smem-layout" >bank conflicts section&lt;/a> below). The GPU cannot physically load 512 bytes in one go, so the async proxy issues the load/store in &lt;strong>four phases&lt;/strong>, 8 threads at a time (called a quarter-warp).&lt;sup id="fnref:4">&lt;a href="#fn:4" class="footnote-ref" role="doc-noteref">4&lt;/a>&lt;/sup> In phase 1, threads 0-7 load the first 8 128-bit chunks. In phase 2, threads 8-15 do the next 8, and so on and so forth. In each phase, each quarter warp issues a contiguous 8x128-bit or 128-byte coalesced copy, which targets all 32 banks without any conflicts. So by design, our async copies perfectly copy our data using the full HBM bandwidth.&lt;/p>
 &lt;h3 id="tiled-copy">Tiled Copy&lt;/h3>
 &lt;p>Even though each thread copies 128 bits, each thread block is usually working with a variable amount of threads/warps. Given the 4 tensor cores per SM, 4 warps per block is typically a good choice for FA2. This means we have to determine how to copy each Q, K, V tile using these 128-bit async copies.&lt;/p>
 &lt;p>CuTe uses &lt;code>Tiled_Copy&lt;/code>, which &amp;ldquo;tiles&amp;rdquo; the memory you are trying to copy (in this case, GMEM) in a structured way over your entire memory region. It outlines the &amp;ldquo;tiling strategy&amp;rdquo; that your threads will follow.&lt;/p>
@@ -862,9 +862,32 @@ data-flex-basis="369px"
 &lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">SmemCopyAtom&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Copy_Atom&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">SM75_U32x4_LDSM_N&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>Our copy atom this time leverages the &lt;code>LDSM&lt;/code> PTX instruction: Load from Shared Memory with the &amp;ldquo;N&amp;quot;ormal row-major/no-transpose layout. It moves 4x32-bit words = 128 bits per instruction, similar to our async load from before. However, this instruction is specialized to copy from shared memory to the correct registers for MMA, vectorizing per-warp loads and bypassing bank conflicts. However, unlike for GMEM-&amp;gt;SMEM, our tiled copy has to be aware of the MMA layout as well as the relevant thread fragments, which differ between fragments A, B, and C.&lt;/p>
+&lt;/div>&lt;p>Our copy atom this time leverages the &lt;code>LDSM_N&lt;/code> SASS&lt;sup id="fnref1:2">&lt;a href="#fn:2" class="footnote-ref" role="doc-noteref">2&lt;/a>&lt;/sup> instruction: Load from Shared Memory with the &amp;ldquo;N&amp;quot;ormal row-major/no-transpose layout. It moves 4x32-bit words = 128 bits per instruction, similar to our async load from before. However, this instruction is quite special&amp;ndash;it is &lt;em>specifically made for tensor core MMAs&lt;/em>. As we&amp;rsquo;ll see in the next section, the tensor cores require specific threads to have specific pieces of each fragment. Although each thread issues a 128-bit transfer, it &lt;em>does not necessarily end up with that data&lt;/em>. Instead, &lt;code>LDSM&lt;/code> performs a specialized hardware warp shuffle where each thread ends up with the correct data.&lt;/p>
+&lt;p>This instruction is also commonly referred to by its PTX counterpart: &lt;code>ldmatrix&lt;/code>&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-sass" data-lang="sass">&lt;span class="line">&lt;span class="cl">&lt;span class="nt">ldmatrix&lt;/span>&lt;span class="nc">.sync.aligned.shape.num&lt;/span>&lt;span class="err">{&lt;/span>&lt;span class="nc">.trans&lt;/span>&lt;span class="err">}{&lt;/span>&lt;span class="nc">.ss&lt;/span>&lt;span class="err">}&lt;/span>&lt;span class="nc">.type&lt;/span> &lt;span class="nt">r&lt;/span>&lt;span class="o">,&lt;/span> &lt;span class="o">[&lt;/span>&lt;span class="nt">p&lt;/span>&lt;span class="o">];&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="na">.shape&lt;/span>&lt;span class="o"> =&lt;/span> &lt;span class="err">{&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">m8n8&lt;/span>&lt;span class="err">};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="na">.num&lt;/span>&lt;span class="o"> =&lt;/span> &lt;span class="err">{&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">x1&lt;/span>&lt;span class="o">,&lt;/span> &lt;span class="o">.&lt;/span>&lt;span class="n">x2&lt;/span>&lt;span class="o">,&lt;/span> &lt;span class="o">.&lt;/span>&lt;span class="n">x4&lt;/span>&lt;span class="err">};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="na">.ss&lt;/span>&lt;span class="o"> =&lt;/span> &lt;span class="err">{&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">shared&lt;/span>&lt;span class="err">{&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">cta&lt;/span>&lt;span class="err">}};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="na">.type&lt;/span>&lt;span class="o"> =&lt;/span> &lt;span class="err">{&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">b16&lt;/span>&lt;span class="err">};&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Our specific copy atom maps to the &lt;code>ldmatrix...x4&lt;/code> variant, which loads an entire $4\times(8\times 8)=16\times 16$ fragment in one go. Just like our GMEM async copy, the &lt;code>ldmatrix&lt;/code> is issued in four phases of 128-byte 8-threaded loads, 512 bytes in total. However, unlike our GMEM copy, the &lt;code>LDSM&lt;/code> tiled copy has to be aware of the downstream MMA thread layout, which differ between fragments A, B, and C.&lt;/p>
+&lt;blockquote>
+&lt;p>We&amp;rsquo;ll cover more &lt;code>LDSM&lt;/code> details later when we use &lt;code>LDSM_T&lt;/code> for the &lt;a class="link" href="#ldsm-copy-atom" >V-copy&lt;/a>.&lt;/p>
+&lt;/blockquote>
 &lt;h3 id="tiled-mma">Tiled MMA&lt;/h3>
-&lt;p>Getting deja vu yet? This time, we define the tiling for the MMA GEMM. We define the following Tiled MMA atom:&lt;/p>
+&lt;p>Getting deja vu yet? This time, we define the tiling for the MMA GEMM. We define the following tiled MMA atom:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -929,7 +952,7 @@ data-flex-basis="411px"
 &lt;/p>
 &lt;p>We chose 128 threads or 4 warps because each SM has 4 resident tensor cores, a sensible choice in order to maximize MMA throughput. For the layout, we tile across the M-dimension, which we take a slice from the left column of Q, and move across the K dimension. This allows each warp to compute a full output row. This makes it easy and efficient to warp-synchronize the online softmax statistics, such as the max and the expsum later down the line. Each tile is &lt;code>kNWarps&lt;/code> stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$.&lt;/p>
 &lt;blockquote>
-&lt;p>Note that $N$ is 16, not 8, because we must aggregate across adjacent N-atoms to produce one 16x16 output tile due to the 16x8 asymmetry&lt;/p>
+&lt;p>Note that $N$ is 16, not 8, because we must aggregate across adjacent N-atoms to produce one 16x16 output tile due to the 16x8 asymmetry. That also means our &lt;code>LDSM&lt;/code> copy atom loads two K, V tiles per instruction. This works because our N-tiles are index-adjacent.&lt;/p>
 &lt;/blockquote>
 &lt;p>
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_in_to_out.png"
@@ -944,8 +967,14 @@ data-flex-basis="399px"
 >
 &lt;/p>
 &lt;h3 id="tiled-copy-a-b-and-c">Tiled Copy A, B, and C&lt;/h3>
-&lt;p>This time, we need to make a different tiled copy for A, B, and C since the fragment registers are specific to each component per atom. The code patterns is mostly the same, with some SMEM-&amp;gt;register specifics.&lt;/p>
-&lt;p>First, we create the register fragments for each thread according to the tiled MMA:&lt;/p>
+&lt;h4 id="what-is-a-fragment">What is a Fragment?&lt;/h4>
+&lt;p>SMEM-&amp;gt;register copies function on fragments. As mentioned earlier, a fragment is simply each thread&amp;rsquo;s share of the A, B, or C matrix used in the tensor core. We can see which piece each thread gets from the layout in the previous section, although this picture will become more clear in your head once we begin to work with it in detail. Since we are tiling our Q, K, and V with these MMA atoms, each thread gets multiple fragments (see &lt;a class="link" href="#mma-shape" >MMA shape&lt;/a> later) based on the number of atoms it takes to tile our SMEM. As a result, CuTe provides us with &lt;code>partition_fragment_A/B/C()&lt;/code> functions to partition our SMEM depending on whether they are A, B, or C in the MMA, since each piece has a different thread layout.&lt;/p>
+&lt;blockquote>
+&lt;p>&lt;strong>Note&lt;/strong>: We explore a huge caveat with &lt;code>partition_fragment()&lt;/code> when we discuss &lt;a class="link" href="#v-fragment-shape-the-worst-line-in-the-source-code" >the fragment shape for V&lt;/a>.&lt;/p>
+&lt;/blockquote>
+&lt;p>CuTe treats the eventual register fragments like tensors in code, but they are not in reality. Registers are not memory and are not addressable&amp;ndash;they are hardcoded pieces of hardware that the actual cores operate on. CuTe wraps it in the Tensor object that gives us a way to index into the register file, but you should treat these as 1-1 mappings (e.g. idx 4 -&amp;gt; register 42), not addressing. Even though they have a layout and stride like GMEM or SMEM, they are purely a code abstraction for the compiler that makes operating on them easy.&lt;/p>
+&lt;h4 id="q-k-smem-register-tiled-copy">Q, K SMEM-&amp;gt;Register Tiled Copy&lt;/h4>
+&lt;p>The code pattern is mostly the same as our GMEM-&amp;gt;SMEM copy, with some SMEM-&amp;gt;register specifics. Mainly, the tiled copy interacts with our tiled MMA. So first, we have to declare our tiled MMA and the destination fragment registers:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
@@ -1011,7 +1040,8 @@ data-flex-basis="399px"
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">tSsK&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_thr_copy_K&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_S&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sK&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>Before the actual copy and GEMM, notice how we don&amp;rsquo;t partition the destination registers. The registers must be known at compile-time and are already predefined for each thread. Registers are not even memory addressable the same way as GMEM or SMEM are. The Atom already knows the destination registers per thread; there is nothing to partition. Instead, we often have to retile the register to reconcile the LDSM and the MMA atom.&lt;/p>
+&lt;/div>&lt;p>Before the actual copy and GEMM, notice how we don&amp;rsquo;t partition the destination registers. Remember, unlike GMEM or SMEM, &lt;strong>registers belong to a thread&lt;/strong>. For the GMEM-&amp;gt;SMEM copy, we partition both GMEM and SMEM, which tells the compiler: &amp;ldquo;thread A takes this part of GMEM and places it in that part of SMEM.&amp;rdquo; For the SMEM-&amp;gt;register copy, the destination is &lt;em>already&lt;/em> a thread&amp;rsquo;s personal registers. Each partition of SMEM necessarily ends up with one thread. There is no &amp;ldquo;shared register pool&amp;rdquo; to partition.&lt;/p>
+&lt;p>However, we do have to &lt;em>retile&lt;/em> the destination registers. We created the register mapping based on the MMA atom, not the copy atom. Even though these registers all belong to the same thread, we have to make sure the copy atom puts the right data in the right registers according to its expected layout. We do this in CuTe via &lt;code>thr_copy.retile_D()&lt;/code>:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -1022,16 +1052,50 @@ data-flex-basis="399px"
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tXrK&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_thr_copy_K&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">retile_D&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tCrK&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>Retiling doesn&amp;rsquo;t change the underlying registers, it simply allows us to map the 32x4 LDSM load to the specific fragment registers. By default, the 32x4 LDSM instruction is unaware of the underlying tensor op. We retile the fragments so that these &lt;code>u32&lt;/code> map to &lt;code>half_t&lt;/code> and align their tile shapes to ensure the eventual copy is correct. (TODO: image). In the final writeback of our output, we&amp;rsquo;ll see how we have to retile the register source when moving data from registers-&amp;gt;SMEM.&lt;/p>
+&lt;/div>&lt;blockquote>
+&lt;p>&lt;strong>Tip&lt;/strong>: Do I call partition or retile?&lt;/p>
+&lt;table>
+&lt;thead>
+&lt;tr>
+&lt;th style="text-align:left">Source/Dest&lt;/th>
+&lt;th style="text-align:left">Mem Type&lt;/th>
+&lt;th style="text-align:left">Function&lt;/th>
+&lt;/tr>
+&lt;/thead>
+&lt;tbody>
+&lt;tr>
+&lt;td style="text-align:left">Source&lt;/td>
+&lt;td style="text-align:left">GMEM/SMEM&lt;/td>
+&lt;td style="text-align:left">&lt;code>partition_S()&lt;/code>&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">Dest&lt;/td>
+&lt;td style="text-align:left">GMEM/SMEM&lt;/td>
+&lt;td style="text-align:left">&lt;code>partition_D()&lt;/code>&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">Source&lt;/td>
+&lt;td style="text-align:left">Registers&lt;/td>
+&lt;td style="text-align:left">&lt;code>retile_S()&lt;/code>&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">Dest&lt;/td>
+&lt;td style="text-align:left">Registers&lt;/td>
+&lt;td style="text-align:left">&lt;code>retile_D()&lt;/code>&lt;/td>
+&lt;/tr>
+&lt;/tbody>
+&lt;/table>
+&lt;/blockquote>
 &lt;h2 id="register-copy-and-mma">Register Copy and MMA&lt;/h2>
-&lt;p>Unlike the GMEM-&amp;gt;SMEM transaction where we copy the whole tile in one go, we can pseudo-pipeline the fragment loads while doing the GEMM loop across dimension K. For the TiledMMA, we MMA over dim-K, loading the next tile fragment every iteration. This interleaves the &lt;code>ldmatrix&lt;/code> instruction with some compute and probably saves a bit of time due to mem controller and tensor core overlap (functional units can execute independently). But mainly, by explicitly telling the compiler when it needs to have certain fragments ready, we can conserve register pressure by only having them available when they are needed. In our case, if we prefetch the next block every iteration, we only really need two register fragments available at any time.&lt;/p>
+&lt;p>Unlike the GMEM-&amp;gt;SMEM transaction where we copy the whole tile in one go, we can pseudo-pipeline the fragment loads while performing the GEMM loop across dimension K. For the tiled MMA, we MMA over dim-K, loading the next tile fragment every iteration. This interleaves the &lt;code>ldmatrix&lt;/code> load with some compute and might save a bit of time due to mem controller and tensor core overlap (functional units can execute independently). But mainly, by explicitly telling the compiler when it needs to have certain fragments ready, we can conserve register pressure by only having them available when they are needed. In our case, if we prefetch the next block every iteration, we only really need two register fragments available at any time.&lt;/p>
 &lt;h3 id="mma-shape">MMA Shape&lt;/h3>
-&lt;p>The tiled MMA tensors (&lt;code>tSsQ&lt;/code>, &lt;code>tSsK&lt;/code>) have shape (MMA, MMA_M, MMA_N) (see visualization in the &lt;a class="link" href="#fragment-reshape" >fragment reshape section&lt;/a>).&lt;/p>
+&lt;p>The tiled MMA register tensors (&lt;code>tSsQ&lt;/code>, &lt;code>tSsK&lt;/code>) have shape &lt;code>(MMA, MMA_X, MMA_Y)&lt;/code> for a row-major tiling of shape &lt;code>(X, Y)&lt;/code> (see visualization in the &lt;a class="link" href="#fragment-reshape" >fragment reshape section&lt;/a>).&lt;/p>
 &lt;ul>
 &lt;li>&lt;code>MMA&lt;/code>: shape/number of elements per thread. For our tiled MMA, it&amp;rsquo;s 8 elements per thread for Q and 4 elements per thread for K, V, and the accumulator. The output of our SM80 16x8x16 atom has &lt;code>MMA=(2,2)&lt;/code>, which means each thread holds 4 values in the shape (2, 2).&lt;/li>
-&lt;li>&lt;code>MMA_M&lt;/code> is the number of tiles along M and&lt;/li>
-&lt;li>&lt;code>MMA_N&lt;/code> is the number of tiles along N for tensor with shape (M, N). In this case, &lt;code>M=kBlockM&lt;/code> and &lt;code>N=K=kHeadDim&lt;/code> for &lt;code>tSsQ&lt;/code>. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.&lt;/li>
+&lt;li>&lt;code>MMA_X&lt;/code> is the number of tiles along X and&lt;/li>
+&lt;li>&lt;code>MMA_Y&lt;/code> is the number of tiles along Y. In this case, &lt;code>X=kBlockM&lt;/code> and &lt;code>Y=kHeadDim&lt;/code> for &lt;code>tSsQ&lt;/code>. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.&lt;/li>
 &lt;/ul>
+&lt;h3 id="mma-loop">MMA Loop&lt;/h3>
 &lt;p>We index these K-tiles via &lt;code>register(_, _, i)&lt;/code> to grab the relevant K-fragment per loop iteration. The TiledMMA handles the the M and N dimension.&lt;/p>
 &lt;p>
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro.png"
@@ -1039,7 +1103,7 @@ width="2270"
 height="1244"
 srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro_hu04f74aa79072a560bd0ec98594996ed7_145696_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro_hu04f74aa79072a560bd0ec98594996ed7_145696_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro_hu04f74aa79072a560bd0ec98594996ed7_145696_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro.png 2270w"
 loading="lazy"
-alt="Macro view of the MMA. We iterate over the K-dimension, each tile multiplying across and summing to form one output tile. The colors just mean they pair, not that they are the same. In the tiled mma, CuTe handles all the M, N work on our behalf. We just have to concatenate via the K-dim."
+alt="Macro view of the MMA. We iterate over the K-dimension, each tile multiplying across and summing to form one output tile. The colors just mean they pair, not that they are the same. In the tiled MMA, CuTe handles all the M, N work on our behalf. We just have to concatenate via the K-dim."
 class="gallery-image"
 data-flex-grow="182"
 data-flex-basis="437px"
@@ -1269,11 +1333,21 @@ data-flex-basis="428px"
 &lt;blockquote>
 &lt;p>For our 32x32 float example, let&amp;rsquo;s compute B, M, S. In this case, we only look at one float at a time, &lt;code>M=0&lt;/code>. We have 32 columns/floats per row, so &lt;code>B=log2(32)=5&lt;/code>. And finally, our row bits are just all the bits above the columns, so &lt;code>S=B=5&lt;/code>. Since we only have 32 rows, we&amp;rsquo;ll only ever have 5 row bits as well, but Swizzle does not need to know since our swizzle pattern just computes the translation, we are just responsible for providing it the relevant SMEM pointers.&lt;/p>
 &lt;/blockquote>
-&lt;p>Notice how the B and S bits can actually overlap. For most scenarios, they do not. There is likely some behavior you can exploit with this overlap. For our case, our row and column bits are tangential, so they are the same here. For different strides because of padding or some weird layouts, this setup gives us flexibility to ensure our swizzles are affecting the correct bits. This setup is somewhat unintuitive, but it works for a variety of strange scenarios as well.&lt;/p>
-&lt;p>So funnily enough for our example, our swizzle atom is simply: &lt;code>Swizzle&amp;lt;3, 3, 3&amp;gt;{}&lt;/code>.&lt;/p>
+&lt;p>Notice how the B and S bits can actually overlap. For most scenarios, they do not. There might be some behavior you can exploit with this overlap, but more often, the B and S bits do not need to be adjacent. For our case, our row and column bits &lt;em>are&lt;/em> adjacent, so &lt;code>B=S&lt;/code>. For different strides or certain layouts, this split gives us flexibility to ensure our swizzles point to the correct bits.&lt;/p>
+&lt;p>Funnily enough, our swizzle atom is simply: &lt;code>Swizzle&amp;lt;3, 3, 3&amp;gt;{}&lt;/code>.&lt;/p>
 &lt;h4 id="kblocksmem">kBlockSmem&lt;/h4>
 &lt;p>You will see this swizzle pattern a lot for fp16, since the bank conflict repeat cycle occurs at 64-half intervals, so it often makes sense to structure your SMEM such that each row covers all 32 banks. For FA2, most kernels opt for &lt;code>hdim=32, 64, 128&lt;/code>. For &lt;code>hdim=128&lt;/code> we have to redo all of the swizzling math for this new column size, so instead, we can just set a &lt;code>kBlockSmem&lt;/code> to maximize at 64, which allows us to use one swizzle atom for everything. This makes it so we have less templating to do for kernel size definitions, nothing more. If you wanted to recompute the shapes and swizzling for larger hdims, you are perfectly welcome to.&lt;/p>
-&lt;p>For &lt;code>hdim=32&lt;/code>, you still have to redeclare some things, for example &lt;code>B=2&lt;/code> for the swizzle atom. I simply explain this stipulation because this is the path that the FA2 source code selected. It is not the only implementation and not even necessarily the best one. It just might be a point of confusion when reading their &lt;code>kernel_traits.h&lt;/code> definition.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">static&lt;/span> &lt;span class="k">constexpr&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">kBlockKSmem&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">kHeadDim&lt;/span> &lt;span class="o">%&lt;/span> &lt;span class="mi">64&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">?&lt;/span> &lt;span class="mi">64&lt;/span> &lt;span class="o">:&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;blockquote>
+&lt;p>For &lt;code>hdim=32&lt;/code>, you still have to redeclare some things, for example &lt;code>B=2&lt;/code> for the swizzle atom. I simply explain this stipulation because this is the path that the FA2 source code selected. It is not the only implementation and not even necessarily the best one. It just might be a point of confusion when reading their &lt;code>kernel_traits.h&lt;/code> definition. We&amp;rsquo;ll cover another huge stipulation in our &lt;a class="link" href="#v-fragment-shape-the-worst-line-in-the-source-code" >V-fragment section&lt;/a>.&lt;/p>
+&lt;/blockquote>
 &lt;h4 id="swizzle-composition">Swizzle Composition&lt;/h4>
 &lt;p>Now, let&amp;rsquo;s actually make the SMEM layout. Since we have a swizzle and the actual SMEM dimensions, our resulting &lt;code>SmemLayout&lt;/code> is actually a tiled layout, as we have to tile the swizzle on top of the underlying memory. We can first create our tile atom and then tile the atom to our SMEM shape.&lt;/p>
 &lt;p>The swizzle atom relies on a composition of a swizzle and the layout underneath. The layout provides the raw coordinates/address to the swizzler, so the B, M, S actually mean something. Our swizzle atom is &lt;code>Swizzle&amp;lt;3, 3, 3&amp;gt;&lt;/code>, and our layout underneath is the SMEM subsection we are actually scrambling. From our analysis earlier, it is 8 rows and spans the entire columns, so that each 32x4 &lt;code>LDSM_N&lt;/code>/16x8x16 MMA tile load becomes bank conflict free. Therefore, the layout is has shape &lt;code>(8, kBlockSmem)&lt;/code> and stride &lt;code>(kBlockSmem, 1)&lt;/code>.&lt;/p>
@@ -1343,21 +1417,276 @@ width="1920"
 height="1080"
 srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_v_layout_hu0ed971fc0e6f32098603b2d6f2c28536_106126_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_v_layout_hu0ed971fc0e6f32098603b2d6f2c28536_106126_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_v_layout.png 1920w"
 loading="lazy"
-alt="SMEM phyiscal layout for our MMAs."
+alt="SMEM phyiscal layout for our MMAs. Each block is a tile."
 class="gallery-image"
 data-flex-grow="177"
 data-flex-basis="426px"
 >
 &lt;/p>
 &lt;blockquote>
-&lt;p>&lt;strong>Note&lt;/strong>: The tiled MMA visualization in our &lt;a class="link" href="#tiled-mma" >tiled MMA section&lt;/a> was a human-friendly view which is actually what &lt;code>SV&lt;/code> looks like here but doesn&amp;rsquo;t represent the physical SMEM layout we actually have.&lt;/p>
+&lt;p>&lt;strong>Note&lt;/strong>: The tiled MMA visualization in our &lt;a class="link" href="#tiled-mma" >tiled MMA section&lt;/a> was a human-friendly view which is actually what &lt;code>sV&lt;/code> looks like here&amp;ndash;it doesn&amp;rsquo;t represent the physical SMEM layout we actually have.&lt;/p>
 &lt;/blockquote>
-&lt;p>As we can see, Q and K are both row-contiguous along &lt;code>kHeadDim&lt;/code>, which they matmul across. S and V matmul across &lt;code>kBlockN&lt;/code>, not kHeadDim, so V is not row-contiguous along the concatenation dimension. As a result we have to tile it &amp;ldquo;vertically&amp;rdquo; along the columns for the tiled MMA.&lt;/p>
+&lt;p>As we can see, Q and K are both row-contiguous along &lt;code>kHeadDim&lt;/code>, which they matmul across. S and V matmul across &lt;code>kBlockN&lt;/code>, not &lt;code>kHeadDim&lt;/code>, so V is not row-contiguous along the concatenation dimension. As a result we have to tile it &amp;ldquo;vertically&amp;rdquo; along the columns for the tiled MMA.&lt;/p>
 &lt;p>But what does &amp;ldquo;vertically&amp;rdquo; even mean? We were pretty hand-wavy about the &lt;code>SM75_U32x4_LDSM_N&lt;/code> atom from earlier, so let&amp;rsquo;s clarify this now:&lt;/p>
 &lt;h4 id="ldsm-copy-atom">LDSM Copy Atom&lt;/h4>
-&lt;p>but now we have to reinterpret the memory in column-major format in order to perform the SMEM-&amp;gt;register tiled copy. The way we do this is by composing&lt;/p>
-&lt;p>provides us with some &lt;code>ldmatrix&lt;/code> hardware instructions that does a transpose on the fly via the &lt;code>LDSM_T&lt;/code> (t for transposed) Atom.&lt;/p>
-&lt;p>TODO: finish this section:&lt;/p>
+&lt;p>When we issue the &lt;code>LDSM_N&lt;/code> instruction, we are loading the entire 16x16 fragment in one go. Since we have 8-half contiguous blocks for 128-bit load (which is also our SMEM layout), each 16x16 &lt;code>ldmatrix&lt;/code> load takes in exactly 32 SMEM addresses&amp;ndash;one from each thread. For the &lt;code>U32x4&lt;/code> denomination, we treat each one as a 4x32-bit register load, which is perfect since the MMA Atom underneath understands that each 32-bit register holds two fp16s.&lt;/p>
+&lt;blockquote>
+&lt;p>&lt;strong>Note&lt;/strong>: Ampere tensor cores support &lt;code>INT4&lt;/code>, &lt;code>INT8&lt;/code>, &lt;code>FP16&lt;/code>, &lt;code>BF16&lt;/code>, and &lt;code>TF32&lt;/code> (19 bits). The &lt;code>U32x4&lt;/code> modifier can be confusing because it only describes the source data/register size, not the actual data type underneath. The &lt;code>LDSM&lt;/code> instructions are purpose-made for tensor core MMAs and doesn&amp;rsquo;t support standard 32-bit floats.&lt;/p>
+&lt;/blockquote>
+&lt;p>The &lt;code>LDSM_T&lt;/code> instruction is slightly different because now, the contiguous data are meant to be transposed before hitting the registers. In the &lt;a class="link" href="#tiled-mma" >thread layout diagram&lt;/a> from earlier, we see how each thread holds its data in two halfs&amp;ndash;each packed into 1-32-bit register. During the &lt;code>LDSM_N&lt;/code> instruction it can split the 128-bit (8-halfs) into 4 32-bit chunks directly, as the two fp16s are contiguous. However, for transposed view, two contiguous fp16s no longer belongs to the same thread register. One fp16 in a 32-bit chunk goes to half of one register and the other goes to the half of another&amp;rsquo;s to fit the MMA Atom&amp;rsquo;s expectation:&lt;/p>
+&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/ldsm_reg.png"
+width="2340"
+height="1312"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/ldsm_reg_hu5c1a81e20100c08caf0f5fe4f1c1f005_185553_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/ldsm_reg_hu5c1a81e20100c08caf0f5fe4f1c1f005_185553_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/ldsm_reg_hu5c1a81e20100c08caf0f5fe4f1c1f005_185553_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/ldsm_reg.png 2340w"
+loading="lazy"
+alt="LDSM_N vs. LDSM_T SMEM-&amp;gt;register movement following the 16x8x16 MMA atom layout."
+class="gallery-image"
+data-flex-grow="178"
+data-flex-basis="428px"
+>
+&lt;/p>
+&lt;p>In SMEM for Q and K, contiguous fp16s end up in the same thread&amp;rsquo;s register since they&amp;rsquo;re contiguous in memory. In SMEM for V, it&amp;rsquo;s transposed to what the MMA expects, so contiguous fp16s belong to the column. &lt;code>LDSM_T&lt;/code> must move them to different destination registers. We use the &lt;code>SM75_U16x8_LDSM_T&lt;/code> atom to load the V fragments. This instruction reinterprets 4x32-bits as 8x16-bits, so the atom atom knows that each 128-bit chunk is 8 fp16s that need to be transposed into the registers. Since SMEM for V is still stored contiguous in 8-half chunks, we can still vectorize across the entire 128-bits.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">SmemCopyAtomTransposed&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Copy_Atom&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">SM75_U16x8_LDSM_T&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;h4 id="v-smem-partition">V SMEM Partition&lt;/h4>
+&lt;p>The tiled MMA already handles the tiling strategy for our SMEM copy, but we have to transpose the &lt;code>sV&lt;/code> layout to match our new transposed atom to fit our tiling strategy from our &lt;a class="link" href="#v-smem-register" >visualization&lt;/a>. If we tiled &lt;code>sV&lt;/code> as is, the atom tile and each thread tile would grab the wrong &amp;ldquo;next block&amp;rdquo; of SMEM:&lt;/p>
+&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/v_tile.png"
+width="2342"
+height="1246"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/v_tile_hu17bc38c7333ce895cd68441321bdfb02_211033_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/v_tile_hu17bc38c7333ce895cd68441321bdfb02_211033_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/v_tile_hu17bc38c7333ce895cd68441321bdfb02_211033_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/v_tile.png 2342w"
+loading="lazy"
+alt="Thread tiling strategy on sV as-is. It grabs the next 128-bits along kHeadDim instead of along kBlockN. Note the actual SMEM is swizzled."
+class="gallery-image"
+data-flex-grow="187"
+data-flex-basis="451px"
+>
+&lt;/p>
+&lt;p>Remember, we want our SMEM to &amp;ldquo;look like&amp;rdquo; &lt;code>(kHeadDim, kBlockN)&lt;/code>, so we can simply do a layout transpose to reinterpret V SMEM&amp;rsquo;s underlying data. The easiest way to do this is to compose another layout on top of our swizzled KV atom from before. Since the &lt;code>composition()&lt;/code> function goes right to left, we want the most surface addressing on the very right.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;span class="lnt">7
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">SmemLayoutVt&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="k">decltype&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">composition&lt;/span>&lt;span class="p">(&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">SmemLayoutKV&lt;/span>&lt;span class="p">{},&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_layout&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kHeadDim&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockN&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockN&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">)));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// FA2 source code uses GenRowMajor{} for stride
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// They&amp;#39;re not consistent with their stride defs haha
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>Our stride is row major because in our layout interpretation we want our &lt;code>LDSM&lt;/code> tile and layout tile to move along concat dim &lt;code>kBlockN&lt;/code> the fastest. Our full layout is therefore:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-fallback" data-lang="fallback">&lt;span class="line">&lt;span class="cl">composition([tile_to_shape(Swizzle-&amp;gt;Layout), (kBlockN, kHeadDim)],
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> (kHeadDim, kBlockN))
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>The reason we add a composition on top of &lt;code>SmemLayoutKV&lt;/code> instead of calling &lt;code>tile_to_shape&lt;/code> directly on our &lt;code>(kHeadDim, kBlockN)&lt;/code> shape is because our swizzle pattern is specifically configured around &lt;code>kHeadDim&lt;/code>. We could similarly configure a swizzle for &lt;code>kBlockN&lt;/code> but it would require us doing more swizzle tiling math for this transposed view. Instead, we can just apply the composition, which does all of the translation for us with no extra work. It&amp;rsquo;s simply the most efficient way to use what we&amp;rsquo;ve already derived and takes advantage of the fact that K and V have the same tile dimensions in memory.&lt;/p>
+&lt;p>Let&amp;rsquo;s apply this layout view to a new transposed &lt;code>sV&lt;/code> and finalize our copy:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="p">...&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">sV&lt;/span> &lt;span class="o">=&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sK&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">()&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sK&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">SmemLayoutKV&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// t for transposed
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">Tensor&lt;/span> &lt;span class="n">sVt&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sV&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">(),&lt;/span> &lt;span class="n">SmemLayoutVt&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// tiled copy defs
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">smem_tiled_copy_V&lt;/span> &lt;span class="o">=&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_tiled_copy_B&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">SmemCopyAtomTransposed&lt;/span>&lt;span class="p">{},&lt;/span> &lt;span class="n">tiled_mma&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">smem_thr_copy_V&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_tiled_copy_V&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">get_thread_slice&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tid&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// partition SMEM via our transposed SMEM
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// varname: thread, Output, sVt
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="k">auto&lt;/span> &lt;span class="n">tOsVt&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">smem_thr_copy_V&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_S&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sVt&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>As you can see, we use &lt;code>sV&lt;/code> for our GMEM tiled copy since we preserve the row-major shape. Only when we copy from SMEM-&amp;gt;registers do we transpose the SMEM view for &lt;code>LDSM_T&lt;/code>.&lt;/p>
+&lt;h3 id="v-fragment-shape-the-worst-line-in-the-source-code">V-Fragment Shape: The Worst Line in the Source Code&lt;/h3>
+&lt;blockquote>
+&lt;p>&lt;strong>Tip&lt;/strong>: I recommend skipping this section if you&amp;rsquo;re trying to implement a working FA2 first. Come back when you have nothing left to lose.&lt;/p>
+&lt;/blockquote>
+&lt;p>Oh man, time to deal with the most frustrating line in the entire repo. Frustrating because it&amp;rsquo;s so simply declared, not explained, leads you down multiple rabbit holes, only to realize it literally does nothing at all. I lost my sanity over this, and I&amp;rsquo;m convinced that the authors of FA2 did not fully understand this line, either. Fortunately, my despair is now your enlightenment. Allow me to show you the way.&lt;/p>
+&lt;p>If you look at the FA2 source code, you&amp;rsquo;ll actually see that it defines one last V SMEM view:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">SmemLayoutVtNoSwizzle&lt;/span> &lt;span class="o">=&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">decltype&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">get_nonswizzle_portion&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">SmemLayoutVt&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">sVtNoSwizzle&lt;/span> &lt;span class="o">=&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sV&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">(),&lt;/span> &lt;span class="n">SmemLayoutVtNoSwizzle&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tOrV&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">thr_mma&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_fragment_B&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sVtNoSwizzle&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>This &lt;code>sVtNoSwizzle&lt;/code> is only used to derive the fragment shape for &lt;code>tOrV&lt;/code>. It leads us to assume that &lt;em>something&lt;/em> breaks if we don&amp;rsquo;t extract the &lt;code>nonswizzle_portion&lt;/code> of &lt;code>sVt&lt;/code>&amp;rsquo;s layout.&lt;/p>
+&lt;p>When we declared our fragments for Q and K, we simply passed in the swizzled tensors &lt;code>sQ, sK&lt;/code> to &lt;code>partition_fragment&lt;/code>. So why don&amp;rsquo;t we do that for &lt;code>sVt&lt;/code>? You can imagine its due to the transpose we apply on top of the swizzle atom. In this case, you&amp;rsquo;d be right, with a few massive caveats.&lt;/p>
+&lt;h4 id="breaking-the-fragment-shapes">Breaking the Fragment Shapes&lt;/h4>
+&lt;p>If we compile the code for &lt;code>hdim=64,128&lt;/code> but pass in &lt;code>sVt&lt;/code> to &lt;code>partition_fragment_B&lt;/code>, all the layouts are identical to passing in &lt;code>sVtNoSwizzle&lt;/code>. Seemingly, it makes no difference. However, if we compile the code for &lt;code>hdim=32,96&lt;/code>, the fragment shapes end up different:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="o">==========&lt;/span> &lt;span class="n">kHeadDim&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">32&lt;/span> &lt;span class="n">kBlockN&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">64&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">kBlockKSmem&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">32&lt;/span> &lt;span class="n">kSwizzle&lt;/span>&lt;span class="o">=&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">==========&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nl">SmemLayoutKV&lt;/span> &lt;span class="p">:&lt;/span> &lt;span class="n">Sw&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="n">o&lt;/span> &lt;span class="n">_0&lt;/span> &lt;span class="n">o&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">_64&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_32&lt;/span>&lt;span class="p">)&lt;/span>&lt;span class="o">:&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_32&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nl">SmemLayoutVt&lt;/span> &lt;span class="p">:&lt;/span> &lt;span class="n">Sw&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="n">o&lt;/span> &lt;span class="n">_0&lt;/span> &lt;span class="n">o&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">_32&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_64&lt;/span>&lt;span class="p">)&lt;/span>&lt;span class="o">:&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_32&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="nl">SmemLayoutVtNoSwizzle&lt;/span>&lt;span class="p">:&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">_32&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_64&lt;/span>&lt;span class="p">)&lt;/span>&lt;span class="o">:&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_32&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">fragment_B&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sVtNoSwizzle&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">:&lt;/span> &lt;span class="p">((&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">),&lt;/span>&lt;span class="n">_4&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_4&lt;/span>&lt;span class="p">)&lt;/span>&lt;span class="o">:&lt;/span>&lt;span class="p">((&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">),&lt;/span>&lt;span class="n">_4&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_16&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">fragment_B&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sVt&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">:&lt;/span> &lt;span class="p">((&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">),(&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">),&lt;/span>&lt;span class="n">_4&lt;/span>&lt;span class="p">)&lt;/span>&lt;span class="o">:&lt;/span>&lt;span class="p">((&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">),(&lt;/span>&lt;span class="n">_16&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_32&lt;/span>&lt;span class="p">),&lt;/span>&lt;span class="n">_4&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// print non-swizzled sQ as well
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">fragment_A&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sQNoSwizzle&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">:&lt;/span> &lt;span class="p">((&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">),&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">)&lt;/span>&lt;span class="o">:&lt;/span>&lt;span class="p">((&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_4&lt;/span>&lt;span class="p">),&lt;/span>&lt;span class="n">_16&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">fragment_A&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sQ&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">:&lt;/span> &lt;span class="p">((&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">),&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">)&lt;/span>&lt;span class="o">:&lt;/span>&lt;span class="p">((&lt;/span>&lt;span class="n">_1&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_2&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_4&lt;/span>&lt;span class="p">),&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span>&lt;span class="n">_16&lt;/span>&lt;span class="p">)&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>A couple of observations:&lt;/p>
+&lt;ul>
+&lt;li>The default &lt;code>print&lt;/code> function on the SMEM layouts print some pseudo layout that shows the composition of our different pieces. The reason is because there is no homogenous shape/stride combo that can represent the swizzle logic. We will take a look at the layout visually in a bit.&lt;/li>
+&lt;li>Something clearly &amp;ldquo;breaks&amp;rdquo; the fragments when we switch to non-multiples of 64. The second dimension of the V-fragment changes from a flat &lt;code>4&lt;/code> to a nested &lt;code>(2, 2)&lt;/code> layout. The Q-fragment&amp;rsquo;s outer strides flip as well. However, both shapes are still the same size in total.&lt;/li>
+&lt;/ul>
+&lt;p>To understand what&amp;rsquo;s going on, we have to understand what &lt;code>partition_fragment&lt;/code> is actually doing. Canonically, we have passed in tensors as its argument, e.g. &lt;code>tiled_mma.partition_fragment_A(sQ)&lt;/code>. However, this is a bit of a red herring, since the partioning &lt;em>only needs the layout&lt;/em>. We already saw this with &lt;code>partition_fragment_C&lt;/code>, which is a standalone function that only takes in the tiled MMA and a shape. In the source code&lt;sup id="fnref:5">&lt;a href="#fn:5" class="footnote-ref" role="doc-noteref">5&lt;/a>&lt;/sup>, the function only uses the tensor&amp;rsquo;s layout and nothing else. The tensor argument exists solely to anchor the partitioning to the physical SMEM buffer&amp;ndash;a readability convention, not a functional requirement.&lt;/p>
+&lt;p>We can see how the &lt;code>nonswizzle&lt;/code> function simply chops off the swizzle component on the left of the layout and leaves us with the raw non-swizzled shape. We realize that using the non-swizzled shape is actually ideal. We only need to partition the SMEM shape to extract the correct fragment tiles&amp;ndash;the copy operation is independent of the underlying swizzling pattern. The dumb conclusion here is that &lt;strong>we should have passed in a non-swizzled &lt;code>sQ&lt;/code> and &lt;code>sK&lt;/code> to the partitioner as well.&lt;/strong>&lt;/p>
+&lt;p>However, the fact that the copy works regardless means there&amp;rsquo;s some deeper reason as to how the fragment shapes stay consistent for &lt;code>hdim=64,128&lt;/code> and break for &lt;code>hdim=32,96&lt;/code>. If you&amp;rsquo;ve gotten to this point, you should just take the above conclusion and run. If you want to continue to lose your sanity, we&amp;rsquo;re going to understand why.&lt;/p>
+&lt;h4 id="ok-lets-figure-out-why">Ok, Let&amp;rsquo;s Figure Out Why&lt;/h4>
+&lt;p>The reason &lt;code>hdim=32&lt;/code> breaks our fragment shapes is due to how the source code handles swizzling for non-multiples of 64:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">static&lt;/span> &lt;span class="k">constexpr&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">kBlockKSmem&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">kHeadDim&lt;/span> &lt;span class="o">%&lt;/span> &lt;span class="mi">64&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">?&lt;/span> &lt;span class="mi">64&lt;/span> &lt;span class="o">:&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">static&lt;/span> &lt;span class="k">constexpr&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">kSwizzle&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">kBlockKSmem&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="mi">64&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">?&lt;/span> &lt;span class="mi">3&lt;/span> &lt;span class="o">:&lt;/span> &lt;span class="mi">2&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">SmemLayoutAtomQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="k">decltype&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">composition&lt;/span>&lt;span class="p">(&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Swizzle&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kSwizzle&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockKSmem&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockKSmem&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>These constants are the same as what we defined in earlier sections, except the source code handles hdims 32 and 96 with a smaller &lt;code>kBlockKSmem&lt;/code> and &lt;code>kSwizzle&lt;/code> to fit the tile shapes. Since the SMEM width is only 32 halfs, we only have bank conflicts if we access more than two rows at a time per warp. We now only have $32 / 8 = 4$ columns for 128-bit load, and we only need to permute every group of two rows. Therefore, we can use &lt;code>Swizzle&amp;lt;2, 3, 3&amp;gt;&lt;/code> like we see above.&lt;/p>
+&lt;p>However, we now notice our row and column bits S and B are no longer adjacent:&lt;/p>
+&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle_233_333.png"
+width="2154"
+height="1208"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle_233_333_hu7849fed29fd6961eacfe8b04e97fb1a3_149018_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle_233_333_hu7849fed29fd6961eacfe8b04e97fb1a3_149018_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle_233_333_hu7849fed29fd6961eacfe8b04e97fb1a3_149018_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle_233_333.png 2154w"
+loading="lazy"
+alt="Swizzle bit masks for &amp;lt;3,3,3&amp;gt; and &amp;lt;2,3,3&amp;gt;."
+class="gallery-image"
+data-flex-grow="178"
+data-flex-basis="427px"
+>
+&lt;/p>
+&lt;p>For the &lt;code>Swizzle&amp;lt;2, 3, 3&amp;gt;&lt;/code> pattern, two rows $2n, 2n+1$ map to the same &amp;ldquo;row&amp;rdquo; since bank conflicts cycle every 64 halfs. It preserves the 5th offset bit so the swizzling only permutes the blocks in each true SMEM row. When we print out the resulting layout for &lt;code>sQ&lt;/code> and &lt;code>sVt&lt;/code>, we begin to understand:&lt;/p>
+&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/sk_svt_layout.png"
+width="2330"
+height="1026"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/sk_svt_layout_hu9cb3d163ccec2f4856d73fbd4fd288ea_337383_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/sk_svt_layout_hu9cb3d163ccec2f4856d73fbd4fd288ea_337383_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/sk_svt_layout_hu9cb3d163ccec2f4856d73fbd4fd288ea_337383_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/sk_svt_layout.png 2330w"
+loading="lazy"
+alt="Layout of sK and sVt, kHeadDim=32, Swizzle&amp;lt;2,3,3&amp;gt;."
+class="gallery-image"
+data-flex-grow="227"
+data-flex-basis="545px"
+>
+&lt;/p>
+&lt;blockquote>
+&lt;p>&lt;strong>Tip:&lt;/strong> You can print any layout in latex with &lt;code>print_latex(layout)&lt;/code>. I rendered this in &lt;a class="link" href="https://overleaf.com" target="_blank" rel="noopener"
+>overleaf&lt;/a>.&lt;/p>
+&lt;/blockquote>
+&lt;p>True to its definition, &lt;code>sVt&lt;/code>&amp;rsquo;s layout is a pure transposition of &lt;code>sK&lt;/code>. Notice something quite peculiar: for &lt;code>sK&lt;/code>, the index stride alternates between 32 and 40. If we think about our swizzle pattern for a second, this makes sense. Let&amp;rsquo;s take a look at which offsets end up in column 0:&lt;/p>
+&lt;table>
+&lt;thead>
+&lt;tr>
+&lt;th style="text-align:left">SMEM Rows&lt;/th>
+&lt;th style="text-align:left">Shared Bit-Mask Row&lt;/th>
+&lt;th style="text-align:left">Column to XOR to make 0&lt;/th>
+&lt;th style="text-align:left">Actual Addresses&lt;/th>
+&lt;/tr>
+&lt;/thead>
+&lt;tbody>
+&lt;tr>
+&lt;td style="text-align:left">Row 0, 1&lt;/td>
+&lt;td style="text-align:left">Row 0&lt;/td>
+&lt;td style="text-align:left">Column 0&lt;/td>
+&lt;td style="text-align:left">&lt;code>0=0b0&lt;/code>, &lt;code>32=0b100000&lt;/code>&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">Row 1, 2&lt;/td>
+&lt;td style="text-align:left">Row 1&lt;/td>
+&lt;td style="text-align:left">Column 1&lt;/td>
+&lt;td style="text-align:left">&lt;code>0b1001000=72&lt;/code>, &lt;code>0b1101000=104&lt;/code>&lt;/td>
+&lt;/tr>
+&lt;/tbody>
+&lt;/table>
+&lt;p>Since each even-odd SMEM row pair share a bit row, the only offset bit difference is in the 5th untouched bit position, so the difference is 32. Between even-odd row pairs, the only way $a \oplus b = 0$ is when $a=b$. Therefore, when we increment our row by 1, the column also increments by 1. The offset therefore increments by &lt;code>0b1010000&lt;/code>, which is 40.&lt;/p>
+&lt;p>For &lt;code>Swizzle&amp;lt;3,3,3&amp;gt;&lt;/code> no SMEM rows share a bit-mask row. Therefore, an offset in the same column as the row before it must increment by &lt;code>0b1001000&lt;/code>, which is 72. Each index going down each column in &lt;code>sK&lt;/code> or row in &lt;code>sVt&lt;/code> is a constant 72 stride away. Since hdims that are a multiple of 64 use &lt;code>kBlockKSmem=64&lt;/code>, we have a fully unique set of row and column bits with a constant 72 stride. This is not true for pure multiples of 32. This one vs. two-way stride inconsistency hints that &lt;code>partition_fragment&lt;/code> cannot extract out a simple shape/stride pattern from the 32-hdim swizzled layout.&lt;/p>
+&lt;p>When I figured this out, I did not bother looking into how CuTe actually computes the output fragment. The culprit is clearly some inability to extract out a flat layout, whatever the reason might be. Furthermore, even though FA2 non-swizzles &lt;code>sVt&lt;/code>, it still uses a botched-up version of &lt;code>sQ&lt;/code>&amp;hellip;but the algorithm still works. So I wondered, what if I just replaced &lt;code>sVtNoSwizzle&lt;/code> with &lt;code>sVt&lt;/code>, even for &lt;code>hdim=32&lt;/code>. Something must break, right?&lt;/p>
+&lt;h4 id="bruh">Bruh&lt;/h4>
+&lt;p>Yeah nope, I tested the kernel and it worked perfectly&amp;ndash;exact same output as the non-swizzled version, to the decimal. At this point, I had spent 6 or 7 hours trying to figure out why this stupid line was there, only to realize it never mattered anyway. Someone at some point must&amp;rsquo;ve copied some snippets from some CuTe example or other kernel or got scared that the debug prints for the layouts looked wrong.&lt;/p>
+&lt;p>This still begs the question, how does the kernel work despite these wonky layouts? The hint actually lies in the CuTe source code.&lt;/p>
+&lt;h4 id="cute-source-code">CuTe Source Code&lt;/h4>
+&lt;p>If we do a bit of digging into &lt;code>partition_fragment&lt;/code>&amp;rsquo;s source code&lt;sup id="fnref1:5">&lt;a href="#fn:5" class="footnote-ref" role="doc-noteref">5&lt;/a>&lt;/sup>, we find the call stack eventually calls &lt;code>make_fragment_like&lt;/code>, which has this cute little comment next to it&lt;sup id="fnref:6">&lt;a href="#fn:6" class="footnote-ref" role="doc-noteref">6&lt;/a>&lt;/sup>:&lt;/p>
+&lt;blockquote>
+&lt;p>&lt;code>make_fragment_like&lt;/code>: Make a tensor the same shape and (if possible) order as another tensor, with special
+consideration of the 0th mode. The 0th mode is commonly used for MMA_Atoms or Copy_Atoms
+so this allocates the 0th mode with LayoutLeft regardless of the reference layout.&lt;/p>
+&lt;/blockquote>
+&lt;p>This is the infuriating aha moment. The fragment attempts to copy the layout of the source as-is but strictly maintains the 0th dim shape with a column-major stride. If we look at our &lt;a class="link" href="#breaking-the-fragment-shapes" >fragment shape prints from earlier&lt;/a>, we see the &amp;ldquo;correct&amp;rdquo; and botched fragments have the same 0th dim shape with default column-major strides. In you recall, this dim in the tiled MMA represents the value layout within a given tile. And slowly, we realize this is the only register indexing that matters. Although the tile outer dims are different, they only represent a register mapping and no physical memory; since all the load and store operations to the register fragments are consistent, the copy and MMA ops are mathematically consistent. Each tile is just somewhere else but consistently referenced. Since its value layout is necessarily correct, the kernel is right just the same.&lt;/p>
+&lt;h2 id="the-actual-copy-loop-order">The Actual Copy Loop Order&lt;/h2>
 &lt;h1 id="online-softmax">Online Softmax&lt;/h1>
 &lt;p>After $QK^T$, we now deal with the online softmax. Fortunately, this step isn&amp;rsquo;t terribly difficult because of the way we set up the threads. To review, the softmax portion has a couple of steps:&lt;/p>
 &lt;ol>
@@ -1407,7 +1736,7 @@ data-flex-basis="426px"
 &lt;/div>
 &lt;/div>&lt;p>So what actually goes into computing the max and the sum?&lt;/p>
 &lt;h2 id="row-reduce">Row Reduce&lt;/h2>
-&lt;p>If we structured our MMA in a way where threads across multiple warps had each tile&amp;rsquo;s output data, we would have to stage information through SMEM for cross-warp reduction, which would be significantly slower and more complicated. With miraculous foresight, we set up our MMA fragments where each warp holds an entire row&amp;rsquo;s output for each tile. With 128 threads, we have 4 warps each owning 16 rows per MMA tile (see our &lt;code>TiledMma&lt;/code> to refresh), each spanning the entire row. This allows us to use &lt;strong>warp reduction&lt;/strong>, which is a &amp;ldquo;highly efficient CUDA parallel reduction technique that aggregates data across 32 threads within a single GPU warp.&amp;rdquo;&lt;sup id="fnref:4">&lt;a href="#fn:4" class="footnote-ref" role="doc-noteref">4&lt;/a>&lt;/sup> CUDA provides us with warp primitives such as &lt;code>__shfl_down_sync()&lt;/code> or &lt;code>__shfl_xor_sync()&lt;/code>, which allow us to easily shuffle data across all threads in a warp without any load/stores or staging through shared memory. As a result, there is zero memory latency or synchronization barriers, which makes our max/sum step ultra fast.&lt;/p>
+&lt;p>If we structured our MMA in a way where threads across multiple warps had each tile&amp;rsquo;s output data, we would have to stage information through SMEM for cross-warp reduction, which would be significantly slower and more complicated. With miraculous foresight, we set up our MMA fragments where each warp holds an entire row&amp;rsquo;s output for each tile. With 128 threads, we have 4 warps each owning 16 rows per MMA tile (see our &lt;code>TiledMma&lt;/code> to refresh), each spanning the entire row. This allows us to use &lt;strong>warp reduction&lt;/strong>, which is a &amp;ldquo;highly efficient CUDA parallel reduction technique that aggregates data across 32 threads within a single GPU warp.&amp;rdquo;&lt;sup id="fnref:7">&lt;a href="#fn:7" class="footnote-ref" role="doc-noteref">7&lt;/a>&lt;/sup> CUDA provides us with warp primitives such as &lt;code>__shfl_down_sync()&lt;/code> or &lt;code>__shfl_xor_sync()&lt;/code>, which allow us to easily shuffle data across all threads in a warp without any load/stores or staging through shared memory. As a result, there is zero memory latency or synchronization barriers, which makes our max/sum step ultra fast.&lt;/p>
 &lt;blockquote>
 &lt;p>Warp reduction is the primary and fastest way to perform intra-warp communication.&lt;/p>
 &lt;/blockquote>
@@ -1415,7 +1744,7 @@ data-flex-basis="426px"
 &lt;h3 id="thread-reduce">Thread Reduce&lt;/h3>
 &lt;p>In every 16x8 MMA output fragment, each thread holds $16\cdot 8 / 32=4$ output values. In order to find the thread&amp;rsquo;s row max or row sum, we have to find the max/sum of all of the elements the thread owns per row, across all the rows each thread touches. If you&amp;rsquo;re confused, don&amp;rsquo;t worry. It will make sense as we re-examine the &lt;a class="link" href="#tiled-mma" >MMA Atom&amp;rsquo;s thread layout&lt;/a> from earlier.&lt;/p>
 &lt;p>Let&amp;rsquo;s look at the bottom right output fragment C this time and zoom in on thread 0&amp;rsquo;s values. We can see it owns output elements: &lt;code>(0, 0), (0, 1), (8, 0), (8, 1)&lt;/code>. If we examine all other threads, we see that they each own 4 elements across two rows. Let&amp;rsquo;s clarify the math a bit:&lt;/p>
-&lt;p>Previously, we saw that the TiledMma has shape &lt;code>(MMA, MMA_M, MMA_N)&lt;/code>. We showed that &lt;code>MMA = (2, 2)&lt;/code>, which refers to the 2 rows, and 2 columns per row each thread holds in the output tile. &lt;code>MMA_M&lt;/code> and &lt;code>MMA_N&lt;/code> can be calculated by how many &lt;code>16x8&lt;/code> tiles fit across the output shape: &lt;code>(kBlockM, kBlockN)&lt;/code>. We can easily see that &lt;code>MMA_M = kBlockM / 16&lt;/code> and &lt;code>MMA_N = kBlockN / 8&lt;/code>. We can see that each thread&amp;rsquo;s values span &lt;code>MMA_M * 2&lt;/code> rows and &lt;code>MMA_N * 2&lt;/code> columns.&lt;/p>
+&lt;p>Previously, we saw that the tiled MMA fragment has shape &lt;code>(MMA, MMA_X, MMA_Y)&lt;/code>. For the output tensor, we showed that &lt;code>MMA = (2, 2)&lt;/code>, which refers to the 2 rows, and 2 columns each thread holds per tile. &lt;code>MMA_X&lt;/code> and &lt;code>MMA_Y&lt;/code> can be calculated by how many &lt;code>16x8&lt;/code> tiles fit across the output shape: &lt;code>(kBlockM, kBlockN)&lt;/code>. We can easily see that &lt;code>MMA_X = kBlockM / 16&lt;/code> (we&amp;rsquo;ll call &lt;code>MMA_M&lt;/code>) and &lt;code>MMA_Y = kBlockN / 8&lt;/code> (we&amp;rsquo;ll call &lt;code>MMA_N&lt;/code>). We can see that each thread&amp;rsquo;s values span &lt;code>MMA_M * 2&lt;/code> rows and &lt;code>MMA_N * 2&lt;/code> columns.&lt;/p>
 &lt;blockquote>
 &lt;p>&lt;strong>Note&lt;/strong>: even though we think of tiled MMA in terms of tiles, we must remember that CUDA is still written in the &lt;strong>thread view&lt;/strong>. The CuTe abstractions make this confusing, as the only code we write where we explicitly see this thread-view is via the &lt;code>thread_slice&lt;/code>, which is only like 5 lines of code total. Whenever we look at a fragment tensor, remember this fragment tensor holds each &lt;strong>thread&amp;rsquo;s elements&lt;/strong>, not an entire tile. That is why MMA has shape &lt;code>(2, 2)&lt;/code>. It is often very confusing to mentally switch between this tile view and the thread view.&lt;/p>
 &lt;/blockquote>
@@ -1620,7 +1949,7 @@ data-flex-basis="239px"
 &lt;/div>&lt;p>We use the &lt;code>size&amp;lt;&amp;gt;&lt;/code> declarator to get the row and column sizes, and we add a &lt;code>zero_init&lt;/code> template variable to initialize the first softmax call. That&amp;rsquo;s it!&lt;/p>
 &lt;h3 id="warp-reduce">Warp Reduce&lt;/h3>
 &lt;p>Now, each thread has its max and sum, so we now warp-find the max and sum between all threads. CUDA and GPUs all follow a tree-reduce paradigm; instead of looping over all threads in $O(n)$ time, pairs of threads reduce among each other at each step, single elimination bracket-style. Each iteration, we reduce half the threads so at the end, we only require $O(\log(n))$ iterations to find the final max.&lt;/p>
-&lt;p>The simplest strategy is where each thread pairs up with the thread $N/2$ above it. Thread 0 pairs with 16, 1 with 17, until 15 with 31. Threads 0-15 have the max. Then Thread 0 pairs with 8, 1 with 9, until 7 and 15. At each step, we half the step (16-&amp;gt;8-&amp;gt;4-&amp;gt;2-&amp;gt;1), until thread 0 has the final max. CUDA calls this reduction &lt;code>__shfl_down_sync()&lt;/code>, which would be good enough except that only one thread ends up with the final value at the end. However, in our case, each thread needs to know the max/sum in order to calculate the final softmax. Instead, we use the primitive &lt;code>__shfl_xor_sync()&lt;/code> instead. You might tense up at the idea of XOR again, but I&amp;rsquo;m not going to explain it this time. But like in swizzling, the primitive creates a bit sharing mask where all the threads pair up in a way where they all end up with the final value at the end.&lt;sup id="fnref1:1">&lt;a href="#fn:1" class="footnote-ref" role="doc-noteref">1&lt;/a>&lt;/sup>&lt;/p>
+&lt;p>The simplest strategy is where each thread pairs up with the thread $N/2$ above it. Thread 0 pairs with 16, 1 with 17, until 15 with 31. Threads 0-15 have the max. Then Thread 0 pairs with 8, 1 with 9, until 7 and 15. At each step, we half the step (16-&amp;gt;8-&amp;gt;4-&amp;gt;2-&amp;gt;1), until thread 0 has the final max. CUDA calls this reduction &lt;code>__shfl_down_sync()&lt;/code>, which would be good enough except that only one thread ends up with the final value at the end. However, in our case, each thread needs to know the max/sum in order to calculate the final softmax. Instead, we use the primitive &lt;code>__shfl_xor_sync()&lt;/code> instead. You might tense up at the idea of XOR again, but I&amp;rsquo;m not going to explain it this time. But like in swizzling, the primitive creates a bit sharing mask where all the threads pair up in a way where they all end up with the final value at the end.&lt;sup id="fnref:8">&lt;a href="#fn:8" class="footnote-ref" role="doc-noteref">8&lt;/a>&lt;/sup>&lt;/p>
 &lt;p>Most shuffle primitives take in a bitmask of all participating threads, a value, and a stride:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -1933,6 +2262,7 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>This function is called in the epilogue after the main loop before we store the output back to GMEM. Overall, the softmax step is not particularly complicated. There&amp;rsquo;s some funky confusing layout reshaping and learning warp reduce primitives but everything else pieces together nicely once you understand the MMA thread layout.&lt;/p>
+&lt;h1 id="putting-everything-together">Putting Everything Together&lt;/h1>
 &lt;h1 id="epilogue-output-gmem">Epilogue: Output-&amp;gt;GMEM&lt;/h1>
 &lt;p>We now have our output stored in fragments across all of the warps, and we want to write them back to a &lt;code>o_ptr&lt;/code> in our GMEM. The optimal way to perform our write-back is:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
@@ -2137,19 +2467,34 @@ data-flex-basis="239px"
 &lt;hr>
 &lt;ol>
 &lt;li id="fn:1">
-&lt;p>Oxford shuffle lecture notes, p. 6 for xor shuffle: &lt;a class="link" href="https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf" target="_blank" rel="noopener"
->https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf&lt;/a>&amp;#160;&lt;a href="#fnref:1" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&amp;#160;&lt;a href="#fnref1:1" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
+&lt;p>Tri Dao original FA2 paper: &lt;a class="link" href="https://arxiv.org/pdf/2307.08691" target="_blank" rel="noopener"
+>https://arxiv.org/pdf/2307.08691&lt;/a>&amp;#160;&lt;a href="#fnref:1" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
 &lt;/li>
 &lt;li id="fn:2">
-&lt;p>A word is 4 bytes (32-bits). This term is slightly ambiguous based on architecture or context, e.g. a word for a n-bit CPU processor means n-bits. But in CUDA, it almost always means 32-bits. Other alternatives include scalars, floats, or bank-widths, but we will stick to the word &amp;ldquo;word&amp;rdquo; when discussing bank conflicts.&amp;#160;&lt;a href="#fnref:2" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
+&lt;p>PTX (Parallel Thread Execution) and SASS (Streaming Assembler) are two different levels of NVIDIA&amp;rsquo;s GPU instructions. PTX is a set of virtual instructions that map to hardware-level SASS instructions based on the underlying architecture.&amp;#160;&lt;a href="#fnref:2" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&amp;#160;&lt;a href="#fnref1:2" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
 &lt;/li>
 &lt;li id="fn:3">
-&lt;p>&lt;a class="link" href="https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html" target="_blank" rel="noopener"
->https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html&lt;/a>&amp;#160;&lt;a href="#fnref:3" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
+&lt;p>A word is 4 bytes (32-bits). This term is slightly ambiguous based on architecture or context, e.g. a word for a n-bit CPU processor means n-bits. But in CUDA, it almost always means 32-bits. Other alternatives include scalars, floats, or bank-widths, but we will stick to the word &amp;ldquo;word&amp;rdquo; when discussing bank conflicts.&amp;#160;&lt;a href="#fnref:3" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
 &lt;/li>
 &lt;li id="fn:4">
+&lt;p>&lt;a class="link" href="https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html" target="_blank" rel="noopener"
+>https://docs.nvidia.com/cuda/cuda-programming-guide/04-special-topics/async-copies.html&lt;/a>&amp;#160;&lt;a href="#fnref:4" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
+&lt;/li>
+&lt;li id="fn:5">
+&lt;p>CuTe &lt;code>partition_fragment()&lt;/code> source: &lt;a class="link" href="https://github.com/NVIDIA/cutlass/blob/e406c186f510a15091cce01f782020ceb7ba8eb5/include/cute/atom/mma_atom.hpp#L508" target="_blank" rel="noopener"
+>https://github.com/NVIDIA/cutlass/blob/e406c186f510a15091cce01f782020ceb7ba8eb5/include/cute/atom/mma_atom.hpp#L508&lt;/a>&amp;#160;&lt;a href="#fnref:5" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&amp;#160;&lt;a href="#fnref1:5" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
+&lt;/li>
+&lt;li id="fn:6">
+&lt;p>CuTe &lt;code>make_fragment_like()&lt;/code> source: &lt;a class="link" href="https://github.com/NVIDIA/cutlass/blob/e406c186f510a15091cce01f782020ceb7ba8eb5/include/cute/tensor_impl.hpp#L463" target="_blank" rel="noopener"
+>https://github.com/NVIDIA/cutlass/blob/e406c186f510a15091cce01f782020ceb7ba8eb5/include/cute/tensor_impl.hpp#L463&lt;/a>&amp;#160;&lt;a href="#fnref:6" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
+&lt;/li>
+&lt;li id="fn:7">
 &lt;p>&lt;a class="link" href="https://developer.nvidia.com/blog/using-cuda-warp-level-primitives/" target="_blank" rel="noopener"
->https://developer.nvidia.com/blog/using-cuda-warp-level-primitives/&lt;/a>&amp;#160;&lt;a href="#fnref:4" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
+>https://developer.nvidia.com/blog/using-cuda-warp-level-primitives/&lt;/a>&amp;#160;&lt;a href="#fnref:7" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
+&lt;/li>
+&lt;li id="fn:8">
+&lt;p>Oxford shuffle lecture notes, p.6 for XOR warp shuffle: &lt;a class="link" href="https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf" target="_blank" rel="noopener"
+>https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf&lt;/a>&amp;#160;&lt;a href="#fnref:8" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
 &lt;/li>
 &lt;/ol>
 &lt;/div></description></item><item><title>Eat with the Rich</title><link>https://blog.echen.io/p/eat-with-the-rich/</link><pubDate>Wed, 05 Nov 2025 00:00:00 +0000</pubDate><guid>https://blog.echen.io/p/eat-with-the-rich/</guid><description>&lt;img src="https://blog.echen.io/p/eat-with-the-rich/thumbnail.webp" alt="Featured image of post Eat with the Rich" />&lt;p>I’ve been wanting to make fun of a specific breed of people I’ve seen becoming more and more popular over the past decade: the rich person who hates billionaires.&lt;/p>
