@@ -18,38 +18,45 @@ Three hundred cups of not-Java later, I raised the blood-soaked script in triump
 
 Every kernel developer has to walk this path eventually. I've seen the fear in the eyes of the avoiders and the bodies along the way. This post is for whoever's next.
 
-We'll walk through FlashAttention-2 end-to-end on an A100, implemented in C++ CuTe: GMEM/SMEM async copies, tiled MMAs, swizzling, online softmax, and the epilogue store. We'll cover every detail in the source code, every throwaway line, and every decision it took me an evening to understand.
+<hr>
 
-A quick note on what this blog is supposed to be. CuTe's documentation is a reference, not a tutorial. You can read it cover to cover and walk away still not knowing CuTe; it's only really worth consulting once you're already trying to do something specific and have hit a wall. This post attempts to be that something specific, and we're going to run straight into those walls together. Most public CuTe writing covers one layer at a time--a layout here, a swizzle there, an MMA atom over there. Tying them into a real kernel is where the difficulty actually lies, and that's the gap this post is trying to fill.
+We'll walk through FlashAttention-2 end-to-end on an A100, implemented in C++ CuTe: GMEM/SMEM async copies, tiled MMAs, swizzling, online softmax, and the epilogue store. We'll cover every detail in the source code, every decision, and every throwaway line that ruined an evening.
 
-The code we'll walk through is a stripped-down mirror of Tri Dao's production FA-2: same idioms, same building blocks, often the same lines, but with the causal/RoPE/dropout/KV-cache/QK-smem-sharing branches removed. The load-bearing logic is visible instead of buried under config flags that bloat up the repo. Where it matters, our kernel reaches close to parity with the source. Where it diverges, that's usually because I found something -- an inconsistency, a copy-paste from a CuTe example that nobody really understands, a one-line simplification, a choice that turns out to be critical for a non-obvious reason. Those moments are flagged in-line throughout the post, and at least one of them ([the `sVtNoSwizzle` line](#svtnoswizzle-the-no-op-nobody-caught)) appears to be a no-op holdover that nobody in the lineage of this code understood. Make of that what you will.
+A quick note on what this blog is supposed to be -- CuTe's documentation is a reference, not a tutorial. You can read it cover to cover and walk away still not knowing CuTe; it's only really worth consulting once you're already trying to do something specific and have hit a wall. This post attempts to be that something specific, and we're going to run straight into those walls together. Most public CuTe writing covers one layer at a time: a layout here, a swizzle there, an MMA atom over there. Tying them into a real kernel is where the difficulty actually lies, and that's the gap this post is trying to fill.
 
-What this isn't: a summary of the FA-2 paper, a Hopper/Blackwell post (the algorithm is meaningfully different on newer hardware), or a CuTe tutorial. This is Ampere-specific, code-level, and committed to the bit that we don't move on from a line until fully understand why it's there.
+The code we'll walk through is a stripped-down mirror of Tri Dao's production FA-2: same idioms, same building blocks, often the same lines, but with the causal/RoPE/dropout/KV-cache/QK-smem-sharing template branches removed. The core logic is visible instead of buried under config flags that bloat up the repo. Where it matters, our kernel reaches close to parity with the source -- on an A100, **88-105% of production FA-2's throughput** across hdim=64/128 and seq lengths up to 64K, peaking at 63% of fp16 tensor-core utilization ([full benchmark table](https://github.com/cloudui/cuda-triton#cute-flashattention-2-cuda-batch4-heads8)).
 
-# FlashAttention-v2
-If you're reading this, I'll assume you already have a solid understanding of the attention mechanism and at least the basics of the FlashAttention algorithm itself. If not, I recommend reading the original flash attention paper[^1] before coming back. Or you could just read the article as-is, because you'll probably piece it together through the struggle of trying to understand. It would be helpful to at least know the pseudocode/baseline algorithm for FA2, and even better if you've tried simulating it in PyTorch (or your framework of choice) or implemented it in Triton.
+The point is not novelty -- it's just to show that our simplications do not break performance. We are rewriting one production case of many, albeit the simplest and least common one. Where our code diverges, that's usually because I found something -- an inconsistency, a copy-paste from a CuTe example that nobody really understands, a one-line simplification, a choice that turns out to be critical for a non-obvious reason. Those moments are flagged in-line throughout the post, and at least one of them ([the `sVtNoSwizzle` line](#svtnoswizzle-the-no-op-nobody-caught)) appears to be a no-op holdover that nobody in the lineage of this code understood. Make of that what you will.
 
-If you've never touched CUDA, you should at least try to understand its SIMT programming nature and maybe implement a few basic kernels using this thread-level view. Try to build a solid understanding of how CUDA works and of NVIDIA's GPU architecture, from threads to warps to thread blocks to SMs and beyond. I'll talk about a lot of these concepts as if you at least have a basic grasp of them. I will be as comprehensive as I can, but it will be an uphill battle should you try to read this blog in its entirety without some background knowledge.
+What this isn't: a summary of the FA-2 paper, a Hopper/Blackwell post (the algorithm is meaningfully different on newer hardware), or a CuTe guide. This is Ampere-specific, code-level, and committed to the bit that we don't move on from a line until we fully understand why it's there.
 
-Most of this blog concerns how high-level concepts like "online softmax" or "GEMM" actually translate to production-grade code. The algorithm itself is not particularly difficult, but the implementation details at the CUDA level can become a nightmare, particularly for beginners. Tri Dao originally wrote FA2 using **CuTe** (CUDA Templates), a core component within NVIDIA's CUTLASS library that abstracts away tensor layouts and thread-data mapping for high-performance GPU computing. Although this may seem nicer than doing it from scratch, there are a lot of intricacies and difficult-to-understand design choices that make reading it a nightmare. It's higher-level than your typical C program with normal for-loops and variables, but it's still about as close to bare metal as most people will ever get. So even though you'll understand CUDA and FlashAttention much better, honestly it will mostly allow you to understand CuTe--why it exists, and how people actually use it.
+# FlashAttention-2
+If you're reading this, I'll assume you already have a solid understanding of the attention mechanism and at least the basics of the FlashAttention-2 algorithm itself. If not, I recommend reading the original flash attention paper[^1] before coming back. Or, you could just read the article as-is, because you'll probably piece it together through the struggle of trying to understand. It would be helpful to at least know the pseudocode/baseline algorithm for FA2, and even better if you've tried simulating it in PyTorch (or your framework of choice) or maybe even wrote it in Triton.
 
-Fortunately-ish, since the release of Blackwell (B200), NVIDIA released CuTe's Python DSL--a Python library you can use to write the same code without all the annoying crap that comes baggaged with C++. The use case and methodology is pretty much unchanged, but it makes debugging and templating more palatable, and the compile times are enormously faster due to just-in-time (JIT) compilation. Moving forward, CuTe 3.X in C++ we use today will probably be somewhat of a relic, but as a learning exercise, nothing beats the absolute struggle of working with the most annoying and explicit version of whatever you're trying to learn. Let's get started.
+If you've never touched CUDA, you should at least try to understand its SIMT programming nature and maybe implement a few basic kernels using this thread-level view. Try to build a solid understanding of how CUDA works and of NVIDIA's GPU architecture, from threads to warps to thread blocks to SMs and beyond. I'll talk about a lot of these concepts in detail, but I still assume a basic understanding of GPU or hardware paradigms. I will be as comprehensive as I can, but it will be an uphill battle should you try to read this blog in its entirety without *some* background knowledge.
+
+Most of this blog concerns how high-level concepts like "online softmax" or "GEMM" actually translate to production-grade code. The algorithm itself is not particularly difficult in theory, but the implementation details at the CUDA level can become a nightmare, particularly for beginners. Tri Dao originally wrote FA2 using **CuTe** (CUDA Templates), a core component within NVIDIA's CUTLASS library that abstracts away tensor layouts and thread-data mapping for high-performance GPU computing. Although this may seem nicer than doing it from scratch, there are a lot of intricacies and difficult-to-understand design choices that make reading CuTe code a nightmare. The core API is higher-level than your typical C program with for-loops and variables, but it's still about as close to bare metal as you can get without writing the ASM yourself. So even though you'll understand CUDA and FlashAttention much better, you will end up learning a lot about the hardware underneath the abstractions, and why NVIDIA built CuTe in the first place.
+
+Since the release of Blackwell (B200), NVIDIA released CuTe's Python DSL--a Python library you can use to write the same code without all the annoying templating that comes baggaged with C++. The use case and methodology is pretty much unchanged, but debugging and templating become more palatable, and the compile times are enormously faster due to just-in-time (JIT) compilation. Moving forward, the CuTe 3.X in C++ we use today will probably be somewhat of a relic, but as a learning exercise, nothing beats the absolute struggle of working with the most annoying and explicit version of whatever you're trying to learn.
 
 # Overview
 ## Design Choices
 We're going to make some basic design choices to make this learning exercise simpler on the implementation side. A lot of the source code involves edge cases and optional configuration settings (RoPE, QK smem sharing, etc.) that aren't practical for learning the fundamentals of FA2 and CuTe. Our choices are as follows:
-- A100: the GPU I had access to and the industry standard when FA2 was released. Hopper and Blackwell have even more complicated algorithms due to hardware improvements and optimizations
-- fp16: supported on A100 tensor cores, pretty basic default for most kernel ops for training
-    - fp32 accumulation, reduces precision drift, more accurate FLOPs for softmax and scale
+
+- A100: the GPU I had access to and the industry standard when FA2 was released. Newer architecture generations like Hopper (H100) and Blackwell (B200) have even more complicated algorithms (e.g. FA3, FA4) due to hardware improvements and optimizations.
+- fp16: supported on A100 tensor cores, pretty basic default for most kernel ops during training
+  - fp32 accumulation, reduces precision drift, more accurate FLOPs for softmax and scale
 - Clean basic out-of-the-box attention mechanism: no causal masking, RoPE, dropout, etc.
-- head_dim: focus on 64 and 128 block sizes, although 32 may also be covered (I didn't specifically check)
+- head_dim: focus on 32, 64 and 128 block sizes
 - Assume the sequence length is a power of two, or more specifically, a multiple of the Q block size.
-- We expect $Q, K, V$ to be contiguous along `head_dim`, i.e. all of shape `(seqlen, head_dim)` in PyTorch.
+- Expect $Q, K, V$ to be contiguous along `head_dim`, i.e. all of shape `(seqlen, head_dim)` in PyTorch/JAX.
 
 ## Some Naming Conventions
 If you look at the FA2 source code, you might notice they have some weird naming conventions. Some of them are standard CuTe/CUTLASS, some carry over from other things. Here are some patterns:
 - Starts with k: compile-time constant, e.g. `kBlockM`, `kHeadDim`
 - $M, N, K$: All of general matrix-multiply (GEMM) parameters are in this order for a $(M, K) \times (K, N)$ matrix-multiply. Hence, the shape of Q is `(kBlockM, kHeadDim)` and the shape of K, V is `(kBlockN, kHeadDim)`.
+- FA2 and CuTe have a weird but relatively consistent variable naming scheme for tensors. I'm just going to give one example to give you an idea: `tSrQ`. t=thread, S=QK softmax result, r=registers, Q=query matrix. They use `s` for SMEM and `g` for GMEM. Non thread-owned tensors have no leading `t`.
+  - Technically S is post-softmax of $P=QK^T$, but FA2 consistently calls the intermediate accumulator S.
 
 ## Basic Structure
 First, attention itself:
@@ -67,14 +74,16 @@ S = torch.nn.functional.softmax(P, dim=-1)
 O = S@V
 ```
 
+### High-Level Details
 Let's establish the specifics of the FA2 algorithm at a high level.
 - Our grid is `batch/head` x `q_tile`. The batch/head dimensions are independent and can be grouped. The `q_tile` determines which tile of Q we get, and we make it the last dimension for better cache locality between thread blocks.
 - Q is of shape `(kBlockM, kHeadDim)`. The main computation on any thread block revolves around the Q tile. This Q tile does not change for the duration of the thread block. We iterate over the relevant K, V tile per thread block to get an output tile. Each q tile maps to exactly the same size output tile, which is necessary as we need to manifest a whole row of P to do the softmax.
 - We load each tile from global memory (GMEM) to shared memory (SMEM) for staging. When we need to do our GEMM, we load from SMEM to the register file as we loop over K and V.
-- Our GMEM->SMEM copying are all async (`cp.async` on Ampere). Q technically doesn't really have to be since it doesn't overlap that much compute but is a micro-optimization nonetheless.
-- **Warps tile along M, not N.** This is *the* defining layout decision of the kernel. We arrange our tensor-core warps so that each warp owns entire rows of the $QK^T$ output, never a slice across the row. The reason is the online softmax: row max and row sum reductions stay *inside a warp* and resolve via warp-shuffle primitives (`__shfl_xor_sync`) — no shared-memory staging, no `__syncthreads`. Get this layout wrong and the softmax becomes the bottleneck. Get it right and softmax is nearly free. Almost every subsequent design choice — the `Tiled_MMA` shape, the fragment partitioning, the `Softmax` struct, the rescale loop — falls out of this one decision.
+- Our GMEM->SMEM copying are all async (`cp.async` on Ampere). Q technically doesn't really have to be since it stays constant throughout the thread block. Its singular GMEM load doesn't overlap that much compute but we make the optimization nonetheless.
+- **Warps tile along M, not N.** This is *the* defining layout decision of the kernel. We arrange our tensor-core warps so that each warp owns entire rows of the $QK^T$ output, never a slice across the row. The reason is the online softmax: row max and row sum reductions stay *inside a warp* and resolve via warp-shuffle primitives (`__shfl_xor_sync`) -- no shared-memory staging, no `__syncthreads`. This is a huge performance decision that turns softmax from a bottleneck to nearly free. Most subsequent design choices, such as `Tiled_MMA` shape, fragment partitioning, `Softmax` struct, and the rescale loop falls out of this one decision.
 
-The overall pseudocode for a tile Q is:
+### The Kernel Outline
+
 1. Define GMEM, SMEM, register files, hardware copy/GEMM instructions, and mappings
 2. Load Q tile from global memory to SMEM. This is only done once, as Q tile doesn't change.
 3. Prefetch 0th K-tile.
@@ -89,6 +98,40 @@ The overall pseudocode for a tile Q is:
 
 Only 11 steps and they're all pretty simple in concept...Let's take a deeper look into the implementation details.
 
+# Code Layout: The Repo
+
+All of the code in this post lives in [`@github:cloudui/cuda-triton`](https://github.com/cloudui/cuda-triton). This is the broader kernel-learning project I've been building up over the last few months as I worked through Triton, CUDA, then CuTe. The two-day Triton FA2 from the intro is in [`kernels/flash_attention_full.py`](https://github.com/cloudui/cuda-triton/blob/main/kernels/flash_attention_full.py); the intermediate WMMA CUDA FA2 (the bridge between Triton and CuTe) is in [`cuda/flash_attn/`](https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn); the [`cute/`](https://github.com/cloudui/cuda-triton/tree/main/cute) directory is an in-progress port of this kernel to NVIDIA's new Python CuTe DSL. The post itself walks through [`cuda/flash_attn_cutlass/`](https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn_cutlass) -- the C++ CuTe implementation. Everything has tests, benchmarks, and a top-level [`README.md`](https://github.com/cloudui/cuda-triton/blob/main/README.md) you can browse that are mostly up-to-date.
+
+> Please refer to Tri Dao's repo as well. It contains much more edge case handling and templating that I do not touch on at all: [@github:Dao-AILab/flash-attention](https://github.com/Dao-AILab/flash-attention/tree/main).
+>
+> Specifically, their implementation lives in [csrc/flash_attn](https://github.com/Dao-AILab/flash-attention/tree/main/csrc/flash_attn/src)
+
+Before we dive into the implementation, here's the file map for the kernel we're walking through. The snippets in the blog are simplified versions of what's in the repo. I'll cite specific files as we go, but the up-front overview is:
+
+| File | What's in it |
+|---|---|
+| [`flash.h`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash.h) | The `Flash_fwd_params` struct -- pointers, batch/head strides, sizes. The runtime side of the kernel API. |
+| [`kernel_traits.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/kernel_traits.cuh) | Compile-time type composition: SMEM Layouts with `Swizzle`, `TiledMma`, `Copy_Atom`s, and block sizes. Any `using` C++ declarations in this blog live here. |
+| [`flash_fwd_kernel.h`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_fwd_kernel.h) | The kernel body: Q load, KV main loop, softmax, epilogue. This is where most of the blog's code snippets come from. |
+| [`flash_fwd_launch_template.h`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_fwd_launch_template.h) | Grid/block sizing, `cudaFuncSetAttribute` for extended SMEM, kernel launch. |
+| [`flash_fwd_hdim{32,64,128}_*.cu`](https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn_cutlass) | Per-config explicit instantiations so we don't have to JIT. |
+| [`flash_api.cu`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_api.cu) | PyTorch extension entry point and runtime dispatch by `head_dim`. |
+| [`softmax.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/softmax.cuh) | The `Softmax<kNRows>` struct, `softmax_rescale_o`, warp/quad reductions. |
+| [`utils.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/utils.cuh) | Layout-rewrite helpers (`convert_layout_rowcol`, `convert_layout_acc_Aregs`), `convert_type`, copy helpers. |
+| [`setup.py`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/setup.py) | Build script with the CUTLASS include path. |
+
+**Where the blog's snippets live.** Most of the `cpp` blocks in the post are stripped-down versions of the production code:
+- `kernel_traits.cuh` -- everything in [Tiled MMA](#tiled-mma), [Copy Atoms](#copy-atoms), [Swizzling FA2](#swizzling-fa2), and the V-copy SMEM layouts.
+- `flash_fwd_kernel.h` -- everything in [GMEM and SMEM Tensors](#gmem-and-smem-tensors), [Q,K SMEM->Register Tiled Copy](#q-k-smem-register-tiled-copy), [MMA Loop: QK^T GEMM](#mma-loop-qkt-gemm), [The Actual Async Copy Strategy](#the-actual-async-copy-strategy), and the [Epilogue](#epilogue-output-gmem).
+- `softmax.cuh` -- everything in [Online Softmax](#online-softmax).
+- `utils.cuh` -- the `convert_layout_rowcol` reshape in [Fragment Reshape](#fragment-reshape).
+
+> **Note**: I often combine the `kernel_traits` declarations and the `flash_fwd_kernel` code to keep them in one block, and I sometimes leave out function declarations that wrap certain blocks of code for brevity. If you ever become confused, all important sections link to their source at the top of their subsections for reference.
+
+**A note on parallel scratch.** Alongside the production kernel, [`scratch/`](https://github.com/cloudui/cuda-triton/tree/main/scratch) contains the small standalone CuTe demos I wrote while losing my mind in confusion. The [scratch README](https://github.com/cloudui/cuda-triton/blob/main/scratch/README.md) maps each file to a blog section. If a concept ever feels too abstract on the page, run corresponding scratch file and stare at its output for a while. It might help. The instructions to run are in the repos READMEs.
+
+**A note on simplification.** As called out in the [intro](#flashattention-but-the-actual-details), this blog walks through a stripped-down mirror of [Tri Dao's production FA-2](https://github.com/Dao-AILab/flash-attention/tree/main/csrc/flash_attn/src). Where the source has branches for causal masking, RoPE, KV-cache, dropout, QK SMEM sharing, etc., this kernel doesn't -- the load-bearing FA2 logic is what's left. Wherever this kernel diverges from the source in a non-trivial way, I flag it inline.
+
 # CuTe, the Basics
 As established in the intro, the CuTe docs are a reference; this section is the tutorial that doesn't exist. I won't cover all the APIs -- you can intuit 90% of them from context and the FA2 code. However, the concepts that turn your evenings into late nights will be waiting for you here. It's hard to internalize the motivations for certain CuTe features until you've encountered the problem they're meant to solve, so if a section feels abstract, skip ahead to the FA2 implementation and come back when you hit the wall it was written for. The official docs live at https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html and are worth keeping open in another tab.
 
@@ -98,6 +141,9 @@ CuTe is essentially a templating engine that lets you manipulate memory using te
 In CuTe, you are still responsible for all the sizes. The code may be able to extract fp16 from a 128-bit load, but you'll have to figure out that 128 bits is 8 fp16 numbers. It just handles the typing on your behalf and lets you index things with some nicer code. It certainly is not "easier" and is often a nightmare to read. You'll see why pretty soon.
 
 ## Layouts, Shapes, and Strides
+
+> **Play:** [`scratch/01_layouts.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/01_layouts.cu)
+
 Ah yes, back to tensor school. Shape and stride are precisely the same concepts as in PyTorch. A layout is just a composition of a shape and a stride.
 
 ```cpp
@@ -154,6 +200,9 @@ auto stride = make_stride(Int<256>, 64);
 Read more here:
 
 ## Tensors
+
+> **Play:** [`scratch/02_tensor.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/02_tensor.cu)
+
 A tensor is just a pointer wrapped in a layout. The underlying data is just a pointer, usually to contiguous data, and the layout determines how we interact with it. Pretty much exactly the same as a `torch.Tensor`. The difference is that we manage the layout: we can change it to whatever we want, however we want, but we are ultimately responsible for the tensor's integrity.
 
 ```cpp
@@ -604,6 +653,11 @@ Our specific copy atom maps to the `ldmatrix...x4` variant, which loads an entir
 > We'll cover more `LDSM` details later when we use `LDSM_T` for the [V-copy](#ldsm-copy-atom).
 
 ### Tiled MMA
+
+> **Source:** [`kernel_traits.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/kernel_traits.cuh)
+>
+> **Play:** [`scratch/03_mma.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/03_mma.cu) (single MMA, no SMEM), [`scratch/04_mma.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/04_mma.cu) (full pipeline, verified)
+
 Getting deja vu yet? This time, we define the tiling for the MMA GEMM. We define the following tiled MMA atom:
 
 ```cpp
@@ -696,6 +750,9 @@ Tensor tXrK = smem_thr_copy_K.retile_D(tSrK);
 ```
 
 ### Partition vs. Retile
+
+> **Play:** [`scratch/retile_viz.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/retile_viz.cu) (visualize how `retile_D`/`retile_S` rebind register layouts)
+
 Every tiled copy in this kernel boils down to one decision: do I `partition` the source/destination, or `retile` it? The answer depends entirely on whether the tensor is in shared/global memory or in registers, and whether it's the source or destination of the copy.
 
 | Source/Dest | Mem Type | Function |
@@ -791,9 +848,14 @@ Going back to our example, the reason we end up with bank conflicts is that our 
 
 We can break this 128-byte stride pattern simply by padding each row with an extra float. So instead of 32x32, we now force our SMEM to have shape 32x33. Our SMEM chunk occupies 32 more bytes with one dummy float per row, but our column access pattern no longer suffers from bank conflicts. If we look at our column access pattern from before, at `j=0`, thread 0 still accesses (0, 0), thread 1 still accesses (1, 0), ..., and thread 31 still accesses (31, 0). But each row stride is now "33" banks apart, so thread 0 accesses memory address 0, while thread 1 now accesses address 33, not 32. So in one cycle, thread 0 accesses bank 0, thread 1 accesses bank 1, ..., and thread 31 accesses bank 31. On the next iteration, we shift by 1 bank, where thread 0 accesses bank 1 and thread 1 accesses bank 2. We are now conflict-free, at the expense of 32 "empty" floats.
 
+![Example of two-way column conflict access and a simple padding solution.](padding.png)
+
 When you aren't constrained by SMEM limits, padding is often a very simple and worthwhile tradeoff. It's easy to implement as long as you match your strides correctly and load/write from SMEM following your new padding rules. However, if you're dealing with complex memory access patterns or different data types (a long is 2 banks wide, 2 halfs fit in one bank), padding might be too complicated or completely insufficient for your use case.
 
 ### Swizzling
+
+> **Play:** [`scratch/swizzle_sim.py`](https://github.com/cloudui/cuda-triton/blob/main/scratch/swizzle_sim.py) (pure-Python `Swizzle<B,M,S>` simulator, toy with the bit math)
+
 This is precisely the problem in FA2. We have some copy-atom- and MMA-specific read/write access patterns and we're working with 16-bit halfs, which make padding unattractive if not impossible. Swizzling comes to the rescue.
 
 Swizzling is your answer to the brilliant thought: "what if our access patterns magically happened to use different banks?" Using some bit magic, swizzling rearranges the mapping of data elements in shared memory to avoid bank conflicts.
@@ -840,6 +902,11 @@ We can now see that each element of each column ends up in a different bank. XOR
 > This XOR technique works great, but it's not exactly trivial as to why it is the default option. Part of it seems like divine benevolence, which is probably true, but the short answer is that it's fast, it works, and it's an access pattern no normal kernel engineer would use in almost any situation. It isn't foolproof and may need to be combined with padding or different access patterns; more complex multidimensional kernels typically employ even more complex swizzling patterns. This article shows in more detail why XOR works: https://leimao.github.io/blog/CuTe-Swizzle/
 
 ### Swizzling FA2
+
+> **Source:** [`kernel_traits.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/kernel_traits.cuh)
+>
+> **Play:** [`scratch/bench_swizzle_writes.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/bench_swizzle_writes.cu) (benchmark cp.async / STS.128 with vs. without swizzle), [`scratch/swizzle_layouts.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/swizzle_layouts.cu) (print FA2 SMEM layouts)
+
 The fp32 example was quite trivial. Our FA2 pattern is slightly more complex, as we have to deal with tiled copy patterns, MMA atom layouts, and vectorized loads. As a result, we have to redefine what "row" and "column" mean via the Swizzle Atom in CuTe.
 
 We have two interactions with SMEM: GMEM->SMEM write and SMEM->register read.
@@ -1005,6 +1072,10 @@ As you can see, we use `sV` for our GMEM tiled copy since we preserve the row-ma
 
 ### sVtNoSwizzle: The No-Op Nobody Caught
 
+> **Source:** [`kernel_traits.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/kernel_traits.cuh)
+>
+> **Play:** [`scratch/v_fragment_test.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/v_fragment_test.cu) (minimal repro: swap `sVt` for `sVtNoSwizzle`, see nothing break), [`scratch/swizzle_layouts.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/swizzle_layouts.cu) (print the layouts side by side)
+
 > **Tip**: I recommend skipping this section if you're trying to implement a working FA2 first. Come back when you have nothing left to lose.
 
 Oh man, time to deal with the most frustrating line in the entire repo. Frustrating because it's so simply declared, not explained, leads you down multiple rabbit holes, only for you to realize it literally does nothing. I lost my sanity over this, and I'm convinced that the authors of FA2 did not fully understand this line either. Fortunately, my despair is now your enlightenment. Allow me to show you the way.
@@ -1140,7 +1211,7 @@ Tensor tOrV = thr_mma.partition_fragment_B(sVt);
 ## The Actual Async Copy Strategy
 At this point, we've more than covered *how* to copy. Now, let's explain *when* to copy.
 
-We covered much of the strategy all the way back at the [beginning](#basic-structure), so feel free to take a moment to review.
+We covered much of the strategy all the way back at the [beginning](#the-kernel-outline), so feel free to take a moment to review.
 
 ### First Up: Q-Tile and K-Tile Prefetch
 The Q tile remains the same throughout the entire thread block, so it's arguably the one that benefits the least from the async copy. We can still overlap a small amount of compute before our main loop. At the same time, we can fetch our 0th K-tile to prepare for the immediate $QK^T$ once we hit the main loop.
@@ -1165,6 +1236,11 @@ In our main loop, we prefetch K and V every iteration to keep the next blocks co
 > TODO: finish main loop section.
 
 # Online Softmax
+
+> **Source:** [`softmax.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/softmax.cuh)
+>
+> **Play:** [`scratch/test_softmax.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/test_softmax.cu) (end-to-end `softmax_rescale_o` test against a CPU reference)
+
 After $QK^T$, we now deal with the online softmax. Fortunately, this step isn't terribly difficult because of the way we set up the threads. To review, the softmax portion has a couple of steps:
 
 1. Calculate new per-row max: `m_new = max(scores, dim=-1)`
@@ -1216,6 +1292,10 @@ Previously, we saw that the tiled MMA fragment has shape `(MMA, MMA_X, MMA_Y)`. 
 As [flagged at the top of SMEM→Registers](#smem-registers), we're squarely in thread-view land here. This `(2, 2)` is each thread's 4 values per tile, not the tile shape. To make computation more straightforward, Dao reshapes the output fragment into a standard row-major layout, which simplifies the thread reduction to a standard 2D array traversal. Since our block sizes are fixed in our template, we can do this layout reinterpretation for free using static dimensions. You can also just iterate over the slightly more convoluted MMA shape--the output PTX is identical. **This reshape is purely a code-quality and readability trick.**
 
 #### Fragment Reshape
+
+> **Source:** [`utils.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/utils.cuh) (`convert_layout_rowcol`)
+>
+> **Play:** [`scratch/fragment_reshape.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/fragment_reshape.cu)
 
 ![Visualization of reshape from left, ((2,2), MMA_M, MMA_N), to right, row x column format: (2xMMA_M, 2xMMA_N).](layout_row_col.png)
 
@@ -1324,6 +1404,11 @@ __device__ __forceinline__ void thread_reduce_(
 We use the `size<>` declarator to get the row and column sizes, and we add a `zero_init` template variable to initialize the first softmax call. That's it!
 
 ### Warp Reduce
+
+> **Source:** [`softmax.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/softmax.cuh) (`Allreduce<N>`)
+>
+> **Play:** [`scratch/test_allreduce.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/test_allreduce.cu)
+
 Now, each thread has its max and sum, so we warp-reduce the max and sum across all threads. CUDA and GPUs follow a tree-reduce paradigm: instead of looping over all threads in $O(n)$ time, pairs of threads reduce among each other at each step, single-elimination bracket-style. Each iteration, we reduce half the threads, so at the end we only require $O(\log(n))$ iterations to find the final max.
 
 The simplest strategy is where each thread pairs up with the thread $N/2$ above it. Thread 0 pairs with 16, 1 with 17, until 15 with 31. Threads 0-15 have the max. Then Thread 0 pairs with 8, 1 with 9, until 7 and 15. At each step we halve the step (16->8->4->2->1), until thread 0 has the final max. CUDA calls this reduction `__shfl_down_sync()`, which would be good enough except that only one thread ends up with the final value. However, in our case, each thread needs to know the max/sum to calculate the final softmax. Instead, we use the `__shfl_xor_sync()` primitive. You might tense up at the idea of XOR again, but I'm not going to explain it this time. As with swizzling, the primitive creates a bit-sharing mask such that all threads pair up in a way that lets them all end up with the final value.[^6]
@@ -1660,6 +1745,9 @@ Haha, not quite yet. There's a slight bug in our epilogue as-is. Between the reg
 
 # Wrapping up
 
+> **Source:** [`flash_fwd_kernel.h`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_fwd_kernel.h), [`flash_api.cu`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_api.cu)
+>
+> **Play:** [`scratch/fa_test.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/fa_test.cu) (full kernel vs. CPU reference), [`scratch/bench.py`](https://github.com/cloudui/cuda-triton/blob/main/scratch/bench.py)
 
 My AI learning guide had led me astray more times than I could count, but somehow I still had faith that it wouldn't disappoint me this time.
 
