@@ -33,6 +33,8 @@
 &lt;ul>
 &lt;li>Starts with k: compile-time constant, e.g. &lt;code>kBlockM&lt;/code>, &lt;code>kHeadDim&lt;/code>&lt;/li>
 &lt;li>$M, N, K$: All of general matrix-multiply (GEMM) parameters are in this order for a $(M, K) \times (K, N)$ matrix-multiply. Hence, the shape of Q is &lt;code>(kBlockM, kHeadDim)&lt;/code> and the shape of K, V is &lt;code>(kBlockN, kHeadDim)&lt;/code>.&lt;/li>
+&lt;li>&lt;code>kBlockKSmem&lt;/code>: width of the SMEM &amp;ldquo;row tile&amp;rdquo; used for the swizzle atom, separate from &lt;code>kHeadDim&lt;/code>. Capped at 64 so one &lt;code>Swizzle&amp;lt;3,3,3&amp;gt;&lt;/code> atom can serve every hdim that&amp;rsquo;s a multiple of 64. Covered in detail in &lt;a class="link" href="#swizzling-fa2" >Swizzling FA2&lt;/a>.&lt;/li>
+&lt;li>&lt;strong>TN convention&lt;/strong> (for our tiled MMA atom &lt;code>SM80_16x8x16_F32F16F16F32_TN&lt;/code>): A is row-major in M-K and B is column-major in K-N from the matmul&amp;rsquo;s perspective. Practical effect: K is the contiguous dimension for both A and B, which matches our &lt;code>(seqlen, head_dim)&lt;/code> layout for Q, K.&lt;/li>
 &lt;li>FA2 and CuTe have a weird but relatively consistent variable naming scheme for tensors. I&amp;rsquo;m just going to give one example to give you an idea: &lt;code>tSrQ&lt;/code>. t=thread, S=QK softmax result, r=registers, Q=query matrix. They use &lt;code>s&lt;/code> for SMEM and &lt;code>g&lt;/code> for GMEM. Non thread-owned tensors have no leading &lt;code>t&lt;/code>.
 &lt;ul>
 &lt;li>Technically S is post-softmax of $P=QK^T$, but FA2 consistently calls the intermediate accumulator S.&lt;/li>
@@ -1029,7 +1031,7 @@ data-flex-basis="369px"
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="na">.type&lt;/span>&lt;span class="o"> =&lt;/span> &lt;span class="err">{&lt;/span>&lt;span class="o">.&lt;/span>&lt;span class="n">b16&lt;/span>&lt;span class="err">};&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>Our specific copy atom maps to the &lt;code>ldmatrix...x4&lt;/code> variant, which loads an entire $4\times(8\times 8)=16\times 16$ fragment in one go. It uses the &lt;a class="link" href="#how-do-32-threads-load-128-bits-each" >same 4-phase quarter-warp mechanic&lt;/a> as our GMEM async copy. However, unlike the GMEM copy, the &lt;code>LDSM&lt;/code> tiled copy has to be aware of the downstream MMA thread layout, which differs between fragments A, B, and C.&lt;/p>
+&lt;/div>&lt;p>Our specific copy atom maps to the &lt;code>ldmatrix...x4&lt;/code> variant, which loads an entire $4\times(8\times 8)=16\times 16$ fragment in one go. It drains through the &lt;a class="link" href="#how-do-32-threads-load-128-bits-each" >same four 128-byte transactions&lt;/a> as our GMEM async copy. However, unlike the GMEM copy, the &lt;code>LDSM&lt;/code> tiled copy has to be aware of the downstream MMA thread layout, which differs between fragments A, B, and C.&lt;/p>
 &lt;blockquote>
 &lt;p>We&amp;rsquo;ll cover more &lt;code>LDSM&lt;/code> details later when we use &lt;code>LDSM_T&lt;/code> for the &lt;a class="link" href="#ldsm-copy-atom" >V-copy&lt;/a>.&lt;/p>
 &lt;/blockquote>
@@ -1485,7 +1487,7 @@ data-flex-basis="428px"
 &lt;p>The fp32 example was quite trivial. Our FA2 pattern is slightly more complex, as we have to deal with tiled copy patterns, MMA atom layouts, and vectorized loads. As a result, we have to redefine what &amp;ldquo;row&amp;rdquo; and &amp;ldquo;column&amp;rdquo; mean via the Swizzle Atom in CuTe.&lt;/p>
 &lt;p>We have two interactions with SMEM: GMEM-&amp;gt;SMEM write and SMEM-&amp;gt;register read.&lt;/p>
 &lt;h4 id="gmem-smem-write-requirements">GMEM-&amp;gt;SMEM Write Requirements&lt;/h4>
-&lt;p>Recall the &lt;a class="link" href="#how-do-32-threads-load-128-bits-each" >4-phase quarter-warp copy&lt;/a>: each phase writes a contiguous 128 bytes (32 bank accesses) and must hit all 32 banks for optimal performance. Since that vectorized write is conflict-free by default, any swizzle must happen &lt;em>on top of&lt;/em> the 128-byte contiguous chunks (8 halfs). Everything else is fair game.&lt;/p>
+&lt;p>Recall the &lt;a class="link" href="#how-do-32-threads-load-128-bits-each" >four 128-byte transactions&lt;/a> that drain a warp-wide cp.async: each transaction writes a contiguous 128 bytes (32 bank accesses) and must hit all 32 banks for optimal performance. Since that vectorized write is conflict-free by default, any swizzle must happen &lt;em>on top of&lt;/em> the 128-byte contiguous chunks (8 halfs). Everything else is fair game.&lt;/p>
 &lt;p>Since we have the flexibility to load 128-byte contiguous chunks, we don&amp;rsquo;t even need to swizzle this transaction. We just have to make sure that if we do swizzle SMEM, we keep each 8-half block contiguous in memory.&lt;/p>
 &lt;h4 id="smem-registers-read-requirements">SMEM-&amp;gt;Registers Read Requirements&lt;/h4>
 &lt;p>Our SMEM-&amp;gt;register transaction occurs during our SMEM tiled copy. Each thread is still loading 32-bits x 4 = 128 bits, like in our GMEM atom. For the GMEM load, all we had to do was load the entire tile, so we could choose 128-byte contiguous chunks to avoid bank conflicts. We can&amp;rsquo;t do this for SMEM, since the read pattern depends on the shape of the MMA fragments.&lt;/p>
@@ -1500,7 +1502,7 @@ data-flex-basis="428px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>If we don&amp;rsquo;t swizzle the SMEM layout, we&amp;rsquo;d simply have the layout &lt;code>(kBlockM, kHeadDim)&lt;/code>. Each &lt;code>MMA_Atom&lt;/code> would tile using a 16x16 chunk out of our SMEM per A-fragment (or 16x8 for B- or C-fragments). Let&amp;rsquo;s examine the bank conflict:&lt;/p>
-&lt;p>As before, banks cycle every 128 bytes, which is 32 consecutive floats or 64 halfs. If we have &lt;code>kHeadDim=64&lt;/code>, then we have conflicts for any threads that touch the same column in one load cycle. For a 16x16 fragment (per warp) load using a 32x4 copy atom (per thread), we notice that these byte sizes are equal, so each copy atom loads one 16x16 A-fragment and two 16x8 B/C-fragments. Ideally, we want this load operation to use the same optimal &lt;a class="link" href="#how-do-32-threads-load-128-bits-each" >4-phase quarter-warp pattern&lt;/a> as for our GMEM load, but this assumes we&amp;rsquo;re conflict free.&lt;/p>
+&lt;p>As before, banks cycle every 128 bytes, which is 32 consecutive floats or 64 halfs. If we have &lt;code>kHeadDim=64&lt;/code>, then we have conflicts for any threads that touch the same column in one load cycle. For a 16x16 fragment (per warp) load using a 32x4 copy atom (per thread), we notice that these byte sizes are equal, so each copy atom loads one 16x16 A-fragment and two 16x8 B/C-fragments. Ideally, we want this load to drain through the same optimal &lt;a class="link" href="#how-do-32-threads-load-128-bits-each" >four 128-byte transactions&lt;/a> as our GMEM load, but this assumes we&amp;rsquo;re conflict free.&lt;/p>
 &lt;p>Let&amp;rsquo;s analyze our conflict pattern. Since we touch 16 rows, our load touches 16 values in a column, which causes 16-way conflict. Since we technically only load a quarter-warp at a time (128-bytes), we touch at max 8 rows at a time, so an 8-way bank conflict. Regardless, that&amp;rsquo;s an 8x slowdown just from an SMEM load.&lt;/p>
 &lt;blockquote>
 &lt;p>&lt;strong>Aside&lt;/strong>: I&amp;rsquo;m not 100% sure what the quarter-warp slice actually looks like. It could be consecutive groups of 8 or some other pattern. In our SMEM copy, our quarter-warp transaction could technically be a 8 row x 1 column load OR a 4 row x 2 column load, which would be an 8-way or 4-way conflict depending on what the default actually is. You can certainly find out by running &lt;code>nsight&lt;/code> on a non-swizzled SMEM copy. Regardless, we don&amp;rsquo;t want a 4x or an 8x slowdown. Our swizzle fix will resolve the conflicts no matter how the quarter-warps are sliced.&lt;/p>
@@ -2037,7 +2039,7 @@ data-flex-basis="280px"
 &lt;p>Let&amp;rsquo;s look at the bottom right output fragment C this time and zoom in on thread 0&amp;rsquo;s values. We can see it owns output elements &lt;code>(0, 0), (0, 1), (8, 0), (8, 1)&lt;/code>. If we examine all the other threads, we see that they each own 4 elements across two rows. Let&amp;rsquo;s clarify the math a bit:&lt;/p>
 &lt;p>From the &lt;a class="link" href="#mma-shape" >MMA Shape&lt;/a> section, the C-fragment has shape &lt;code>((2, 2), MMA_M, MMA_N)&lt;/code> where &lt;code>MMA_M = kBlockM / 16&lt;/code> and &lt;code>MMA_N = kBlockN / 8&lt;/code>. The &lt;code>(2, 2)&lt;/code> is each thread&amp;rsquo;s 4 values per tile (2 rows, 2 columns) so each thread&amp;rsquo;s values span &lt;code>MMA_M * 2&lt;/code> rows and &lt;code>MMA_N * 2&lt;/code> columns total.&lt;/p>
 &lt;p>To make the reduction loop look like ordinary 2D code, Dao reshapes this hierarchical fragment into a flat row-major &lt;code>(2*MMA_M, 2*MMA_N)&lt;/code> view. Since the block sizes are static, the reshape is free. It&amp;rsquo;s purely a code-quality trick; the resulting PTX is identical to iterating over the raw MMA shape.&lt;/p>
-&lt;h4 id="fragment-reshape">Fragment Reshape&lt;/h4>
+&lt;h3 id="fragment-reshape">Fragment Reshape&lt;/h3>
 &lt;blockquote>
 &lt;p>&lt;strong>Source:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/utils.cuh" target="_blank" rel="noopener"
 >&lt;code>utils.cuh&lt;/code>&lt;/a> (&lt;code>convert_layout_rowcol&lt;/code>)&lt;/p>
@@ -2172,8 +2174,8 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>In this code, the &lt;code>logical_divide&lt;/code> is actually a no-op. CuTe already gives us &lt;code>acc_s&lt;/code> as &lt;code>((2, 2), MMA_M, MMA_N)&lt;/code>. This bit of code ensures that if we were somehow given &lt;code>MMA=4&lt;/code> instead of &lt;code>(2, 2)&lt;/code>, the function would column-divide the shape to give us what we expect. I&amp;rsquo;m not sure why the &lt;code>logical_divide&lt;/code> is here, but it doesn&amp;rsquo;t break anything. Since it&amp;rsquo;s a static divide, the compiler optimizes everything to the same PTX regardless.&lt;/p>
-&lt;h4 id="back-to-the-actual-reduce">Back to the Actual Reduce&lt;/h4>
-&lt;p>Having the thread&amp;rsquo;s values in row-major format trivializes the loops for the remainder of the softmax functions. Each thread can simply iterate through all its values and compute the max and the sum. This happens at the per-thread register level and is very fast.&lt;/p>
+&lt;h3 id="thread-reduce-continued">Thread Reduce, Continued&lt;/h3>
+&lt;p>With the fragment in row/col view, the per-thread reduction trivializes. Each thread can simply iterate through all its values and compute the max and the sum. This happens at the per-thread register level and is very fast.&lt;/p>
 &lt;p>We have two reduction operations, &lt;code>max&lt;/code> and &lt;code>sum&lt;/code>. It&amp;rsquo;s common to define them as functional structs for portability:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -2282,7 +2284,7 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;h4 id="quad-reduce">Quad Reduce&lt;/h4>
+&lt;/div>&lt;h3 id="quad-reduce">Quad Reduce&lt;/h3>
 &lt;p>The reason we give &lt;code>allreduce&lt;/code> a template variable &lt;code>N&lt;/code> is that we&amp;rsquo;re not actually reducing across all 32 threads. We only need to reduce over the number of threads that own each row. In the &lt;a class="link" href="#thread-reduce" >MMA Atom Layout image&lt;/a> from earlier, we see that four adjacent threads collectively own each row. Therefore, &lt;code>N=4&lt;/code>&amp;ndash;hence, &amp;ldquo;quad&amp;rdquo; reduce. The XOR primitive automatically reduces between participating threads, so we don&amp;rsquo;t have to iterate in groups of four&amp;ndash;the sync instruction waits for each four-thread group to enter the reduction. Our quad reduce function is therefore quite simple:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -2313,7 +2315,7 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>Now we can create some functions that wrap the thread and quad reduces to get our max and sum.&lt;/p>
-&lt;h4 id="reduce-sum-and-max">Reduce Sum and Max&lt;/h4>
+&lt;h3 id="reduce-sum-and-max">Reduce Sum and Max&lt;/h3>
 &lt;p>For &lt;code>reduce_max()&lt;/code>, all we need to do is call thread reduce followed by quad reduce. The sync during &lt;code>quad_allreduce()&lt;/code> handles the thread sync:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -2607,7 +2609,9 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">Tensor&lt;/span> &lt;span class="n">o_fp16&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">FLASH&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">convert_type&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">half_t&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">acc_o&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;h2 id="registers-smem">Registers-&amp;gt;SMEM&lt;/h2>
+&lt;/div>&lt;h2 id="the-staged-output-copy-registers--smem--registers--gmem">The Staged Output Copy: Registers → SMEM → Registers → GMEM&lt;/h2>
+&lt;p>The output is currently scattered across each thread&amp;rsquo;s registers. Per the &lt;a class="link" href="#epilogue-output-gmem" >opening of this section&lt;/a>, we have to stage it through SMEM to land a coalesced, vectorized GMEM write. Two tiled copies, executed in sequence: registers → SMEM, then SMEM → registers → GMEM.&lt;/p>
+&lt;h3 id="registers--smem">Registers → SMEM&lt;/h3>
 &lt;p>We can now begin our register-&amp;gt;SMEM write. Since we never sliced a portion of SMEM for O, we can simply reuse Q&amp;rsquo;s SMEM portion; it has the exact same shape and size as O, and it isn&amp;rsquo;t being used for anything anymore. We can also reuse its layout, since the write access pattern has the same bank-conflict problem as the read, so our swizzled layout from before is perfect.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -2643,7 +2647,7 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>This is technically more accurate than what the source code specifies. You can check by compiling the full kernel with fixed-size universal copies until it compiles&amp;ndash;if it&amp;rsquo;s not compatible, it&amp;rsquo;ll throw an error. Other ways to verify include printing the per-thread shapes to see the strides, looking at the raw PTX instructions, or, unfortunately, using your brain.&lt;/p>
-&lt;h3 id="tiled-copy-1">Tiled Copy&lt;/h3>
+&lt;h4 id="tiled-copy-1">Tiled Copy&lt;/h4>
 &lt;p>Let&amp;rsquo;s make our tiled copy object. To let CuTe know we&amp;rsquo;re working with an output MMA thread layout, we can use &lt;code>make_tiled_copy_C()&lt;/code>&amp;ndash;the &lt;code>C&lt;/code> version instead of the &lt;code>A/B&lt;/code> we used for Q, K, and V.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -2674,7 +2678,7 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">copy&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">smem_tiled_copy_O&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">trO&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tsO&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;h2 id="smem-register-gmem">SMEM-&amp;gt;Register-&amp;gt;GMEM&lt;/h2>
+&lt;/div>&lt;h3 id="smem--registers--gmem">SMEM → Registers → GMEM&lt;/h3>
 &lt;p>We create the GMEM output tile the same way we created the Q, K, V source tiles. It has exactly the same layout as Q. The only difference is that it&amp;rsquo;s not &lt;code>const&lt;/code>, since we&amp;rsquo;re modifying its contents:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -2698,7 +2702,7 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_coord&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">m_block&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">));&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;h3 id="smem-gmem-tiled-copy">SMEM-&amp;gt;GMEM Tiled Copy&lt;/h3>
+&lt;/div>&lt;h4 id="smem-gmem-tiled-copy">SMEM-&amp;gt;GMEM Tiled Copy&lt;/h4>
 &lt;p>Our tiled copy atom is pretty much exactly the same as the one for Q, except we use a standard synchronous 128-bit copy atom instead of the &lt;code>cp.async&lt;/code> we used for GMEM-&amp;gt;SMEM copies. This time, our 128-bit &lt;code>AutoVectorizing&lt;/code> cheat is fine, since we&amp;rsquo;re doing full 128-bit vectorized loads, although you can explicitly declare a 128-bit &lt;code>UniversalCopy&lt;/code> for clarity. As with the GMEM-&amp;gt;SMEM load, we still benefit from memory coalescing because the blocks written &lt;em>TO&lt;/em> GMEM are contiguous in memory. Even though blocks may not be contiguous in SMEM, they are when we store to GMEM.&lt;/p>
 &lt;blockquote>
 &lt;p>&lt;strong>Note&lt;/strong>: Remember, memory coalescing is a &lt;em>GMEM optimization&lt;/em>. The swizzle is our valet attendant&amp;ndash;it stores and retrieves our car on the thread&amp;rsquo;s behalf, and we don&amp;rsquo;t really care &lt;em>where&lt;/em> it puts it. Once each thread retrieves its &amp;ldquo;car&amp;rdquo;, they each park them contiguously in GMEM, which is all that matters for coalescing.&lt;/p>
@@ -2762,7 +2766,7 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>Voila! El Fin.&lt;/p>
-&lt;h3 id="sync-threads">Sync Threads&lt;/h3>
+&lt;h4 id="sync-threads">Sync Threads&lt;/h4>
 &lt;p>Haha, not quite yet. There&amp;rsquo;s a slight bug in our epilogue as-is. Between the register-&amp;gt;SMEM and SMEM-&amp;gt;GMEM copy, threads control different parts of SMEM. We set up async waits earlier, but since we&amp;rsquo;re synchronous for the O store, we simply have to call &lt;code>__syncthreads()&lt;/code> sometime between the two copy stages. The FA2 production code opts to put it right before the final two &lt;code>copy()&lt;/code> invocations to overlap the GMEM tiled copy setup with the register-&amp;gt;SMEM copy, but practically it probably doesn&amp;rsquo;t make much of a difference&amp;ndash;you can just put the sync right after the r-&amp;gt;S copy.&lt;/p>
 &lt;h1 id="wrapping-up">Wrapping up&lt;/h1>
 &lt;blockquote>
