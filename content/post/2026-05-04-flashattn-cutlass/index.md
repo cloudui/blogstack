@@ -26,9 +26,9 @@ A quick note on what this blog is supposed to be -- CuTe's documentation is a re
 
 The code we'll walk through is a stripped-down mirror of Tri Dao's production FA-2: same idioms, same building blocks, often the same lines, but with the causal/RoPE/dropout/KV-cache/QK-smem-sharing template branches removed. The core logic is visible instead of buried under config flags that bloat up the repo. Where it matters, our kernel reaches close to parity with the source -- on an A100, **88-105% of production FA-2's throughput** across hdim=64/128 and seq lengths up to 64K, peaking at 63% of fp16 tensor-core utilization ([full benchmark table](https://github.com/cloudui/cuda-triton#cute-flashattention-2-cuda-batch4-heads8)).
 
-The point is not novelty -- it's just to show that our simplications do not break performance. We are rewriting one production case of many, albeit the simplest and least common one. Where our code diverges, that's usually because I found something -- an inconsistency, a copy-paste from a CuTe example that nobody really understands, a one-line simplification, a choice that turns out to be critical for a non-obvious reason. Those moments are flagged in-line throughout the post, and at least one of them ([the `sVtNoSwizzle` line](#svtnoswizzle-the-no-op-nobody-caught)) appears to be a no-op holdover that nobody in the lineage of this code understood. Make of that what you will.
+The point is not novelty -- it's just to show that our simplications do not break performance. We are rewriting one production case of many, albeit the simplest and least commonly used (LLMs are all non-causal). Where our code diverges, that's usually because we found something -- an inconsistency, a copy-paste from a CuTe example that most take for granted, a one-line simplification, a choice that turns out to be critical for some non-trivial reason. These moments are flagged in-line throughout the post, and at least one of them ([the `sVtNoSwizzle` line](#svtnoswizzle-the-no-op-nobody-caught)) appears to be a no-op that nobody in the lineage of this code understood. Make of that what you will.
 
-What this isn't: a summary of the FA-2 paper, a Hopper/Blackwell post (the algorithm is meaningfully different on newer hardware), or a CuTe guide. This is Ampere-specific, code-level, and committed to the bit that we don't move on from a line until we fully understand why it's there.
+What this isn't: a summary of the FA-2 paper, a Hopper/Blackwell post (newer algorithms are meaningfully different on newer hardware), or a CuTe guide. This is Ampere-specific, code-level, and committed to the bit that we don't move on from a line until we fully understand why it's there.
 
 # FlashAttention-2
 If you're reading this, I'll assume you already have a solid understanding of the attention mechanism and at least the basics of the FlashAttention-2 algorithm itself. If not, I recommend reading the original flash attention paper[^1] before coming back. Or, you could just read the article as-is, because you'll probably piece it together through the struggle of trying to understand. It would be helpful to at least know the pseudocode/baseline algorithm for FA2, and even better if you've tried simulating it in PyTorch (or your framework of choice) or maybe even wrote it in Triton.
@@ -356,7 +356,7 @@ Even if you specify all your layouts properly, there are some internal workings 
 
 > **Note**: The column-major default has **nothing to do with your underlying data**. It's just a consistent indexing pattern CuTe chose.
 
-For FA2, Q, K, and V are all **row-major** along the sequence (`(seq_len, head_dim)`). This means each row represents a token. Most consumer applications and libraries like PyTorch or JAX are row-major by default, so this is the most natural configuration for consistency. Furthermore, Ampere tensor ops seem to be oriented around row-major instructions, so it's also a choice for simplicity.
+Our `(seqlen, head_dim)` Q/K/V layout (from [Design Choices](#design-choices)) is row-major along the sequence, which lines up with PyTorch/JAX defaults and with Ampere's row-major-oriented tensor ops -- so even though CuTe defaults to col-major indexing, our data and our copies will all be row-major.
 
 ### Linear Indexing: Colex Indexing
 With our (2,8) shape layout from earlier, CuTe allows us to index it with just one index-value, essentially treating `(2, 3)` as a flat 6-element array--we refer to this as **linear indexing**. A programming language like C allows you to do the same:
@@ -482,8 +482,8 @@ Although you might think we can kind of async set-and-forget, there are two impo
 
 These two concepts are **vectorized loads** and **coalesced loads**. They are very similar in meaning and are often a point of confusion, so let's break them down here:
 
-- **Vectorized Loads**: A *thread* loading as much data as it can in one *instruction*. Since we're working with fp16, we could naively load one 16-bit number at a time. However, all NVIDIA chips today support a 128-bit load instruction *per-thread*: `LDG.E.128` (and its SMEM counterpart `LDS.E.128`), which can load 8 fp16 numbers in one go. Memory transactions are funny in that a 16-bit load and a 128-bit load take the same amount of time, so if we load 16 bits at a time, we immediately slash our performance by 8x. So instead, when we can, we load 128 bits at a time and decompose it into 8 halfs (1 fp16 = 1 half).
-- **Coalesced Loads**: A *group of threads* loading as much data as it can in one *transaction*. GPUs never fetch from HBM just one byte at a time; they can fetch a whole 32, 64, or 128-byte chunk in one go (i.e. the **transaction size**). When this thread group loads a contiguous 128-byte chunk, the memory controller clears the entire block of data at once. Furthermore, this block fully saturates an L2 cache line, making any subsequent cache accesses more efficient. If all 32 threads in the warp are each fetching some random chunk scattered across memory, then the memory controller has to issue 32 separate transactions, immediately crushing your performance, hopes, and dreams. Note: coalescing is about the maximum bandwidth of the memory controller itself--it has no relation to instructions or how many threads are participating in a load or store. It simply means whether or not we ask for a 128-byte chunk at once. You might notice that 32 threads and 128-bit *instruction* loads is 512 bytes, four times the bandwidth. We'll cover how this works in the next section.
+- **Vectorized Loads**: A *thread* loading as much data as it can in one *instruction*. Since we're working with fp16, we could naively load one 16-bit number at a time. However, all NVIDIA chips today support a 128-bit load instruction *per-thread*: `LDG.E.128` (and its SMEM counterpart `LDS.E.128`), which can load 8 fp16 numbers in one go. Memory transactions are funny in that a 16-bit load and a 128-bit load take the same amount of time, so if we load 16 bits at a time, we immediately slash our performance by 8x. So instead, when we can, we load 128 bits at a time and decompose it into 8 halfs (1 fp16 = 1 half). **Note**: the memory controller almost always loads the same amount of data no matter the instruction, it essentially just throws away the data you don't use, e.g. takes 16 bits from a 128-bit load.
+- **Coalesced Loads**: A *group of threads* loading as much data as it can in one *transaction*. GPUs never fetch from HBM just one byte at a time; they can fetch a whole 32, 64, or max 128-byte chunk in one go (i.e. the **transaction size**). When this thread group loads a contiguous 128-byte chunk, the memory controller clears the entire block of data at once. Furthermore, this block fully saturates an L2 cache line, making any subsequent cache accesses more efficient. If all 32 threads in the warp are each fetching some random chunk scattered across memory, then the memory controller has to issue 32 separate transactions, immediately crushing your performance, hopes, and dreams. Note: coalescing is about the maximum bandwidth of the memory controller itself--it has no relation to instructions or how many threads are participating in a load or store. It simply means whether or not we ask for a 128-byte chunk at once. You might notice that 32 threads and 128-bit *instruction* loads is 512 bytes, four times the bandwidth. We'll cover how this works in the next section.
 
 > **Tip**: Here's how you can figure out which one fits your scenario:
 >
@@ -518,7 +518,16 @@ We use the cute namespace types for robustness, and our source data type is fp16
 
 #### How do 32 threads load 128 bits each?
 
-We have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes, or 128 words[^3], or 4x32 bank accesses (see the [bank conflicts section](#bank-conflicts-and-smem-layout) below). The GPU cannot physically load 512 bytes in one go, so the async proxy issues the load/store in **four phases**, 8 threads at a time (called a quarter-warp).[^4] In phase 1, threads 0-7 load the first 8 128-bit chunks. In phase 2, threads 8-15 do the next 8, and so on. In each phase, each quarter warp issues a contiguous 8x128-bit (128-byte) coalesced copy, which targets all 32 banks without any conflicts. So by design, our async copies perfectly copy our data using the full HBM bandwidth.
+We have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes, or 128 words[^3], or 4x32 bank accesses (see the [bank conflicts section](#bank-conflicts-and-smem-layout) below). The GPU cannot physically load 512 bytes in one go -- both GMEM and SMEM can only move 128-bytes at a time:
+- GMEM can load **128 contiguous bytes** in one memory transaction.
+- SMEM can load any **128 bytes as long as there are no bank conflicts**.
+- Both assume the memory addresses are aligned to your data width (e.g. 128-bit load -> 16-byte aligned address).
+
+As a result, for both GMEM/SMEM handles these 512-byte loads in four separate 128-byte memory transactions (or two for a 256-byte load). Each *transaction phase* provides 8-threads (also called a *quarter-warp*) worth of data. The memory controller is smart enough to group the relevant addresses together to ensure each transaction uses the full 128-byte bandwith when possible (see [vectorization/coalescing](#vectorized-and-coalesced-loads)).
+
+After each phase, each quarter-warp is handed its contiguous 8x128-bit (128-byte) block. So by design, our async copies perfectly copy our data using the full HBM bandwidth.
+
+> **Note**: this behavior is handled at the **hardware level**. CuTe doesn't do some 4-iteration loop or anything -- it's the memory controller's job.
 
 ### Tiled Copy
 Even though each thread copies 128 bits, each thread block is usually working with a variable number of threads/warps. Given the 4 tensor cores per SM, 4 warps per block is typically a good choice for FA2. This means we have to determine how to copy each Q, K, V tile using these 128-bit async copies.
@@ -648,7 +657,7 @@ ldmatrix.sync.aligned.shape.num{.trans}{.ss}.type r, [p];
 .type   = {.b16};
 ```
 
-Our specific copy atom maps to the `ldmatrix...x4` variant, which loads an entire $4\times(8\times 8)=16\times 16$ fragment in one go. Just like our GMEM async copy, the `ldmatrix` is issued in four phases of 128-byte 8-threaded loads, 512 bytes in total. However, unlike our GMEM copy, the `LDSM` tiled copy has to be aware of the downstream MMA thread layout, which differs between fragments A, B, and C.
+Our specific copy atom maps to the `ldmatrix...x4` variant, which loads an entire $4\times(8\times 8)=16\times 16$ fragment in one go. It uses the [same 4-phase quarter-warp mechanic](#how-do-32-threads-load-128-bits-each) as our GMEM async copy. However, unlike the GMEM copy, the `LDSM` tiled copy has to be aware of the downstream MMA thread layout, which differs between fragments A, B, and C.
 
 > We'll cover more `LDSM` details later when we use `LDSM_T` for the [V-copy](#ldsm-copy-atom).
 
@@ -807,7 +816,9 @@ Ok, we have to address the elephant in the room. I've gone this far without talk
 
 In order to enable highly parallel bandwidth in shared memory, NVIDIA stores the underlying data across 32 banks. For each warp, only one thread can ask for a value from the same bank per cycle. If two or more threads try to access the same bank at the same time, the memory controller has no choice but to serialize the transactions--each thread takes its turn reading from memory. If 5 threads access bank 13 at the same time, the memory transaction will take *5 times as long* as if they read 5 different banks.
 
- It's a hardware design choice influenced by power consumption, wiring, latency, and speed. If you somehow figured out how to access any piece of data in SMEM concurrently for free, then you should be instantly nominated for the Turing Prize or sent straight to a psychiatric ward. Unfortunately, dealing with bank conflicts is just a part of GPU programming.
+> **Note**: As we described in our [four-transaction loading pattern](#how-do-32-threads-load-128-bits-each), the SMEM can at max fetch 4 bytes from 32 banks per transaction -- or 128 bytes of data. If we have a 2-way conflict, our poor memory controller has to load 2x128 bytes, where 16 threads only use half of the bytes (64 bytes, the rest is thrown away) per transaction.
+
+It's a hardware design choice influenced by power consumption, wiring, latency, and speed. If you somehow figured out how to access any piece of data in SMEM concurrently for free, then you should be instantly nominated for the Turing Award or sent straight to a psychiatric ward. Unfortunately, dealing with bank conflicts is just a part of GPU programming.
 
 Each of these 32 banks is 4 bytes wide--consecutive 4-byte chunks are stored in consecutive banks. For example, in an fp32 array `float x[] = [0.f, 1.f, 2.f, 3.f]`, 0 would be in bank 0, 1 in bank 1, etc. If you had 32 threads in a warp simultaneously accessing 32 float32s in tandem, you'd be accessing all 32 banks separately, which is conflict-free. This "ideal" use case is by design.
 
@@ -912,7 +923,7 @@ The fp32 example was quite trivial. Our FA2 pattern is slightly more complex, as
 We have two interactions with SMEM: GMEM->SMEM write and SMEM->register read.
 
 #### GMEM->SMEM Write Requirements
-As mentioned before, the GMEM->SMEM copy issues 4 128-byte transactions over 4 phases. Each phase writes 128 bytes (32 bank accesses) and must hit all 32 banks for optimal performance. Since the vectorized write of this 128-byte contiguous chunk is conflict-free by default, any swizzle must happen on top of the 128-byte contiguous chunks (8 halfs). Everything else is fair game.
+Recall the [4-phase quarter-warp copy](#how-do-32-threads-load-128-bits-each): each phase writes a contiguous 128 bytes (32 bank accesses) and must hit all 32 banks for optimal performance. Since that vectorized write is conflict-free by default, any swizzle must happen *on top of* the 128-byte contiguous chunks (8 halfs). Everything else is fair game.
 
 Since we have the flexibility to load 128-byte contiguous chunks, we don't even need to swizzle this transaction. We just have to make sure that if we do swizzle SMEM, we keep each 8-half block contiguous in memory.
 
@@ -926,9 +937,13 @@ using TiledMmaAtom = MMA_Atom<SM80_16x8x16_F32F16F16F32_TN>
 
 If we don't swizzle the SMEM layout, we'd simply have the layout `(kBlockM, kHeadDim)`. Each `MMA_Atom` would tile using a 16x16 chunk out of our SMEM per A-fragment (or 16x8 for B- or C-fragments). Let's examine the bank conflict:
 
-As before, banks cycle every 128 bytes, which is 32 consecutive floats or 64 halfs. If we have `kHeadDim=64`, then we have conflicts for any threads that touch the same column in one load cycle. For a 16x16 fragment (per warp) load using a 32x4 copy atom (per thread), we notice that these byte sizes are equal, so each copy atom loads one 16x16 A-fragment. Similar to our vectorized GMEM load, it loads 512 bytes in four phases, this time over a 16x16 region instead of one contiguous block. In this case, threads 0-7 load the first 128 bytes. For 16 halfs per row and 8 halfs per thread per load, that's 2 threads per row, so 4 rows per 8-thread load. For 16x8, we have half the columns, so it becomes 8 rows per 8-thread load. This means fragment A has a 4-way bank conflict, and fragments B and C have an 8-way bank conflict.
+As before, banks cycle every 128 bytes, which is 32 consecutive floats or 64 halfs. If we have `kHeadDim=64`, then we have conflicts for any threads that touch the same column in one load cycle. For a 16x16 fragment (per warp) load using a 32x4 copy atom (per thread), we notice that these byte sizes are equal, so each copy atom loads one 16x16 A-fragment and two 16x8 B/C-fragments. Ideally, we want this load operation to use the same optimal [4-phase quarter-warp pattern](#how-do-32-threads-load-128-bits-each) as for our GMEM load, but this assumes we're conflict free.
 
-We could use padding, but we'll see how that becomes infeasible with our constraints. For the A fragment, we'd need to shift each row's banks by 16 floats or 32 halfs, so row 0 accesses 0-15, row 1 accesses 16-31, and so on. This increases our memory footprint by `32*kBlockM` halfs, which is a 50% increase over `kHeadDim=64`.
+Let's analyze our conflict pattern. Since we touch 16 rows, our load touches 16 values in a column, which causes 16-way conflict. Since we technically only load a quarter-warp at a time (128-bytes), we touch at max 8 rows at a time, so an 8-way bank conflict. Regardless, that's an 8x slowdown just from an SMEM load.
+
+> **Aside**: I'm not 100% sure what the quarter-warp slice actually looks like. It could be consecutive groups of 8 or some other pattern. In our SMEM copy, our quarter-warp transaction could technically be a 8 row x 1 column load OR a 4 row x 2 column load, which would be an 8-way or 4-way conflict depending on what the default actually is. You can certainly find out by running `nsight` on a non-swizzled SMEM copy. Regardless, we don't want a 4x or an 8x slowdown. Our swizzle fix will resolve the conflicts no matter how the quarter-warps are sliced.
+
+Okay, let's fix this problem then. We could use padding, but we'll see how that becomes infeasible with our constraints. For the A fragment, we'd need to shift each row's banks by 16 floats or 32 halfs, so row 0 accesses 0-15, row 1 accesses 16-31, and so on. This increases our memory footprint by `32*kBlockM` halfs, which is a 50% increase over `kHeadDim=64` -- we're running pretty tight on SMEM and this isn't tolerable.
 
 So our best option is to swizzle. We need to keep the bottom 8 halfs intact, which means for some fp16 address A, we mask out the bottom 3 bits since they must be contiguous for an aligned fp16 swizzle block. What are our row and column? The row is simply the row of SMEM. In our example, each row is 64 halfs, so for fp16 address A the row is all the bits beyond the first six, i.e. `A >> 6`. The column is the bits in between our contiguous chunk and our row. With 64 columns and 8 halfs per chunk, we have 8 8-half columns, which become the 3 bits sitting between the row bits and the bottom 3 chunk bits.
 
@@ -1132,9 +1147,9 @@ using SmemLayoutAtomQ = decltype(composition(
   Layout<Shape<_8, Int<kBlockKSmem>>, Stride<Int<kBlockKSmem>, _1>>{}));
 ```
 
-These constants are the same as what we defined in earlier sections, except the source code handles hdims 32 and 96 with a smaller `kBlockKSmem` and `kSwizzle` to fit the tile shapes. Since the SMEM width is only 32 halfs, we only have bank conflicts if we access more than two rows at a time per warp. We now only have $32 / 8 = 4$ columns per 128-bit load, and we only need to permute every group of two rows. Therefore, we can use `Swizzle<2, 3, 3>` as we see above.
+These are the same constants from [`kBlockSmem`](#kblocksmem). The hdim=32/96 path uses `Swizzle<2,3,3>` instead of `<3,3,3>` because the SMEM row is only 32 halfs wide -- 4 columns per 128-bit load, two rows per bit-mask row -- enough to clear conflicts without the wider permutation.
 
-However, we now notice that our row and column bits S and B are no longer adjacent:
+However, we can notice that our row and column bits S and B are no longer adjacent:
 
 ![Swizzle bit masks for <3,3,3> and <2,3,3>.](swizzle_233_333.png)
 
@@ -1287,9 +1302,9 @@ Recall that every thread in a 16x8 MMA output fragment holds $16\cdot 8 / 32=4$ 
 
 Let's look at the bottom right output fragment C this time and zoom in on thread 0's values. We can see it owns output elements `(0, 0), (0, 1), (8, 0), (8, 1)`. If we examine all the other threads, we see that they each own 4 elements across two rows. Let's clarify the math a bit:
 
-Previously, we saw that the tiled MMA fragment has shape `(MMA, MMA_X, MMA_Y)`. For the output tensor, we showed that `MMA = (2, 2)`, which refers to the 2 rows and 2 columns each thread holds per tile. `MMA_X` and `MMA_Y` can be calculated by how many `16x8` tiles fit across the output shape `(kBlockM, kBlockN)`. We can see that `MMA_X = kBlockM / 16` (which we'll call `MMA_M`) and `MMA_Y = kBlockN / 8` (which we'll call `MMA_N`). Each thread's values therefore span `MMA_M * 2` rows and `MMA_N * 2` columns.
+From the [MMA Shape](#mma-shape) section, the C-fragment has shape `((2, 2), MMA_M, MMA_N)` where `MMA_M = kBlockM / 16` and `MMA_N = kBlockN / 8`. The `(2, 2)` is each thread's 4 values per tile (2 rows, 2 columns) so each thread's values span `MMA_M * 2` rows and `MMA_N * 2` columns total.
 
-As [flagged at the top of SMEM→Registers](#smem-registers), we're squarely in thread-view land here. This `(2, 2)` is each thread's 4 values per tile, not the tile shape. To make computation more straightforward, Dao reshapes the output fragment into a standard row-major layout, which simplifies the thread reduction to a standard 2D array traversal. Since our block sizes are fixed in our template, we can do this layout reinterpretation for free using static dimensions. You can also just iterate over the slightly more convoluted MMA shape--the output PTX is identical. **This reshape is purely a code-quality and readability trick.**
+To make the reduction loop look like ordinary 2D code, Dao reshapes this hierarchical fragment into a flat row-major `(2*MMA_M, 2*MMA_N)` view. Since the block sizes are static, the reshape is free. It's purely a code-quality trick; the resulting PTX is identical to iterating over the raw MMA shape.
 
 #### Fragment Reshape
 
@@ -1760,3 +1775,5 @@ My AI learning guide had led me astray more times than I could count, but someho
 [^6]: Oxford shuffle lecture notes, p.6 for XOR warp shuffle: https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf
 [^7]: CuTe `partition_fragment()` source: https://github.com/NVIDIA/cutlass/blob/e406c186f510a15091cce01f782020ceb7ba8eb5/include/cute/atom/mma_atom.hpp#L508
 [^8]: CuTe `make_fragment_like()` source: https://github.com/NVIDIA/cutlass/blob/e406c186f510a15091cce01f782020ceb7ba8eb5/include/cute/tensor_impl.hpp#L463
+
+512 = 128 byte https://forums.developer.nvidia.com/t/128-bit-access-bank-conflict/287039/5
