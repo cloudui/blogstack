@@ -1,35 +1,43 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>CUDA on echen's blog</title><link>https://blog.echen.io/tags/cuda/</link><description>Recent content in CUDA on echen's blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Mon, 04 May 2026 00:00:00 +0000</lastBuildDate><atom:link href="https://blog.echen.io/tags/cuda/index.xml" rel="self" type="application/rss+xml"/><item><title>FlashAttention, but the Actual Details</title><link>https://blog.echen.io/p/flashattention-but-the-actual-details/</link><pubDate>Mon, 04 May 2026 00:00:00 +0000</pubDate><guid>https://blog.echen.io/p/flashattention-but-the-actual-details/</guid><description>&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/thumbnail.png" alt="Featured image of post FlashAttention, but the Actual Details" />&lt;p>Two days. That&amp;rsquo;s how long it took me to write FlashAttention-2 in Triton. I had never touched a GPU kernel before and somehow replicated a revolutionary algorithm between sips of coffee. I was looking to learn something new and somehow finished before I really got started. I knew the original source was written in CUDA, made by my Bay Area buddy who turned rocks into trillion-ade. Riding on my hubris from my recent success, I decided to translate my pièce de résistance to the native dialect of the rock-whisperers themselves.&lt;/p>
 &lt;p>Three hundred cups of not-Java later, I raised the blood-soaked script in triumph. I spent many moons deciphering the barren scriptures and getting led by astray stochastic parrots and silicon oracles. That month was not a party with the rocks but a bad trip I barely came down from.&lt;/p>
 &lt;p>Every kernel developer has to walk this path eventually. I&amp;rsquo;ve seen the fear in the eyes of the avoiders and the bodies along the way. This post is for whoever&amp;rsquo;s next.&lt;/p>
-&lt;p>We&amp;rsquo;ll walk through FlashAttention-2 end-to-end on an A100, implemented in C++ CuTe: GMEM/SMEM async copies, tiled MMAs, swizzling, online softmax, and the epilogue store. We&amp;rsquo;ll cover every detail in the source code, every throwaway line, and every decision it took me an evening to understand.&lt;/p>
-&lt;p>A quick note on what this blog is supposed to be. CuTe&amp;rsquo;s documentation is a reference, not a tutorial. You can read it cover to cover and walk away still not knowing CuTe; it&amp;rsquo;s only really worth consulting once you&amp;rsquo;re already trying to do something specific and have hit a wall. This post attempts to be that something specific, and we&amp;rsquo;re going to run straight into those walls together. Most public CuTe writing covers one layer at a time&amp;ndash;a layout here, a swizzle there, an MMA atom over there. Tying them into a real kernel is where the difficulty actually lies, and that&amp;rsquo;s the gap this post is trying to fill.&lt;/p>
-&lt;p>The code we&amp;rsquo;ll walk through is a stripped-down mirror of Tri Dao&amp;rsquo;s production FA-2: same idioms, same building blocks, often the same lines, but with the causal/RoPE/dropout/KV-cache/QK-smem-sharing branches removed. The load-bearing logic is visible instead of buried under config flags that bloat up the repo. Where it matters, our kernel reaches close to parity with the source. Where it diverges, that&amp;rsquo;s usually because I found something &amp;ndash; an inconsistency, a copy-paste from a CuTe example that nobody really understands, a one-line simplification, a choice that turns out to be critical for a non-obvious reason. Those moments are flagged in-line throughout the post, and at least one of them (&lt;a class="link" href="#v-fragment-shape-the-worst-line-in-the-source-code" >the &lt;code>sVtNoSwizzle&lt;/code> line&lt;/a>) appears to be a no-op holdover that nobody in the lineage of this code understood. Make of that what you will.&lt;/p>
-&lt;p>What this isn&amp;rsquo;t: a summary of the FA-2 paper, a Hopper/Blackwell post (the algorithm is meaningfully different on newer hardware), or a CuTe tutorial. This is Ampere-specific, code-level, and committed to the bit that we don&amp;rsquo;t move on from a line until fully understand why it&amp;rsquo;s there.&lt;/p>
-&lt;h1 id="flashattention-v2">FlashAttention-v2&lt;/h1>
-&lt;p>If you&amp;rsquo;re reading this, I&amp;rsquo;ll assume you already have a solid understanding of the attention mechanism and at least the basics of the FlashAttention algorithm itself. If not, I recommend reading the original flash attention paper&lt;sup id="fnref:1">&lt;a href="#fn:1" class="footnote-ref" role="doc-noteref">1&lt;/a>&lt;/sup> before coming back. Or you could just read the article as-is, because you&amp;rsquo;ll probably piece it together through the struggle of trying to understand. It would be helpful to at least know the pseudocode/baseline algorithm for FA2, and even better if you&amp;rsquo;ve tried simulating it in PyTorch (or your framework of choice) or implemented it in Triton.&lt;/p>
-&lt;p>If you&amp;rsquo;ve never touched CUDA, you should at least try to understand its SIMT programming nature and maybe implement a few basic kernels using this thread-level view. Try to build a solid understanding of how CUDA works and of NVIDIA&amp;rsquo;s GPU architecture, from threads to warps to thread blocks to SMs and beyond. I&amp;rsquo;ll talk about a lot of these concepts as if you at least have a basic grasp of them. I will be as comprehensive as I can, but it will be an uphill battle should you try to read this blog in its entirety without some background knowledge.&lt;/p>
-&lt;p>Most of this blog concerns how high-level concepts like &amp;ldquo;online softmax&amp;rdquo; or &amp;ldquo;GEMM&amp;rdquo; actually translate to production-grade code. The algorithm itself is not particularly difficult, but the implementation details at the CUDA level can become a nightmare, particularly for beginners. Tri Dao originally wrote FA2 using &lt;strong>CuTe&lt;/strong> (CUDA Templates), a core component within NVIDIA&amp;rsquo;s CUTLASS library that abstracts away tensor layouts and thread-data mapping for high-performance GPU computing. Although this may seem nicer than doing it from scratch, there are a lot of intricacies and difficult-to-understand design choices that make reading it a nightmare. It&amp;rsquo;s higher-level than your typical C program with normal for-loops and variables, but it&amp;rsquo;s still about as close to bare metal as most people will ever get. So even though you&amp;rsquo;ll understand CUDA and FlashAttention much better, honestly it will mostly allow you to understand CuTe&amp;ndash;why it exists, and how people actually use it.&lt;/p>
-&lt;p>Fortunately-ish, since the release of Blackwell (B200), NVIDIA released CuTe&amp;rsquo;s Python DSL&amp;ndash;a Python library you can use to write the same code without all the annoying crap that comes baggaged with C++. The use case and methodology is pretty much unchanged, but it makes debugging and templating more palatable, and the compile times are enormously faster due to just-in-time (JIT) compilation. Moving forward, CuTe 3.X in C++ we use today will probably be somewhat of a relic, but as a learning exercise, nothing beats the absolute struggle of working with the most annoying and explicit version of whatever you&amp;rsquo;re trying to learn. Let&amp;rsquo;s get started.&lt;/p>
+&lt;hr>
+&lt;p>We&amp;rsquo;ll walk through FlashAttention-2 end-to-end on an A100, implemented in C++ CuTe: GMEM/SMEM async copies, tiled MMAs, swizzling, online softmax, and the epilogue store. We&amp;rsquo;ll cover every detail in the source code, every decision, and every throwaway line that ruined an evening.&lt;/p>
+&lt;p>A quick note on what this blog is supposed to be &amp;ndash; CuTe&amp;rsquo;s documentation is a reference, not a tutorial. You can read it cover to cover and walk away still not knowing CuTe; it&amp;rsquo;s only really worth consulting once you&amp;rsquo;re already trying to do something specific and have hit a wall. This post attempts to be that something specific, and we&amp;rsquo;re going to run straight into those walls together. Most public CuTe writing covers one layer at a time: a layout here, a swizzle there, an MMA atom over there. Tying them into a real kernel is where the difficulty actually lies, and that&amp;rsquo;s the gap this post is trying to fill.&lt;/p>
+&lt;p>The code we&amp;rsquo;ll walk through is a stripped-down mirror of Tri Dao&amp;rsquo;s production FA-2: same idioms, same building blocks, often the same lines, but with the causal/RoPE/dropout/KV-cache/QK-smem-sharing template branches removed. The core logic is visible instead of buried under config flags that bloat up the repo. Where it matters, our kernel reaches close to parity with the source &amp;ndash; on an A100, &lt;strong>88-105% of production FA-2&amp;rsquo;s throughput&lt;/strong> across hdim=64/128 and seq lengths up to 64K, peaking at 63% of fp16 tensor-core utilization (&lt;a class="link" href="https://github.com/cloudui/cuda-triton#cute-flashattention-2-cuda-batch4-heads8" target="_blank" rel="noopener"
+>full benchmark table&lt;/a>).&lt;/p>
+&lt;p>The point is not novelty &amp;ndash; it&amp;rsquo;s just to show that our simplications do not break performance. We are rewriting one production case of many, albeit the simplest and least common one. Where our code diverges, that&amp;rsquo;s usually because I found something &amp;ndash; an inconsistency, a copy-paste from a CuTe example that nobody really understands, a one-line simplification, a choice that turns out to be critical for a non-obvious reason. Those moments are flagged in-line throughout the post, and at least one of them (&lt;a class="link" href="#svtnoswizzle-the-no-op-nobody-caught" >the &lt;code>sVtNoSwizzle&lt;/code> line&lt;/a>) appears to be a no-op holdover that nobody in the lineage of this code understood. Make of that what you will.&lt;/p>
+&lt;p>What this isn&amp;rsquo;t: a summary of the FA-2 paper, a Hopper/Blackwell post (the algorithm is meaningfully different on newer hardware), or a CuTe guide. This is Ampere-specific, code-level, and committed to the bit that we don&amp;rsquo;t move on from a line until we fully understand why it&amp;rsquo;s there.&lt;/p>
+&lt;h1 id="flashattention-2">FlashAttention-2&lt;/h1>
+&lt;p>If you&amp;rsquo;re reading this, I&amp;rsquo;ll assume you already have a solid understanding of the attention mechanism and at least the basics of the FlashAttention-2 algorithm itself. If not, I recommend reading the original flash attention paper&lt;sup id="fnref:1">&lt;a href="#fn:1" class="footnote-ref" role="doc-noteref">1&lt;/a>&lt;/sup> before coming back. Or, you could just read the article as-is, because you&amp;rsquo;ll probably piece it together through the struggle of trying to understand. It would be helpful to at least know the pseudocode/baseline algorithm for FA2, and even better if you&amp;rsquo;ve tried simulating it in PyTorch (or your framework of choice) or maybe even wrote it in Triton.&lt;/p>
+&lt;p>If you&amp;rsquo;ve never touched CUDA, you should at least try to understand its SIMT programming nature and maybe implement a few basic kernels using this thread-level view. Try to build a solid understanding of how CUDA works and of NVIDIA&amp;rsquo;s GPU architecture, from threads to warps to thread blocks to SMs and beyond. I&amp;rsquo;ll talk about a lot of these concepts in detail, but I still assume a basic understanding of GPU or hardware paradigms. I will be as comprehensive as I can, but it will be an uphill battle should you try to read this blog in its entirety without &lt;em>some&lt;/em> background knowledge.&lt;/p>
+&lt;p>Most of this blog concerns how high-level concepts like &amp;ldquo;online softmax&amp;rdquo; or &amp;ldquo;GEMM&amp;rdquo; actually translate to production-grade code. The algorithm itself is not particularly difficult in theory, but the implementation details at the CUDA level can become a nightmare, particularly for beginners. Tri Dao originally wrote FA2 using &lt;strong>CuTe&lt;/strong> (CUDA Templates), a core component within NVIDIA&amp;rsquo;s CUTLASS library that abstracts away tensor layouts and thread-data mapping for high-performance GPU computing. Although this may seem nicer than doing it from scratch, there are a lot of intricacies and difficult-to-understand design choices that make reading CuTe code a nightmare. The core API is higher-level than your typical C program with for-loops and variables, but it&amp;rsquo;s still about as close to bare metal as you can get without writing the ASM yourself. So even though you&amp;rsquo;ll understand CUDA and FlashAttention much better, you will end up learning a lot about the hardware underneath the abstractions, and why NVIDIA built CuTe in the first place.&lt;/p>
+&lt;p>Since the release of Blackwell (B200), NVIDIA released CuTe&amp;rsquo;s Python DSL&amp;ndash;a Python library you can use to write the same code without all the annoying templating that comes baggaged with C++. The use case and methodology is pretty much unchanged, but debugging and templating become more palatable, and the compile times are enormously faster due to just-in-time (JIT) compilation. Moving forward, the CuTe 3.X in C++ we use today will probably be somewhat of a relic, but as a learning exercise, nothing beats the absolute struggle of working with the most annoying and explicit version of whatever you&amp;rsquo;re trying to learn.&lt;/p>
 &lt;h1 id="overview">Overview&lt;/h1>
 &lt;h2 id="design-choices">Design Choices&lt;/h2>
 &lt;p>We&amp;rsquo;re going to make some basic design choices to make this learning exercise simpler on the implementation side. A lot of the source code involves edge cases and optional configuration settings (RoPE, QK smem sharing, etc.) that aren&amp;rsquo;t practical for learning the fundamentals of FA2 and CuTe. Our choices are as follows:&lt;/p>
 &lt;ul>
-&lt;li>A100: the GPU I had access to and the industry standard when FA2 was released. Hopper and Blackwell have even more complicated algorithms due to hardware improvements and optimizations&lt;/li>
-&lt;li>fp16: supported on A100 tensor cores, pretty basic default for most kernel ops for training
+&lt;li>A100: the GPU I had access to and the industry standard when FA2 was released. Newer architecture generations like Hopper (H100) and Blackwell (B200) have even more complicated algorithms (e.g. FA3, FA4) due to hardware improvements and optimizations.&lt;/li>
+&lt;li>fp16: supported on A100 tensor cores, pretty basic default for most kernel ops during training
 &lt;ul>
 &lt;li>fp32 accumulation, reduces precision drift, more accurate FLOPs for softmax and scale&lt;/li>
 &lt;/ul>
 &lt;/li>
 &lt;li>Clean basic out-of-the-box attention mechanism: no causal masking, RoPE, dropout, etc.&lt;/li>
-&lt;li>head_dim: focus on 64 and 128 block sizes, although 32 may also be covered (I didn&amp;rsquo;t specifically check)&lt;/li>
+&lt;li>head_dim: focus on 32, 64 and 128 block sizes&lt;/li>
 &lt;li>Assume the sequence length is a power of two, or more specifically, a multiple of the Q block size.&lt;/li>
-&lt;li>We expect $Q, K, V$ to be contiguous along &lt;code>head_dim&lt;/code>, i.e. all of shape &lt;code>(seqlen, head_dim)&lt;/code> in PyTorch.&lt;/li>
+&lt;li>Expect $Q, K, V$ to be contiguous along &lt;code>head_dim&lt;/code>, i.e. all of shape &lt;code>(seqlen, head_dim)&lt;/code> in PyTorch/JAX.&lt;/li>
 &lt;/ul>
 &lt;h2 id="some-naming-conventions">Some Naming Conventions&lt;/h2>
 &lt;p>If you look at the FA2 source code, you might notice they have some weird naming conventions. Some of them are standard CuTe/CUTLASS, some carry over from other things. Here are some patterns:&lt;/p>
 &lt;ul>
 &lt;li>Starts with k: compile-time constant, e.g. &lt;code>kBlockM&lt;/code>, &lt;code>kHeadDim&lt;/code>&lt;/li>
 &lt;li>$M, N, K$: All of general matrix-multiply (GEMM) parameters are in this order for a $(M, K) \times (K, N)$ matrix-multiply. Hence, the shape of Q is &lt;code>(kBlockM, kHeadDim)&lt;/code> and the shape of K, V is &lt;code>(kBlockN, kHeadDim)&lt;/code>.&lt;/li>
+&lt;li>FA2 and CuTe have a weird but relatively consistent variable naming scheme for tensors. I&amp;rsquo;m just going to give one example to give you an idea: &lt;code>tSrQ&lt;/code>. t=thread, S=QK softmax result, r=registers, Q=query matrix. They use &lt;code>s&lt;/code> for SMEM and &lt;code>g&lt;/code> for GMEM. Non thread-owned tensors have no leading &lt;code>t&lt;/code>.
+&lt;ul>
+&lt;li>Technically S is post-softmax of $P=QK^T$, but FA2 consistently calls the intermediate accumulator S.&lt;/li>
+&lt;/ul>
+&lt;/li>
 &lt;/ul>
 &lt;h2 id="basic-structure">Basic Structure&lt;/h2>
 &lt;p>First, attention itself:&lt;/p>
@@ -51,15 +59,16 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">O&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">S&lt;/span>&lt;span class="nd">@V&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>Let&amp;rsquo;s establish the specifics of the FA2 algorithm at a high level.&lt;/p>
+&lt;/div>&lt;h3 id="high-level-details">High-Level Details&lt;/h3>
+&lt;p>Let&amp;rsquo;s establish the specifics of the FA2 algorithm at a high level.&lt;/p>
 &lt;ul>
 &lt;li>Our grid is &lt;code>batch/head&lt;/code> x &lt;code>q_tile&lt;/code>. The batch/head dimensions are independent and can be grouped. The &lt;code>q_tile&lt;/code> determines which tile of Q we get, and we make it the last dimension for better cache locality between thread blocks.&lt;/li>
 &lt;li>Q is of shape &lt;code>(kBlockM, kHeadDim)&lt;/code>. The main computation on any thread block revolves around the Q tile. This Q tile does not change for the duration of the thread block. We iterate over the relevant K, V tile per thread block to get an output tile. Each q tile maps to exactly the same size output tile, which is necessary as we need to manifest a whole row of P to do the softmax.&lt;/li>
 &lt;li>We load each tile from global memory (GMEM) to shared memory (SMEM) for staging. When we need to do our GEMM, we load from SMEM to the register file as we loop over K and V.&lt;/li>
-&lt;li>Our GMEM-&amp;gt;SMEM copying are all async (&lt;code>cp.async&lt;/code> on Ampere). Q technically doesn&amp;rsquo;t really have to be since it doesn&amp;rsquo;t overlap that much compute but is a micro-optimization nonetheless.&lt;/li>
-&lt;li>&lt;strong>Warps tile along M, not N.&lt;/strong> This is &lt;em>the&lt;/em> defining layout decision of the kernel. We arrange our tensor-core warps so that each warp owns entire rows of the $QK^T$ output, never a slice across the row. The reason is the online softmax: row max and row sum reductions stay &lt;em>inside a warp&lt;/em> and resolve via warp-shuffle primitives (&lt;code>__shfl_xor_sync&lt;/code>) — no shared-memory staging, no &lt;code>__syncthreads&lt;/code>. Get this layout wrong and the softmax becomes the bottleneck. Get it right and softmax is nearly free. Almost every subsequent design choice — the &lt;code>Tiled_MMA&lt;/code> shape, the fragment partitioning, the &lt;code>Softmax&lt;/code> struct, the rescale loop — falls out of this one decision.&lt;/li>
+&lt;li>Our GMEM-&amp;gt;SMEM copying are all async (&lt;code>cp.async&lt;/code> on Ampere). Q technically doesn&amp;rsquo;t really have to be since it stays constant throughout the thread block. Its singular GMEM load doesn&amp;rsquo;t overlap that much compute but we make the optimization nonetheless.&lt;/li>
+&lt;li>&lt;strong>Warps tile along M, not N.&lt;/strong> This is &lt;em>the&lt;/em> defining layout decision of the kernel. We arrange our tensor-core warps so that each warp owns entire rows of the $QK^T$ output, never a slice across the row. The reason is the online softmax: row max and row sum reductions stay &lt;em>inside a warp&lt;/em> and resolve via warp-shuffle primitives (&lt;code>__shfl_xor_sync&lt;/code>) &amp;ndash; no shared-memory staging, no &lt;code>__syncthreads&lt;/code>. This is a huge performance decision that turns softmax from a bottleneck to nearly free. Most subsequent design choices, such as &lt;code>Tiled_MMA&lt;/code> shape, fragment partitioning, &lt;code>Softmax&lt;/code> struct, and the rescale loop falls out of this one decision.&lt;/li>
 &lt;/ul>
-&lt;p>The overall pseudocode for a tile Q is:&lt;/p>
+&lt;h3 id="the-kernel-outline">The Kernel Outline&lt;/h3>
 &lt;ol>
 &lt;li>Define GMEM, SMEM, register files, hardware copy/GEMM instructions, and mappings&lt;/li>
 &lt;li>Load Q tile from global memory to SMEM. This is only done once, as Q tile doesn&amp;rsquo;t change.&lt;/li>
@@ -74,6 +83,91 @@ O &amp;amp;= S \cdot V
 &lt;li>Copy output from SMEM back to GMEM. Ampere doesn&amp;rsquo;t have any direct SMEM-&amp;gt;GMEM instructions so we stage this copy through registers.&lt;/li>
 &lt;/ol>
 &lt;p>Only 11 steps and they&amp;rsquo;re all pretty simple in concept&amp;hellip;Let&amp;rsquo;s take a deeper look into the implementation details.&lt;/p>
+&lt;h1 id="code-layout-the-repo">Code Layout: The Repo&lt;/h1>
+&lt;p>All of the code in this post lives in &lt;a class="link" href="https://github.com/cloudui/cuda-triton" target="_blank" rel="noopener"
+>&lt;code>@github:cloudui/cuda-triton&lt;/code>&lt;/a>. This is the broader kernel-learning project I&amp;rsquo;ve been building up over the last few months as I worked through Triton, CUDA, then CuTe. The two-day Triton FA2 from the intro is in &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/kernels/flash_attention_full.py" target="_blank" rel="noopener"
+>&lt;code>kernels/flash_attention_full.py&lt;/code>&lt;/a>; the intermediate WMMA CUDA FA2 (the bridge between Triton and CuTe) is in &lt;a class="link" href="https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn" target="_blank" rel="noopener"
+>&lt;code>cuda/flash_attn/&lt;/code>&lt;/a>; the &lt;a class="link" href="https://github.com/cloudui/cuda-triton/tree/main/cute" target="_blank" rel="noopener"
+>&lt;code>cute/&lt;/code>&lt;/a> directory is an in-progress port of this kernel to NVIDIA&amp;rsquo;s new Python CuTe DSL. The post itself walks through &lt;a class="link" href="https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn_cutlass" target="_blank" rel="noopener"
+>&lt;code>cuda/flash_attn_cutlass/&lt;/code>&lt;/a> &amp;ndash; the C++ CuTe implementation. Everything has tests, benchmarks, and a top-level &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/README.md" target="_blank" rel="noopener"
+>&lt;code>README.md&lt;/code>&lt;/a> you can browse that are mostly up-to-date.&lt;/p>
+&lt;blockquote>
+&lt;p>Please refer to Tri Dao&amp;rsquo;s repo as well. It contains much more edge case handling and templating that I do not touch on at all: &lt;a class="link" href="https://github.com/Dao-AILab/flash-attention/tree/main" target="_blank" rel="noopener"
+>@github:Dao-AILab/flash-attention&lt;/a>.&lt;/p>
+&lt;p>Specifically, their implementation lives in &lt;a class="link" href="https://github.com/Dao-AILab/flash-attention/tree/main/csrc/flash_attn/src" target="_blank" rel="noopener"
+>csrc/flash_attn&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;p>Before we dive into the implementation, here&amp;rsquo;s the file map for the kernel we&amp;rsquo;re walking through. The snippets in the blog are simplified versions of what&amp;rsquo;s in the repo. I&amp;rsquo;ll cite specific files as we go, but the up-front overview is:&lt;/p>
+&lt;table>
+&lt;thead>
+&lt;tr>
+&lt;th>File&lt;/th>
+&lt;th>What&amp;rsquo;s in it&lt;/th>
+&lt;/tr>
+&lt;/thead>
+&lt;tbody>
+&lt;tr>
+&lt;td>&lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash.h" target="_blank" rel="noopener"
+>&lt;code>flash.h&lt;/code>&lt;/a>&lt;/td>
+&lt;td>The &lt;code>Flash_fwd_params&lt;/code> struct &amp;ndash; pointers, batch/head strides, sizes. The runtime side of the kernel API.&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td>&lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/kernel_traits.cuh" target="_blank" rel="noopener"
+>&lt;code>kernel_traits.cuh&lt;/code>&lt;/a>&lt;/td>
+&lt;td>Compile-time type composition: SMEM Layouts with &lt;code>Swizzle&lt;/code>, &lt;code>TiledMma&lt;/code>, &lt;code>Copy_Atom&lt;/code>s, and block sizes. Any &lt;code>using&lt;/code> C++ declarations in this blog live here.&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td>&lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_fwd_kernel.h" target="_blank" rel="noopener"
+>&lt;code>flash_fwd_kernel.h&lt;/code>&lt;/a>&lt;/td>
+&lt;td>The kernel body: Q load, KV main loop, softmax, epilogue. This is where most of the blog&amp;rsquo;s code snippets come from.&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td>&lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_fwd_launch_template.h" target="_blank" rel="noopener"
+>&lt;code>flash_fwd_launch_template.h&lt;/code>&lt;/a>&lt;/td>
+&lt;td>Grid/block sizing, &lt;code>cudaFuncSetAttribute&lt;/code> for extended SMEM, kernel launch.&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td>&lt;a class="link" href="https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn_cutlass" target="_blank" rel="noopener"
+>&lt;code>flash_fwd_hdim{32,64,128}_*.cu&lt;/code>&lt;/a>&lt;/td>
+&lt;td>Per-config explicit instantiations so we don&amp;rsquo;t have to JIT.&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td>&lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_api.cu" target="_blank" rel="noopener"
+>&lt;code>flash_api.cu&lt;/code>&lt;/a>&lt;/td>
+&lt;td>PyTorch extension entry point and runtime dispatch by &lt;code>head_dim&lt;/code>.&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td>&lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/softmax.cuh" target="_blank" rel="noopener"
+>&lt;code>softmax.cuh&lt;/code>&lt;/a>&lt;/td>
+&lt;td>The &lt;code>Softmax&amp;lt;kNRows&amp;gt;&lt;/code> struct, &lt;code>softmax_rescale_o&lt;/code>, warp/quad reductions.&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td>&lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/utils.cuh" target="_blank" rel="noopener"
+>&lt;code>utils.cuh&lt;/code>&lt;/a>&lt;/td>
+&lt;td>Layout-rewrite helpers (&lt;code>convert_layout_rowcol&lt;/code>, &lt;code>convert_layout_acc_Aregs&lt;/code>), &lt;code>convert_type&lt;/code>, copy helpers.&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td>&lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/setup.py" target="_blank" rel="noopener"
+>&lt;code>setup.py&lt;/code>&lt;/a>&lt;/td>
+&lt;td>Build script with the CUTLASS include path.&lt;/td>
+&lt;/tr>
+&lt;/tbody>
+&lt;/table>
+&lt;p>&lt;strong>Where the blog&amp;rsquo;s snippets live.&lt;/strong> Most of the &lt;code>cpp&lt;/code> blocks in the post are stripped-down versions of the production code:&lt;/p>
+&lt;ul>
+&lt;li>&lt;code>kernel_traits.cuh&lt;/code> &amp;ndash; everything in &lt;a class="link" href="#tiled-mma" >Tiled MMA&lt;/a>, &lt;a class="link" href="#copy-atoms" >Copy Atoms&lt;/a>, &lt;a class="link" href="#swizzling-fa2" >Swizzling FA2&lt;/a>, and the V-copy SMEM layouts.&lt;/li>
+&lt;li>&lt;code>flash_fwd_kernel.h&lt;/code> &amp;ndash; everything in &lt;a class="link" href="#gmem-and-smem-tensors" >GMEM and SMEM Tensors&lt;/a>, &lt;a class="link" href="#q-k-smem-register-tiled-copy" >Q,K SMEM-&amp;gt;Register Tiled Copy&lt;/a>, &lt;a class="link" href="#mma-loop-qkt-gemm" >MMA Loop: QK^T GEMM&lt;/a>, &lt;a class="link" href="#the-actual-async-copy-strategy" >The Actual Async Copy Strategy&lt;/a>, and the &lt;a class="link" href="#epilogue-output-gmem" >Epilogue&lt;/a>.&lt;/li>
+&lt;li>&lt;code>softmax.cuh&lt;/code> &amp;ndash; everything in &lt;a class="link" href="#online-softmax" >Online Softmax&lt;/a>.&lt;/li>
+&lt;li>&lt;code>utils.cuh&lt;/code> &amp;ndash; the &lt;code>convert_layout_rowcol&lt;/code> reshape in &lt;a class="link" href="#fragment-reshape" >Fragment Reshape&lt;/a>.&lt;/li>
+&lt;/ul>
+&lt;blockquote>
+&lt;p>&lt;strong>Note&lt;/strong>: I often combine the &lt;code>kernel_traits&lt;/code> declarations and the &lt;code>flash_fwd_kernel&lt;/code> code to keep them in one block, and I sometimes leave out function declarations that wrap certain blocks of code for brevity. If you ever become confused, all important sections link to their source at the top of their subsections for reference.&lt;/p>
+&lt;/blockquote>
+&lt;p>&lt;strong>A note on parallel scratch.&lt;/strong> Alongside the production kernel, &lt;a class="link" href="https://github.com/cloudui/cuda-triton/tree/main/scratch" target="_blank" rel="noopener"
+>&lt;code>scratch/&lt;/code>&lt;/a> contains the small standalone CuTe demos I wrote while losing my mind in confusion. The &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/README.md" target="_blank" rel="noopener"
+>scratch README&lt;/a> maps each file to a blog section. If a concept ever feels too abstract on the page, run corresponding scratch file and stare at its output for a while. It might help. The instructions to run are in the repos READMEs.&lt;/p>
+&lt;p>&lt;strong>A note on simplification.&lt;/strong> As called out in the &lt;a class="link" href="#flashattention-but-the-actual-details" >intro&lt;/a>, this blog walks through a stripped-down mirror of &lt;a class="link" href="https://github.com/Dao-AILab/flash-attention/tree/main/csrc/flash_attn/src" target="_blank" rel="noopener"
+>Tri Dao&amp;rsquo;s production FA-2&lt;/a>. Where the source has branches for causal masking, RoPE, KV-cache, dropout, QK SMEM sharing, etc., this kernel doesn&amp;rsquo;t &amp;ndash; the load-bearing FA2 logic is what&amp;rsquo;s left. Wherever this kernel diverges from the source in a non-trivial way, I flag it inline.&lt;/p>
 &lt;h1 id="cute-the-basics">CuTe, the Basics&lt;/h1>
 &lt;p>As established in the intro, the CuTe docs are a reference; this section is the tutorial that doesn&amp;rsquo;t exist. I won&amp;rsquo;t cover all the APIs &amp;ndash; you can intuit 90% of them from context and the FA2 code. However, the concepts that turn your evenings into late nights will be waiting for you here. It&amp;rsquo;s hard to internalize the motivations for certain CuTe features until you&amp;rsquo;ve encountered the problem they&amp;rsquo;re meant to solve, so if a section feels abstract, skip ahead to the FA2 implementation and come back when you hit the wall it was written for. The official docs live at &lt;a class="link" href="https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html" target="_blank" rel="noopener"
 >https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html&lt;/a> and are worth keeping open in another tab.&lt;/p>
@@ -81,6 +175,10 @@ O &amp;amp;= S \cdot V
 &lt;p>CuTe is essentially a templating engine that lets you manipulate memory using tensors, shapes, layouts, data types, and strides&amp;ndash;quite similar to PyTorch&amp;rsquo;s &lt;code>torch.Tensor&lt;/code> object. Unfortunately, it&amp;rsquo;s not nearly as friendly, but it is much more powerful. If you&amp;rsquo;re familiar with any deep learning library, these concepts should click pretty quickly. It lets you declare a general &amp;ldquo;shape&amp;rdquo; once, and if you template it with fp32 vs fp16, you can just pass the relevant parameters to your kernel template.&lt;/p>
 &lt;p>In CuTe, you are still responsible for all the sizes. The code may be able to extract fp16 from a 128-bit load, but you&amp;rsquo;ll have to figure out that 128 bits is 8 fp16 numbers. It just handles the typing on your behalf and lets you index things with some nicer code. It certainly is not &amp;ldquo;easier&amp;rdquo; and is often a nightmare to read. You&amp;rsquo;ll see why pretty soon.&lt;/p>
 &lt;h2 id="layouts-shapes-and-strides">Layouts, Shapes, and Strides&lt;/h2>
+&lt;blockquote>
+&lt;p>&lt;strong>Play:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/01_layouts.cu" target="_blank" rel="noopener"
+>&lt;code>scratch/01_layouts.cu&lt;/code>&lt;/a>&lt;/p>
+&lt;/blockquote>
 &lt;p>Ah yes, back to tensor school. Shape and stride are precisely the same concepts as in PyTorch. A layout is just a composition of a shape and a stride.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -172,6 +270,10 @@ O &amp;amp;= S \cdot V
 &lt;/div>
 &lt;/div>&lt;p>Read more here:&lt;/p>
 &lt;h2 id="tensors">Tensors&lt;/h2>
+&lt;blockquote>
+&lt;p>&lt;strong>Play:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/02_tensor.cu" target="_blank" rel="noopener"
+>&lt;code>scratch/02_tensor.cu&lt;/code>&lt;/a>&lt;/p>
+&lt;/blockquote>
 &lt;p>A tensor is just a pointer wrapped in a layout. The underlying data is just a pointer, usually to contiguous data, and the layout determines how we interact with it. Pretty much exactly the same as a &lt;code>torch.Tensor&lt;/code>. The difference is that we manage the layout: we can change it to whatever we want, however we want, but we are ultimately responsible for the tensor&amp;rsquo;s integrity.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -644,8 +746,25 @@ data-flex-basis="431px"
 &lt;li>&lt;strong>Coalesced Loads&lt;/strong>: A &lt;em>group of threads&lt;/em> loading as much data as it can in one &lt;em>transaction&lt;/em>. GPUs never fetch from HBM just one byte at a time; they can fetch a whole 32, 64, or 128-byte chunk in one go (i.e. the &lt;strong>transaction size&lt;/strong>). When this thread group loads a contiguous 128-byte chunk, the memory controller clears the entire block of data at once. Furthermore, this block fully saturates an L2 cache line, making any subsequent cache accesses more efficient. If all 32 threads in the warp are each fetching some random chunk scattered across memory, then the memory controller has to issue 32 separate transactions, immediately crushing your performance, hopes, and dreams. Note: coalescing is about the maximum bandwidth of the memory controller itself&amp;ndash;it has no relation to instructions or how many threads are participating in a load or store. It simply means whether or not we ask for a 128-byte chunk at once. You might notice that 32 threads and 128-bit &lt;em>instruction&lt;/em> loads is 512 bytes, four times the bandwidth. We&amp;rsquo;ll cover how this works in the next section.&lt;/li>
 &lt;/ul>
 &lt;blockquote>
-&lt;p>&lt;strong>Tip&lt;/strong>: You should think of vectorized loads in terms of instructions&amp;ndash;Can each thread load 128-bits at one time with my data format/layout?&lt;/p>
-&lt;p>You should think of coalesced loads in terms of contiguity&amp;ndash;can I load 128 bytes from HBM at a time?&lt;/p>
+&lt;p>&lt;strong>Tip&lt;/strong>: Here&amp;rsquo;s how you can figure out which one fits your scenario:&lt;/p>
+&lt;table>
+&lt;thead>
+&lt;tr>
+&lt;th style="text-align:left">Question / Scenario&lt;/th>
+&lt;th style="text-align:left">&amp;ndash;&lt;/th>
+&lt;/tr>
+&lt;/thead>
+&lt;tbody>
+&lt;tr>
+&lt;td style="text-align:left">Can each thread load 128-bits at one time with my data layout?&lt;/td>
+&lt;td style="text-align:left">&lt;strong>Vectorization&lt;/strong>&lt;/td>
+&lt;/tr>
+&lt;tr>
+&lt;td style="text-align:left">Can I load 128 bytes from HBM at a time?&lt;/td>
+&lt;td style="text-align:left">&lt;strong>Coalescing&lt;/strong>&lt;/td>
+&lt;/tr>
+&lt;/tbody>
+&lt;/table>
 &lt;/blockquote>
 &lt;p>
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/vec.png"
@@ -671,11 +790,12 @@ data-flex-grow="181"
 data-flex-basis="436px"
 >
 &lt;/p>
-&lt;blockquote>
 &lt;p>Both vectorized and coalesced loads expect the data to be contiguous (e.g. 128 bits and 128 bytes, respectively). If your data is scattered, you might not be able to leverage the full benefit of vectorization and coalescing. However, it&amp;rsquo;s possible that loading 64 bytes or 64 bits at a time could be good enough for your purpose. If memory becomes a bottleneck, you can always consider reformatting the data or loading out of order, as long as your downstream compute handles the data correctly.&lt;/p>
+&lt;blockquote>
+&lt;p>&lt;strong>Note: Memory coalescing only applies to GMEM/HBM&lt;/strong>, while vectorization applies to both GMEM and SMEM, although in slightly different ways. In both cases, we&amp;rsquo;re reducing instruction pressure and increasing our instruction-level parallelism (ILP). We&amp;rsquo;ll cover more details about bank conflicts and swizzling in our &lt;a class="link" href="#smem-registers" >SMEM-&amp;gt;register section&lt;/a> later.&lt;/p>
 &lt;/blockquote>
 &lt;blockquote>
-&lt;p>&lt;strong>Memory coalescing only applies to GMEM/HBM&lt;/strong>, while vectorization applies to both GMEM and SMEM, although in slightly different ways. In both cases, we&amp;rsquo;re reducing instruction pressure and increasing our instruction-level parallelism (ILP). We&amp;rsquo;ll cover more details about bank conflicts and swizzling in our &lt;a class="link" href="#smem-registers" >SMEM-&amp;gt;register section&lt;/a> later.&lt;/p>
+&lt;p>&lt;strong>Note&lt;/strong>: Don&amp;rsquo;t get confused between &lt;em>vectorized loads&lt;/em> and &lt;em>compute vectorization&lt;/em>. Although they have the same name, vectorized loads are about memory throughput while vectorized compute is about parallel computation. For example, numpy compute vectorization leverages SIMD CPU instructions to add matrices in one clock cycle. A GPU thread bundles a bunch of data into one load instruction to leverage higher memory bandwidth. Similar concept, different meanings depending on context.&lt;/p>
 &lt;/blockquote>
 &lt;h3 id="copy-atoms">Copy Atoms&lt;/h3>
 &lt;p>Every NVIDIA GPU has a boatload of copy instructions&amp;ndash;you can fetch 32 bytes, 64 bytes, one byte, synchronously or asynchronously. CuTe neatly packages these copy instructions into a core piece called an &lt;code>Atom&lt;/code>. These &amp;ldquo;atomic&amp;rdquo; pieces are the core hardware instructions that you eventually pass to the &lt;code>copy&lt;/code> function so it knows which instruction to use to copy your data.&lt;/p>
@@ -904,6 +1024,13 @@ data-flex-basis="369px"
 &lt;p>We&amp;rsquo;ll cover more &lt;code>LDSM&lt;/code> details later when we use &lt;code>LDSM_T&lt;/code> for the &lt;a class="link" href="#ldsm-copy-atom" >V-copy&lt;/a>.&lt;/p>
 &lt;/blockquote>
 &lt;h3 id="tiled-mma">Tiled MMA&lt;/h3>
+&lt;blockquote>
+&lt;p>&lt;strong>Source:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/kernel_traits.cuh" target="_blank" rel="noopener"
+>&lt;code>kernel_traits.cuh&lt;/code>&lt;/a>&lt;/p>
+&lt;p>&lt;strong>Play:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/03_mma.cu" target="_blank" rel="noopener"
+>&lt;code>scratch/03_mma.cu&lt;/code>&lt;/a> (single MMA, no SMEM), &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/04_mma.cu" target="_blank" rel="noopener"
+>&lt;code>scratch/04_mma.cu&lt;/code>&lt;/a> (full pipeline, verified)&lt;/p>
+&lt;/blockquote>
 &lt;p>Getting deja vu yet? This time, we define the tiling for the MMA GEMM. We define the following tiled MMA atom:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -988,7 +1115,7 @@ data-flex-basis="399px"
 &lt;h4 id="what-is-a-fragment">What is a Fragment?&lt;/h4>
 &lt;p>SMEM-&amp;gt;register copies operate on fragments. As mentioned earlier, a fragment is simply each thread&amp;rsquo;s share of the A, B, or C matrix used in the tensor core. We can see which piece each thread gets from the layout in the previous section, although this will become clearer in your head once we begin to work with it in detail. Since we are tiling our Q, K, and V with these MMA atoms, each thread gets multiple fragments (see &lt;a class="link" href="#mma-shape" >MMA shape&lt;/a> later) based on the number of atoms it takes to tile our SMEM. As a result, CuTe provides &lt;code>partition_fragment_A/B/C()&lt;/code> functions to partition our SMEM depending on whether the tensor is A, B, or C in the MMA, since each role has a different thread layout.&lt;/p>
 &lt;blockquote>
-&lt;p>&lt;strong>Note&lt;/strong>: We explore a huge caveat with &lt;code>partition_fragment()&lt;/code> when we discuss &lt;a class="link" href="#v-fragment-shape-the-worst-line-in-the-source-code" >the fragment shape for V&lt;/a>.&lt;/p>
+&lt;p>&lt;strong>Note&lt;/strong>: We explore a huge caveat with &lt;code>partition_fragment()&lt;/code> when we discuss &lt;a class="link" href="#svtnoswizzle-the-no-op-nobody-caught" >the fragment shape for V&lt;/a>.&lt;/p>
 &lt;/blockquote>
 &lt;p>As covered in &lt;a class="link" href="#registers-arent-memory" >Registers Aren&amp;rsquo;t Memory&lt;/a>, the register fragment looks like a tensor but it&amp;rsquo;s a 1-1 mapping into the register file, not addressable memory. Keep that in mind in this section.&lt;/p>
 &lt;h4 id="q-k-smem-register-tiled-copy">Q, K SMEM-&amp;gt;Register Tiled Copy&lt;/h4>
@@ -1070,6 +1197,10 @@ data-flex-basis="399px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;h3 id="partition-vs-retile">Partition vs. Retile&lt;/h3>
+&lt;blockquote>
+&lt;p>&lt;strong>Play:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/retile_viz.cu" target="_blank" rel="noopener"
+>&lt;code>scratch/retile_viz.cu&lt;/code>&lt;/a> (visualize how &lt;code>retile_D&lt;/code>/&lt;code>retile_S&lt;/code> rebind register layouts)&lt;/p>
+&lt;/blockquote>
 &lt;p>Every tiled copy in this kernel boils down to one decision: do I &lt;code>partition&lt;/code> the source/destination, or &lt;code>retile&lt;/code> it? The answer depends entirely on whether the tensor is in shared/global memory or in registers, and whether it&amp;rsquo;s the source or destination of the copy.&lt;/p>
 &lt;table>
 &lt;thead>
@@ -1222,8 +1353,24 @@ data-flex-basis="437px"
 &lt;p>Funnily enough, with SMEM padding we often try to &lt;em>break&lt;/em> these power-of-two symmetries to improve our bank access patterns.&lt;/p>
 &lt;p>Going back to our example, the reason we end up with bank conflicts is that our row stride is a multiple of our 32-bank, 4-byte cycle. Every address separated by 128 bytes maps to the same bank. So a column-major access pattern for a 32x32 float array is an absolute death sentence. This wouldn&amp;rsquo;t be any better for 32x64, 32x96, or 32x1024 float arrays either, because the column width in each case is a multiple of 128 bytes.&lt;/p>
 &lt;p>We can break this 128-byte stride pattern simply by padding each row with an extra float. So instead of 32x32, we now force our SMEM to have shape 32x33. Our SMEM chunk occupies 32 more bytes with one dummy float per row, but our column access pattern no longer suffers from bank conflicts. If we look at our column access pattern from before, at &lt;code>j=0&lt;/code>, thread 0 still accesses (0, 0), thread 1 still accesses (1, 0), &amp;hellip;, and thread 31 still accesses (31, 0). But each row stride is now &amp;ldquo;33&amp;rdquo; banks apart, so thread 0 accesses memory address 0, while thread 1 now accesses address 33, not 32. So in one cycle, thread 0 accesses bank 0, thread 1 accesses bank 1, &amp;hellip;, and thread 31 accesses bank 31. On the next iteration, we shift by 1 bank, where thread 0 accesses bank 1 and thread 1 accesses bank 2. We are now conflict-free, at the expense of 32 &amp;ldquo;empty&amp;rdquo; floats.&lt;/p>
+&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/padding.png"
+width="2302"
+height="1296"
+srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/padding_hu3e502985a7792c47736837d91aa89839_287968_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/padding_hu3e502985a7792c47736837d91aa89839_287968_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/padding_hu3e502985a7792c47736837d91aa89839_287968_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/padding.png 2302w"
+loading="lazy"
+alt="Example of two-way column conflict access and a simple padding solution."
+class="gallery-image"
+data-flex-grow="177"
+data-flex-basis="426px"
+>
+&lt;/p>
 &lt;p>When you aren&amp;rsquo;t constrained by SMEM limits, padding is often a very simple and worthwhile tradeoff. It&amp;rsquo;s easy to implement as long as you match your strides correctly and load/write from SMEM following your new padding rules. However, if you&amp;rsquo;re dealing with complex memory access patterns or different data types (a long is 2 banks wide, 2 halfs fit in one bank), padding might be too complicated or completely insufficient for your use case.&lt;/p>
 &lt;h3 id="swizzling">Swizzling&lt;/h3>
+&lt;blockquote>
+&lt;p>&lt;strong>Play:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/swizzle_sim.py" target="_blank" rel="noopener"
+>&lt;code>scratch/swizzle_sim.py&lt;/code>&lt;/a> (pure-Python &lt;code>Swizzle&amp;lt;B,M,S&amp;gt;&lt;/code> simulator, toy with the bit math)&lt;/p>
+&lt;/blockquote>
 &lt;p>This is precisely the problem in FA2. We have some copy-atom- and MMA-specific read/write access patterns and we&amp;rsquo;re working with 16-bit halfs, which make padding unattractive if not impossible. Swizzling comes to the rescue.&lt;/p>
 &lt;p>Swizzling is your answer to the brilliant thought: &amp;ldquo;what if our access patterns magically happened to use different banks?&amp;rdquo; Using some bit magic, swizzling rearranges the mapping of data elements in shared memory to avoid bank conflicts.&lt;/p>
 &lt;p>Back to our example. For our column access pattern on the 32x32 array, we &amp;ldquo;reinterpret&amp;rdquo; our SMEM so that address 0 is bank 0, address 32 is bank 1, &amp;hellip;, and address 31*32 is bank 31. It&amp;rsquo;s a scrambler (or swizzler, if you will) that maps your (i, j) to a true address under the hood such that your bank conflicts magically disappear. Before each write and read to SMEM, we swizzle the incoming access (i, j) and translate it to a physical address (or vice versa), so that even though we think we&amp;rsquo;re writing (1, 3) to memory location $32\cdot 1 + 3$, we&amp;rsquo;re actually writing it to some swizzled address under the hood. The writer and consumer are none the wiser. As long as it writes (1, 3) and gets back the same (1, 3), it doesn&amp;rsquo;t care.&lt;/p>
@@ -1315,6 +1462,13 @@ data-flex-basis="428px"
 >https://leimao.github.io/blog/CuTe-Swizzle/&lt;/a>&lt;/p>
 &lt;/blockquote>
 &lt;h3 id="swizzling-fa2">Swizzling FA2&lt;/h3>
+&lt;blockquote>
+&lt;p>&lt;strong>Source:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/kernel_traits.cuh" target="_blank" rel="noopener"
+>&lt;code>kernel_traits.cuh&lt;/code>&lt;/a>&lt;/p>
+&lt;p>&lt;strong>Play:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/bench_swizzle_writes.cu" target="_blank" rel="noopener"
+>&lt;code>scratch/bench_swizzle_writes.cu&lt;/code>&lt;/a> (benchmark cp.async / STS.128 with vs. without swizzle), &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/swizzle_layouts.cu" target="_blank" rel="noopener"
+>&lt;code>scratch/swizzle_layouts.cu&lt;/code>&lt;/a> (print FA2 SMEM layouts)&lt;/p>
+&lt;/blockquote>
 &lt;p>The fp32 example was quite trivial. Our FA2 pattern is slightly more complex, as we have to deal with tiled copy patterns, MMA atom layouts, and vectorized loads. As a result, we have to redefine what &amp;ldquo;row&amp;rdquo; and &amp;ldquo;column&amp;rdquo; mean via the Swizzle Atom in CuTe.&lt;/p>
 &lt;p>We have two interactions with SMEM: GMEM-&amp;gt;SMEM write and SMEM-&amp;gt;register read.&lt;/p>
 &lt;h4 id="gmem-smem-write-requirements">GMEM-&amp;gt;SMEM Write Requirements&lt;/h4>
@@ -1366,7 +1520,7 @@ data-flex-basis="428px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;blockquote>
-&lt;p>For &lt;code>hdim=32&lt;/code>, you still have to redeclare some things, for example &lt;code>B=2&lt;/code> for the swizzle atom. I bring this stipulation up because it&amp;rsquo;s the path the FA2 source code took. It&amp;rsquo;s not the only implementation and not necessarily the best one&amp;ndash;it just might be a point of confusion when reading their &lt;code>kernel_traits.h&lt;/code> definition. We&amp;rsquo;ll cover another huge stipulation in our &lt;a class="link" href="#v-fragment-shape-the-worst-line-in-the-source-code" >V-fragment section&lt;/a>.&lt;/p>
+&lt;p>For &lt;code>hdim=32&lt;/code>, you still have to redeclare some things, for example &lt;code>B=2&lt;/code> for the swizzle atom. I bring this stipulation up because it&amp;rsquo;s the path the FA2 source code took. It&amp;rsquo;s not the only implementation and not necessarily the best one&amp;ndash;it just might be a point of confusion when reading their &lt;code>kernel_traits.h&lt;/code> definition. We&amp;rsquo;ll cover another huge stipulation in our &lt;a class="link" href="#svtnoswizzle-the-no-op-nobody-caught" >V-fragment section&lt;/a>.&lt;/p>
 &lt;/blockquote>
 &lt;h4 id="swizzle-composition">Swizzle Composition&lt;/h4>
 &lt;p>Now let&amp;rsquo;s actually make the SMEM layout. Since we have a swizzle and the actual SMEM dimensions, our resulting &lt;code>SmemLayout&lt;/code> is a tiled layout&amp;ndash;we have to tile the swizzle on top of the underlying memory. We first create our tile atom and then tile the atom to our SMEM shape.&lt;/p>
@@ -1556,7 +1710,14 @@ data-flex-basis="451px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>As you can see, we use &lt;code>sV&lt;/code> for our GMEM tiled copy since we preserve the row-major shape. Only when we copy from SMEM-&amp;gt;registers do we transpose the SMEM view for &lt;code>LDSM_T&lt;/code>.&lt;/p>
-&lt;h3 id="v-fragment-shape-the-worst-line-in-the-source-code">V-Fragment Shape: The Worst Line in the Source Code&lt;/h3>
+&lt;h3 id="svtnoswizzle-the-no-op-nobody-caught">sVtNoSwizzle: The No-Op Nobody Caught&lt;/h3>
+&lt;blockquote>
+&lt;p>&lt;strong>Source:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/kernel_traits.cuh" target="_blank" rel="noopener"
+>&lt;code>kernel_traits.cuh&lt;/code>&lt;/a>&lt;/p>
+&lt;p>&lt;strong>Play:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/v_fragment_test.cu" target="_blank" rel="noopener"
+>&lt;code>scratch/v_fragment_test.cu&lt;/code>&lt;/a> (minimal repro: swap &lt;code>sVt&lt;/code> for &lt;code>sVtNoSwizzle&lt;/code>, see nothing break), &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/swizzle_layouts.cu" target="_blank" rel="noopener"
+>&lt;code>scratch/swizzle_layouts.cu&lt;/code>&lt;/a> (print the layouts side by side)&lt;/p>
+&lt;/blockquote>
 &lt;blockquote>
 &lt;p>&lt;strong>Tip&lt;/strong>: I recommend skipping this section if you&amp;rsquo;re trying to implement a working FA2 first. Come back when you have nothing left to lose.&lt;/p>
 &lt;/blockquote>
@@ -1732,12 +1893,44 @@ data-flex-basis="280px"
 >
 &lt;/p>
 &lt;p>So it seems that a variable &lt;code>kSwizzle&lt;/code> pattern isn&amp;rsquo;t necessary, even for smaller hdims. We don&amp;rsquo;t need to replicate our physical SMEM layout&amp;ndash;we just need the swizzle to do its job, and it does its job just the same with a constant &lt;code>Swizzle&amp;lt;3,3,3&amp;gt;&lt;/code>. Honestly, we found a simplification after clawing at our faces for hours on end&amp;ndash;a one line change. Worth it.&lt;/p>
-&lt;blockquote>
+&lt;h4 id="there-are-multiple-options">There are Multiple Options&lt;/h4>
+&lt;p>There&amp;rsquo;s technically nothing wrong with the code as-is, but we have a few options to improve the confusion that &lt;code>sVtNoSwizzle&lt;/code> introduces:&lt;/p>
+&lt;ol>
+&lt;li>Add no-swizzle versions for Q and K as well. This is the most clear about what &lt;code>partition_fragment&lt;/code> is supposed to care about&amp;ndash;the unswizzled shape. It might read as a requirement, which it is not, but it is the most direct with its intention.&lt;/li>
+&lt;li>Remove &lt;code>sVtNoSwizzle&lt;/code>. It&amp;rsquo;s not strictly necessary, and it introduces the underlying assumptions that we now know don&amp;rsquo;t exist. I assume it was added because a debug print statement showed that the V fragment had a strange shape, which may cause confusion to developers.&lt;/li>
+&lt;li>Change the swizzle pattern to &lt;code>Swizzle&amp;lt;3,3,3&amp;gt;&lt;/code> for all relevant hdims. We can pair this with 2., which fully removes any shape inconsistencies. The swizzle pattern doesn&amp;rsquo;t match the physical SMEM layout at &lt;code>hdim=32,96&lt;/code>, but to be fair, neither using &lt;code>kBlockKSmem=64&lt;/code> for &lt;code>hdim=128&lt;/code>.&lt;/li>
+&lt;/ol>
+&lt;p>The choice is ultimately up to you. I like number 3 since its the simplest and cause no shape inconsistencies, which is what I will use below. Let&amp;rsquo;s refactor the code snippet we introduced in this subsection:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;span class="lnt">3
+&lt;/span>&lt;span class="lnt">4
+&lt;/span>&lt;span class="lnt">5
+&lt;/span>&lt;span class="lnt">6
+&lt;/span>&lt;span class="lnt">7
+&lt;/span>&lt;span class="lnt">8
+&lt;/span>&lt;span class="lnt">9
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">static&lt;/span> &lt;span class="k">constexpr&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">kBlockKSmem&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">kHeadDim&lt;/span> &lt;span class="o">%&lt;/span> &lt;span class="mi">64&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">?&lt;/span> &lt;span class="mi">64&lt;/span> &lt;span class="o">:&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">SmemLayoutAtomQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="k">decltype&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">composition&lt;/span>&lt;span class="p">(&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Swizzle&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockKSmem&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockKSmem&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{}));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sK&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">()&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sK&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">SmemLayoutKV&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">...&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">sVt&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sV&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">(),&lt;/span> &lt;span class="n">SmemLayoutVt&lt;/span>&lt;span class="p">{});&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tOrV&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">thr_mma&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_fragment_B&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sVt&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;blockquote>
 &lt;p>Like the Q and K SMEM copy, the V SMEM copy is done inside its GEMM loop. We&amp;rsquo;ll cover this &lt;a class="link" href="#putting-it-all-together" >after we cover softmax&lt;/a>, since we have to compute &lt;code>S&lt;/code> first.&lt;/p>
 &lt;/blockquote>
 &lt;h2 id="the-actual-async-copy-strategy">The Actual Async Copy Strategy&lt;/h2>
 &lt;p>At this point, we&amp;rsquo;ve more than covered &lt;em>how&lt;/em> to copy. Now, let&amp;rsquo;s explain &lt;em>when&lt;/em> to copy.&lt;/p>
-&lt;p>We covered much of the strategy all the way back at the &lt;a class="link" href="#basic-structure" >beginning&lt;/a>, so feel free to take a moment to review.&lt;/p>
+&lt;p>We covered much of the strategy all the way back at the &lt;a class="link" href="#the-kernel-outline" >beginning&lt;/a>, so feel free to take a moment to review.&lt;/p>
 &lt;h3 id="first-up-q-tile-and-k-tile-prefetch">First Up: Q-Tile and K-Tile Prefetch&lt;/h3>
 &lt;p>The Q tile remains the same throughout the entire thread block, so it&amp;rsquo;s arguably the one that benefits the least from the async copy. We can still overlap a small amount of compute before our main loop. At the same time, we can fetch our 0th K-tile to prepare for the immediate $QK^T$ once we hit the main loop.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
@@ -1763,6 +1956,12 @@ data-flex-basis="280px"
 &lt;p>TODO: finish main loop section.&lt;/p>
 &lt;/blockquote>
 &lt;h1 id="online-softmax">Online Softmax&lt;/h1>
+&lt;blockquote>
+&lt;p>&lt;strong>Source:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/softmax.cuh" target="_blank" rel="noopener"
+>&lt;code>softmax.cuh&lt;/code>&lt;/a>&lt;/p>
+&lt;p>&lt;strong>Play:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/test_softmax.cu" target="_blank" rel="noopener"
+>&lt;code>scratch/test_softmax.cu&lt;/code>&lt;/a> (end-to-end &lt;code>softmax_rescale_o&lt;/code> test against a CPU reference)&lt;/p>
+&lt;/blockquote>
 &lt;p>After $QK^T$, we now deal with the online softmax. Fortunately, this step isn&amp;rsquo;t terribly difficult because of the way we set up the threads. To review, the softmax portion has a couple of steps:&lt;/p>
 &lt;ol>
 &lt;li>Calculate new per-row max: &lt;code>m_new = max(scores, dim=-1)&lt;/code>&lt;/li>
@@ -1822,6 +2021,12 @@ data-flex-basis="280px"
 &lt;p>Previously, we saw that the tiled MMA fragment has shape &lt;code>(MMA, MMA_X, MMA_Y)&lt;/code>. For the output tensor, we showed that &lt;code>MMA = (2, 2)&lt;/code>, which refers to the 2 rows and 2 columns each thread holds per tile. &lt;code>MMA_X&lt;/code> and &lt;code>MMA_Y&lt;/code> can be calculated by how many &lt;code>16x8&lt;/code> tiles fit across the output shape &lt;code>(kBlockM, kBlockN)&lt;/code>. We can see that &lt;code>MMA_X = kBlockM / 16&lt;/code> (which we&amp;rsquo;ll call &lt;code>MMA_M&lt;/code>) and &lt;code>MMA_Y = kBlockN / 8&lt;/code> (which we&amp;rsquo;ll call &lt;code>MMA_N&lt;/code>). Each thread&amp;rsquo;s values therefore span &lt;code>MMA_M * 2&lt;/code> rows and &lt;code>MMA_N * 2&lt;/code> columns.&lt;/p>
 &lt;p>As &lt;a class="link" href="#smem-registers" >flagged at the top of SMEM→Registers&lt;/a>, we&amp;rsquo;re squarely in thread-view land here. This &lt;code>(2, 2)&lt;/code> is each thread&amp;rsquo;s 4 values per tile, not the tile shape. To make computation more straightforward, Dao reshapes the output fragment into a standard row-major layout, which simplifies the thread reduction to a standard 2D array traversal. Since our block sizes are fixed in our template, we can do this layout reinterpretation for free using static dimensions. You can also just iterate over the slightly more convoluted MMA shape&amp;ndash;the output PTX is identical. &lt;strong>This reshape is purely a code-quality and readability trick.&lt;/strong>&lt;/p>
 &lt;h4 id="fragment-reshape">Fragment Reshape&lt;/h4>
+&lt;blockquote>
+&lt;p>&lt;strong>Source:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/utils.cuh" target="_blank" rel="noopener"
+>&lt;code>utils.cuh&lt;/code>&lt;/a> (&lt;code>convert_layout_rowcol&lt;/code>)&lt;/p>
+&lt;p>&lt;strong>Play:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/fragment_reshape.cu" target="_blank" rel="noopener"
+>&lt;code>scratch/fragment_reshape.cu&lt;/code>&lt;/a>&lt;/p>
+&lt;/blockquote>
 &lt;p>
 &lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col.png"
 width="2310"
@@ -2020,6 +2225,12 @@ data-flex-basis="239px"
 &lt;/div>
 &lt;/div>&lt;p>We use the &lt;code>size&amp;lt;&amp;gt;&lt;/code> declarator to get the row and column sizes, and we add a &lt;code>zero_init&lt;/code> template variable to initialize the first softmax call. That&amp;rsquo;s it!&lt;/p>
 &lt;h3 id="warp-reduce">Warp Reduce&lt;/h3>
+&lt;blockquote>
+&lt;p>&lt;strong>Source:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/softmax.cuh" target="_blank" rel="noopener"
+>&lt;code>softmax.cuh&lt;/code>&lt;/a> (&lt;code>Allreduce&amp;lt;N&amp;gt;&lt;/code>)&lt;/p>
+&lt;p>&lt;strong>Play:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/test_allreduce.cu" target="_blank" rel="noopener"
+>&lt;code>scratch/test_allreduce.cu&lt;/code>&lt;/a>&lt;/p>
+&lt;/blockquote>
 &lt;p>Now, each thread has its max and sum, so we warp-reduce the max and sum across all threads. CUDA and GPUs follow a tree-reduce paradigm: instead of looping over all threads in $O(n)$ time, pairs of threads reduce among each other at each step, single-elimination bracket-style. Each iteration, we reduce half the threads, so at the end we only require $O(\log(n))$ iterations to find the final max.&lt;/p>
 &lt;p>The simplest strategy is where each thread pairs up with the thread $N/2$ above it. Thread 0 pairs with 16, 1 with 17, until 15 with 31. Threads 0-15 have the max. Then Thread 0 pairs with 8, 1 with 9, until 7 and 15. At each step we halve the step (16-&amp;gt;8-&amp;gt;4-&amp;gt;2-&amp;gt;1), until thread 0 has the final max. CUDA calls this reduction &lt;code>__shfl_down_sync()&lt;/code>, which would be good enough except that only one thread ends up with the final value. However, in our case, each thread needs to know the max/sum to calculate the final softmax. Instead, we use the &lt;code>__shfl_xor_sync()&lt;/code> primitive. You might tense up at the idea of XOR again, but I&amp;rsquo;m not going to explain it this time. As with swizzling, the primitive creates a bit-sharing mask such that all threads pair up in a way that lets them all end up with the final value.&lt;sup id="fnref:8">&lt;a href="#fn:8" class="footnote-ref" role="doc-noteref">8&lt;/a>&lt;/sup>&lt;/p>
 &lt;p>Most shuffle primitives take in a bitmask of all participating threads, a value, and a stride:&lt;/p>
@@ -2537,6 +2748,14 @@ data-flex-basis="239px"
 &lt;h3 id="sync-threads">Sync Threads&lt;/h3>
 &lt;p>Haha, not quite yet. There&amp;rsquo;s a slight bug in our epilogue as-is. Between the register-&amp;gt;SMEM and SMEM-&amp;gt;GMEM copy, threads control different parts of SMEM. We set up async waits earlier, but since we&amp;rsquo;re synchronous for the O store, we simply have to call &lt;code>__syncthreads()&lt;/code> sometime between the two copy stages. The FA2 production code opts to put it right before the final two &lt;code>copy()&lt;/code> invocations to overlap the GMEM tiled copy setup with the register-&amp;gt;SMEM copy, but practically it probably doesn&amp;rsquo;t make much of a difference&amp;ndash;you can just put the sync right after the r-&amp;gt;S copy.&lt;/p>
 &lt;h1 id="wrapping-up">Wrapping up&lt;/h1>
+&lt;blockquote>
+&lt;p>&lt;strong>Source:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_fwd_kernel.h" target="_blank" rel="noopener"
+>&lt;code>flash_fwd_kernel.h&lt;/code>&lt;/a>, &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_api.cu" target="_blank" rel="noopener"
+>&lt;code>flash_api.cu&lt;/code>&lt;/a>&lt;/p>
+&lt;p>&lt;strong>Play:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/fa_test.cu" target="_blank" rel="noopener"
+>&lt;code>scratch/fa_test.cu&lt;/code>&lt;/a> (full kernel vs. CPU reference), &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/bench.py" target="_blank" rel="noopener"
+>&lt;code>scratch/bench.py&lt;/code>&lt;/a>&lt;/p>
+&lt;/blockquote>
 &lt;p>My AI learning guide had led me astray more times than I could count, but somehow I still had faith that it wouldn&amp;rsquo;t disappoint me this time.&lt;/p>
 &lt;h1 id="appendix">Appendix&lt;/h1>
 &lt;div class="footnotes" role="doc-endnotes">
