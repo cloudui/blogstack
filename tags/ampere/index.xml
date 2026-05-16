@@ -1710,7 +1710,7 @@ data-flex-basis="451px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>As you can see, we use &lt;code>sV&lt;/code> for our GMEM tiled copy since we preserve the row-major shape. Only when we copy from SMEM-&amp;gt;registers do we transpose the SMEM view for &lt;code>LDSM_T&lt;/code>.&lt;/p>
-&lt;h3 id="svtnoswizzle-the-no-op-nobody-caught">sVtNoSwizzle: The No-Op Nobody Caught&lt;/h3>
+&lt;h3 id="svtnoswizzle-the-no-op-nobody-caught">&lt;code>sVtNoSwizzle&lt;/code>: The No-Op Nobody Caught&lt;/h3>
 &lt;blockquote>
 &lt;p>&lt;strong>Source:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/kernel_traits.cuh" target="_blank" rel="noopener"
 >&lt;code>kernel_traits.cuh&lt;/code>&lt;/a>&lt;/p>
