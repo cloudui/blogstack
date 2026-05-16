@@ -1070,7 +1070,7 @@ auto tOsVt = smem_thr_copy_V.partition_S(sVt);
 
 As you can see, we use `sV` for our GMEM tiled copy since we preserve the row-major shape. Only when we copy from SMEM->registers do we transpose the SMEM view for `LDSM_T`.
 
-### sVtNoSwizzle: The No-Op Nobody Caught
+### `sVtNoSwizzle`: The No-Op Nobody Caught
 
 > **Source:** [`kernel_traits.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/kernel_traits.cuh)
 >
