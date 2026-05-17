@@ -2610,7 +2610,7 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;h2 id="the-staged-output-copy-registers--smem--registers--gmem">The Staged Output Copy: Registers → SMEM → Registers → GMEM&lt;/h2>
-&lt;p>The output is currently scattered across each thread&amp;rsquo;s registers. Per the &lt;a class="link" href="#epilogue-output-gmem" >opening of this section&lt;/a>, we have to stage it through SMEM to land a coalesced, vectorized GMEM write. Two tiled copies, executed in sequence: registers → SMEM, then SMEM → registers → GMEM.&lt;/p>
+&lt;p>The output is currently scattered across each thread&amp;rsquo;s registers. Per the &lt;a class="link" href="#epilogue-output-gmem" >opening of this section&lt;/a>, we have to stage it through SMEM to land a coalesced, vectorized GMEM write. Two tiled copies, executed in sequence &amp;ndash; registers → SMEM, then SMEM → registers → GMEM.&lt;/p>
 &lt;h3 id="registers--smem">Registers → SMEM&lt;/h3>
 &lt;p>We can now begin our register-&amp;gt;SMEM write. Since we never sliced a portion of SMEM for O, we can simply reuse Q&amp;rsquo;s SMEM portion; it has the exact same shape and size as O, and it isn&amp;rsquo;t being used for anything anymore. We can also reuse its layout, since the write access pattern has the same bank-conflict problem as the read, so our swizzled layout from before is perfect.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
@@ -2768,6 +2768,233 @@ data-flex-basis="239px"
 &lt;/div>&lt;p>Voila! El Fin.&lt;/p>
 &lt;h4 id="sync-threads">Sync Threads&lt;/h4>
 &lt;p>Haha, not quite yet. There&amp;rsquo;s a slight bug in our epilogue as-is. Between the register-&amp;gt;SMEM and SMEM-&amp;gt;GMEM copy, threads control different parts of SMEM. We set up async waits earlier, but since we&amp;rsquo;re synchronous for the O store, we simply have to call &lt;code>__syncthreads()&lt;/code> sometime between the two copy stages. The FA2 production code opts to put it right before the final two &lt;code>copy()&lt;/code> invocations to overlap the GMEM tiled copy setup with the register-&amp;gt;SMEM copy, but practically it probably doesn&amp;rsquo;t make much of a difference&amp;ndash;you can just put the sync right after the r-&amp;gt;S copy.&lt;/p>
+&lt;h1 id="plumbing-params-launch-dispatch-kernel-traits">Plumbing: Params, Launch, Dispatch, Kernel Traits&lt;/h1>
+&lt;blockquote>
+&lt;p>&lt;strong>Source:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash.h" target="_blank" rel="noopener"
+>&lt;code>flash.h&lt;/code>&lt;/a>, &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_fwd_launch_template.h" target="_blank" rel="noopener"
+>&lt;code>flash_fwd_launch_template.h&lt;/code>&lt;/a>, &lt;a class="link" href="https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn_cutlass" target="_blank" rel="noopener"
+>&lt;code>flash_fwd_hdim{32,64,128}_fp16_sm80.cu&lt;/code>&lt;/a>, &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_api.cu" target="_blank" rel="noopener"
+>&lt;code>flash_api.cu&lt;/code>&lt;/a>, &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/kernel_traits.cuh" target="_blank" rel="noopener"
+>&lt;code>kernel_traits.cuh&lt;/code>&lt;/a>&lt;/p>
+&lt;/blockquote>
+&lt;p>The kernel itself is done. We still have to deal with the typical CUDA dispatch to make it actually runnable. We&amp;rsquo;re going to speedrun the rest of these files since they are not relevant to the algorithm itself, but I&amp;rsquo;ll brielfy explain what remaining files we need before we can actually call FA2 from something like PyTorch. It&amp;rsquo;s not too important to comb through every line &amp;ndash; most of the time, you&amp;rsquo;ll just copy the boilerplate from some old kernel you made and modify some variables.&lt;/p>
+&lt;h2 id="kernel-traits">Kernel Traits&lt;/h2>
+&lt;p>As we mentioned in &lt;a class="link" href="#code-layout-the-repo" >the code layout section&lt;/a>, every tiled MMA, tiled copy, and layout is defined here. It&amp;rsquo;s the atomic backbone that we use for any operation in &lt;code>flash_fwd_kernel.h&lt;/code>. Anything we wrote with &lt;code>using&lt;/code> is simply defined here, as well as any constants. We combined the code together in blocks in this blog for reading purposes; in the actual kernel, any type references will look more like this:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">typename&lt;/span> &lt;span class="n">Traits&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">GmemTiledCopyQKV&lt;/span> &lt;span class="n">gmem_tiled_copy_QKV&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;h2 id="params-struct">Params Struct&lt;/h2>
+&lt;p>Everything the kernel needs is funneled through a simple data struct, &lt;code>Flash_fwd_params&lt;/code>. Pointers for Q, K, V, and O; dimensions; per-tensor strides; and the precomputed softmax scale. The struct lives in &lt;code>flash.h&lt;/code> because both the kernel side (&lt;code>flash_fwd_kernel.h&lt;/code>) and the host side (&lt;code>flash_api.cu&lt;/code>) include it.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;span class="lnt">15
+&lt;/span>&lt;span class="lnt">16
+&lt;/span>&lt;span class="lnt">17
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">struct&lt;/span> &lt;span class="nc">Flash_fwd_params&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">const&lt;/span> &lt;span class="kt">void&lt;/span> &lt;span class="o">*&lt;/span>&lt;span class="n">__restrict__&lt;/span> &lt;span class="n">q_ptr&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">*&lt;/span>&lt;span class="n">__restrict__&lt;/span> &lt;span class="n">k_ptr&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">*&lt;/span>&lt;span class="n">__restrict__&lt;/span> &lt;span class="n">v_ptr&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="kt">void&lt;/span> &lt;span class="o">*&lt;/span>&lt;span class="n">__restrict__&lt;/span> &lt;span class="n">o_ptr&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1">// unused, i just copied it over; only used in bwd pass
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="kt">float&lt;/span> &lt;span class="o">*&lt;/span>&lt;span class="n">__restrict__&lt;/span> &lt;span class="n">softmax_lse_ptr&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="c1">// (batch, num_heads, seqlen_q)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="kt">int&lt;/span> &lt;span class="n">batch_size&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">seqlen_q&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">seqlen_k&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">num_heads&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">num_heads_k&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">head_dim&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1">// PyTorch passes strides in elements (not bytes)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">q_batch_stride&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">q_row_stride&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">q_head_stride&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="kt">int&lt;/span> &lt;span class="n">k_batch_stride&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">k_row_stride&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">k_head_stride&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="kt">int&lt;/span> &lt;span class="n">v_batch_stride&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">v_row_stride&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">v_head_stride&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="kt">int&lt;/span> &lt;span class="n">o_batch_stride&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">o_row_stride&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">o_head_stride&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="kt">float&lt;/span> &lt;span class="n">scale_softmax&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="c1">// 1/sqrt(d_h)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="kt">float&lt;/span> &lt;span class="n">scale_softmax_log2&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="c1">// 1/sqrt(d_h) * log2(e), for exp2()
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="p">};&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;ul>
+&lt;li>&lt;strong>&lt;code>__restrict__&lt;/code>&lt;/strong> tells the compiler the pointers don&amp;rsquo;t alias (no mem overlap), which lets it optimize more aggressively.&lt;/li>
+&lt;li>Strides are in # of elements, not bytes.&lt;/li>
+&lt;li>&lt;strong>&lt;code>scale_softmax_log2&lt;/code>&lt;/strong> is precomputed on the host so we don&amp;rsquo;t have to compute &lt;code>log2(e)&lt;/code> inside the kernel&amp;rsquo;s inner loop (see &lt;a class="link" href="#softmax_scale_log2-dont-forget-the-scaling-factor" >the softmax scaling section&lt;/a>).&lt;/li>
+&lt;/ul>
+&lt;h2 id="launch-template">Launch Template&lt;/h2>
+&lt;p>This is the host-side function in &lt;code>flash_fwd_launch_template.h&lt;/code> that picks the grid shape, configures SMEM, and launches the kernel. We need one template per &lt;code>Traits&lt;/code> and one runtime entry per head_dim:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;span class="lnt">15
+&lt;/span>&lt;span class="lnt">16
+&lt;/span>&lt;span class="lnt">17
+&lt;/span>&lt;span class="lnt">18
+&lt;/span>&lt;span class="lnt">19
+&lt;/span>&lt;span class="lnt">20
+&lt;/span>&lt;span class="lnt">21
+&lt;/span>&lt;span class="lnt">22
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">template&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="k">typename&lt;/span> &lt;span class="n">Traits&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kt">void&lt;/span> &lt;span class="n">run_flash_fwd&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Flash_fwd_params&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">params&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">cudaStream_t&lt;/span> &lt;span class="n">stream&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">constexpr&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">kBlockM&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Traits&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">kBlockM&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">constexpr&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">smem_size&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">Traits&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">kSmemSize&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">const&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">num_m_blocks&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">seqlen_q&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">kBlockM&lt;/span> &lt;span class="o">-&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="n">kBlockM&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">dim3&lt;/span> &lt;span class="nf">grid&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">num_m_blocks&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">batch_size&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">num_heads&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">dim3&lt;/span> &lt;span class="nf">block&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Traits&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">kNThreads&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">auto&lt;/span> &lt;span class="n">kernel&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">FLASH&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">flash_fwd_kernel&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Traits&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">if&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">smem_size&lt;/span> &lt;span class="o">&amp;gt;&lt;/span> &lt;span class="mi">48&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="mi">1024&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">cudaFuncSetAttribute&lt;/span>&lt;span class="p">(&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">kernel&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">cudaFuncAttributeMaxDynamicSharedMemorySize&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">smem_size&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">kernel&lt;/span>&lt;span class="o">&amp;lt;&amp;lt;&amp;lt;&lt;/span>&lt;span class="n">grid&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">block&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">smem_size&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">stream&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">params&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kr">inline&lt;/span> &lt;span class="kt">void&lt;/span> &lt;span class="nf">run_mha_fwd_hdim32&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Flash_fwd_params&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">p&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">cudaStream_t&lt;/span> &lt;span class="n">s&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span> &lt;span class="n">run_flash_fwd&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Traits_hdim32&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">p&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">s&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kr">inline&lt;/span> &lt;span class="kt">void&lt;/span> &lt;span class="nf">run_mha_fwd_hdim64&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Flash_fwd_params&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">p&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">cudaStream_t&lt;/span> &lt;span class="n">s&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span> &lt;span class="n">run_flash_fwd&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Traits_hdim64&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">p&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">s&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="kr">inline&lt;/span> &lt;span class="kt">void&lt;/span> &lt;span class="nf">run_mha_fwd_hdim128&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Flash_fwd_params&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">p&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">cudaStream_t&lt;/span> &lt;span class="n">s&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span> &lt;span class="n">run_flash_fwd&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Traits_hdim128&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">p&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">s&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;ul>
+&lt;li>&lt;strong>Grid shape.&lt;/strong> Two-dimensional: &lt;code>(num_m_blocks, batch * heads)&lt;/code>. The &lt;code>m_block&lt;/code> math is just a trick to compute &lt;code>ceil(seqlen_q / kBlockM)&lt;/code>; it&amp;rsquo;s overkill for us since we assume nice dims. The &lt;code>batch * heads&lt;/code> axis flattens the two independent batch and head dimensions into one &amp;ndash; the batch and head dims are completely independent so we can flatten them to make indexing simpler.&lt;/li>
+&lt;li>&lt;strong>We make &lt;code>m_block&lt;/code> the &lt;em>first&lt;/em> grid dimension.&lt;/strong> This puts adjacent CTAs/thread blocks along the Q-tile axis, which helps L2 cache reuse since Q blocks of the same batch/head use the same K, V. If we did it along batch/head every CTA is independent and your cache will cry.&lt;/li>
+&lt;li>&lt;strong>Block shape.&lt;/strong> &lt;code>kNThreads = kNWarps * 32&lt;/code> &amp;ndash; 128 threads for &lt;code>kNWarps = 4&lt;/code>. One thread block per Q-tile + fixed thread count.&lt;/li>
+&lt;li>&lt;strong>&lt;code>cudaFuncSetAttribute&lt;/code> for extended SMEM.&lt;/strong> Ampere CTAs get 48 KB of SMEM by default. Our kernel needs more (the Q + 2*KV SMEM buffer easily exceeds 48 KB at &lt;code>hdim=128&lt;/code> &amp;ndash; see &lt;code>kSmemSize&lt;/code> in &lt;code>kernel_traits.cuh&lt;/code>). We have to tell the GPU we&amp;rsquo;re not simpletons just working with little amounts of SMEM, we can ask for more by setting &lt;code>cudaFuncAttributeMaxDynamicSharedMemorySize&lt;/code>.&lt;/li>
+&lt;li>The three &lt;code>inline&lt;/code> wrappers exist purely to make &lt;code>flash_api.cu&lt;/code>&amp;rsquo;s dispatch readable in the stdout.&lt;/li>
+&lt;/ul>
+&lt;h2 id="per-config-instantiations">Per-config Instantiations&lt;/h2>
+&lt;p>If you look at the source repo, you&amp;rsquo;ll see that 80% of the files in the folder are just &lt;code>flash_fwd_hdim{32,64,128}_fp16_sm80.cu&lt;/code>:&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
+&lt;/span>&lt;span class="lnt">2
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// flash_fwd_hdim64_fp16_sm80.cu
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="cp">#include&lt;/span> &lt;span class="cpf">&amp;#34;flash_fwd_launch_template.h&amp;#34;&lt;/span>&lt;span class="cp">
+&lt;/span>&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>They&amp;rsquo;re all empty boilerplate and are only there to prevent unnecessary recompilation. The point is to give &lt;code>nvcc&lt;/code> one &lt;code>.cu&lt;/code> per &lt;code>(head_dim, dtype, arch)&lt;/code> combination so the build system can compile them in parallel and incremental builds only rebuild what changed. The actual instantiation happens via the &lt;code>inline&lt;/code> functions in the header. If we bundled all three configs into one file, &lt;code>nvcc&lt;/code> will happily recompile them every build and force you to take an extra long bathroom break.&lt;/p>
+&lt;h2 id="pytorch-binding">PyTorch Binding&lt;/h2>
+&lt;blockquote>
+&lt;p>&lt;strong>Source&lt;/strong>: &lt;code>flash_api.cu&lt;/code>&lt;/p>
+&lt;/blockquote>
+&lt;p>A nice wrapper so you can use the kernel in PyTorch.&lt;/p>
+&lt;div class="highlight">&lt;div class="chroma">
+&lt;table class="lntable">&lt;tr>&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
+&lt;/span>&lt;span class="lnt"> 2
+&lt;/span>&lt;span class="lnt"> 3
+&lt;/span>&lt;span class="lnt"> 4
+&lt;/span>&lt;span class="lnt"> 5
+&lt;/span>&lt;span class="lnt"> 6
+&lt;/span>&lt;span class="lnt"> 7
+&lt;/span>&lt;span class="lnt"> 8
+&lt;/span>&lt;span class="lnt"> 9
+&lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
+&lt;/span>&lt;span class="lnt">14
+&lt;/span>&lt;span class="lnt">15
+&lt;/span>&lt;span class="lnt">16
+&lt;/span>&lt;span class="lnt">17
+&lt;/span>&lt;span class="lnt">18
+&lt;/span>&lt;span class="lnt">19
+&lt;/span>&lt;span class="lnt">20
+&lt;/span>&lt;span class="lnt">21
+&lt;/span>&lt;span class="lnt">22
+&lt;/span>&lt;span class="lnt">23
+&lt;/span>&lt;span class="lnt">24
+&lt;/span>&lt;span class="lnt">25
+&lt;/span>&lt;span class="lnt">26
+&lt;/span>&lt;span class="lnt">27
+&lt;/span>&lt;span class="lnt">28
+&lt;/span>&lt;span class="lnt">29
+&lt;/span>&lt;span class="lnt">30
+&lt;/span>&lt;span class="lnt">31
+&lt;/span>&lt;span class="lnt">32
+&lt;/span>&lt;span class="lnt">33
+&lt;/span>&lt;span class="lnt">34
+&lt;/span>&lt;span class="lnt">35
+&lt;/span>&lt;/code>&lt;/pre>&lt;/td>
+&lt;td class="lntd">
+&lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="n">std&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">vector&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">torch&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">Tensor&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="n">mha_fwd&lt;/span>&lt;span class="p">(&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">torch&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">Tensor&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">q&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="c1">// (batch, seqlen_q, num_heads, head_dim)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">torch&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">Tensor&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">k&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="c1">// (batch, seqlen_k, num_heads_k, head_dim)
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="n">torch&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">Tensor&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">v&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">const&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">batch_size&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">q&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">size&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">const&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">seqlen_q&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">q&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">size&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">const&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">num_heads&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">q&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">size&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">const&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">head_dim&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">q&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">size&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">const&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">seqlen_k&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">k&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">size&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">const&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">num_heads_k&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">k&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">size&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">auto&lt;/span> &lt;span class="n">output&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">torch&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">empty_like&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">q&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">auto&lt;/span> &lt;span class="n">softmax_lse&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">torch&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">empty&lt;/span>&lt;span class="p">(&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">{&lt;/span>&lt;span class="n">batch_size&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">num_heads&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">seqlen_q&lt;/span>&lt;span class="p">},&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">torch&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">dtype&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">torch&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">kFloat32&lt;/span>&lt;span class="p">).&lt;/span>&lt;span class="n">device&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">q&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">device&lt;/span>&lt;span class="p">()));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Flash_fwd_params&lt;/span> &lt;span class="n">params&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">q_ptr&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">q&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">data_ptr&lt;/span>&lt;span class="p">();&lt;/span> &lt;span class="cm">/* ...fill in pointers, dims, strides... */&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">scale_softmax&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mf">1.0f&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="n">std&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">sqrt&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="k">static_cast&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="kt">float&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">head_dim&lt;/span>&lt;span class="p">));&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">scale_softmax_log2&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">params&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">scale_softmax&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="k">static_cast&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="kt">float&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">M_LOG2E&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">auto&lt;/span> &lt;span class="n">stream&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">at&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">cuda&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">getCurrentCUDAStream&lt;/span>&lt;span class="p">().&lt;/span>&lt;span class="n">stream&lt;/span>&lt;span class="p">();&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">switch&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">head_dim&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">case&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="o">:&lt;/span> &lt;span class="n">run_mha_fwd_hdim32&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">params&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">stream&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="k">break&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">case&lt;/span> &lt;span class="mi">64&lt;/span>&lt;span class="o">:&lt;/span> &lt;span class="n">run_mha_fwd_hdim64&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">params&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">stream&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="k">break&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">case&lt;/span> &lt;span class="mi">128&lt;/span>&lt;span class="o">:&lt;/span> &lt;span class="n">run_mha_fwd_hdim128&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">params&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">stream&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="k">break&lt;/span>&lt;span class="p">;&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">default&lt;/span>&lt;span class="o">:&lt;/span> &lt;span class="n">TORCH_CHECK&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="nb">false&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s">&amp;#34;unsupported head_dim &amp;#34;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">head_dim&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">return&lt;/span> &lt;span class="p">{&lt;/span>&lt;span class="n">output&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">softmax_lse&lt;/span>&lt;span class="p">};&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">PYBIND11_MODULE&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">TORCH_EXTENSION_NAME&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">m&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">m&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">def&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="s">&amp;#34;mha_fwd&amp;#34;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">mha_fwd&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="s">&amp;#34;FlashAttention-2 forward (CUDA)&amp;#34;&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
+&lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
+&lt;/div>
+&lt;/div>&lt;p>The interesting bits:&lt;/p>
+&lt;ul>
+&lt;li>&lt;strong>Output allocation happens on the host.&lt;/strong> &lt;code>torch::empty_like(q)&lt;/code> and &lt;code>torch::empty({...})&lt;/code> are called here, not in the kernel. The kernel just writes into a pre-allocated buffer.&lt;/li>
+&lt;li>&lt;strong>&lt;code>at::cuda::getCurrentCUDAStream()&lt;/code>&lt;/strong> gets the CUDA stream PyTorch is currently using. If your user has &lt;code>torch.cuda.stream(...)&lt;/code> set, your kernel runs on that stream and properly interleaves with everything else; if they don&amp;rsquo;t, you get the default stream. Use this and not &lt;code>cudaStreamDefault&lt;/code> &amp;ndash; the latter ignores user-set stream context and will make you cry.&lt;/li>
+&lt;li>&lt;strong>&lt;code>PYBIND11_MODULE&lt;/code>&lt;/strong> is the standard pybind11 entry point. The macro registers &lt;code>mha_fwd&lt;/code> as a Python-callable name. Your python file can just &lt;code>import flash_attn_cutlass; flash_attn_cutlass.mha_fwd(q, k, v)&lt;/code> :)&lt;/li>
+&lt;/ul>
+&lt;p>That&amp;rsquo;s the entire boilerplate stack. You can call &lt;code>mha_fwd(q, k, v)&lt;/code> in Python; pybind11 hands the call to our C++ function; we fill in &lt;code>Flash_fwd_params&lt;/code> and pick a launcher by head_dim; the launcher computes the grid, enables extended SMEM, and launches the kernel. The &lt;code>Makefile&lt;/code> in my repo has all the commands for you to compile, test, and benchmark all the kernels I have. Happy testing&amp;hellip;&lt;/p>
 &lt;h1 id="wrapping-up">Wrapping up&lt;/h1>
 &lt;blockquote>
 &lt;p>&lt;strong>Source:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_fwd_kernel.h" target="_blank" rel="noopener"
