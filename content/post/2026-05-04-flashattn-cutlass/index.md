@@ -1001,15 +1001,15 @@ To get maximum coalesced-vectorized load performance, we can simply copy V in it
 
 ```cpp
 Tensor mV = make_tensor(
-    make_gmem_ptr(reinterpret_cast<const cute::half_t *>(params.v_ptr) +
-                batch_idx * params.v_batch_stride +
-                head_idx * params.v_head_stride),
-    make_shape(params.seqlen_k, params.head_dim),
-    make_stride(params.v_row_stride, _1{}));
+  make_gmem_ptr(reinterpret_cast<const cute::half_t *>(params.v_ptr) +
+              batch_idx * params.v_batch_stride +
+              head_idx * params.v_head_stride),
+  make_shape(params.seqlen_k, params.head_dim),
+  make_stride(params.v_row_stride, _1{}));
 Tensor gV = local_tile(mV, make_shape(Int<kBlockN>{}, Int<kHeadDim>{}),
                         make_coord(_, 0));
 Tensor sV =
-    make_tensor(sK.data() + size(sK), typename Traits::SmemLayoutKV{});
+  make_tensor(sK.data() + size(sK), typename Traits::SmemLayoutKV{});
 // (VCPY, VCPY_N, VCPY_K, nblocksN)
 Tensor tVgV = gmem_thr_copy_QKV.partition_S(gV);
 Tensor tVsV = gmem_thr_copy_QKV.partition_D(sV);
@@ -1654,7 +1654,7 @@ Tensor o_fp16 = FLASH::convert_type<cute::half_t>(acc_o);
 ```
 
 ## The Staged Output Copy: Registers → SMEM → Registers → GMEM
-The output is currently scattered across each thread's registers. Per the [opening of this section](#epilogue-output-gmem), we have to stage it through SMEM to land a coalesced, vectorized GMEM write. Two tiled copies, executed in sequence: registers → SMEM, then SMEM → registers → GMEM.
+The output is currently scattered across each thread's registers. Per the [opening of this section](#epilogue-output-gmem), we have to stage it through SMEM to land a coalesced, vectorized GMEM write. Two tiled copies, executed in sequence -- registers → SMEM, then SMEM → registers → GMEM.
 
 ### Registers → SMEM
 We can now begin our register->SMEM write. Since we never sliced a portion of SMEM for O, we can simply reuse Q's SMEM portion; it has the exact same shape and size as O, and it isn't being used for anything anymore. We can also reuse its layout, since the write access pattern has the same bank-conflict problem as the read, so our swizzled layout from before is perfect.
@@ -1729,12 +1729,12 @@ Our tiled copy atom is pretty much exactly the same as the one for Q, except we 
 // can reuse the 128-bit auto vectorized SMEM copy
 // if you used 32-bit universal, then you'll have to redefine it here
 using SmemCopyAtomO =
-    Copy_Atom<UniversalCopy<cute::uint128_t>, cute::half_t>;
+  Copy_Atom<UniversalCopy<cute::uint128_t>, cute::half_t>;
 // Copy_Atom<AutoVectorizingCopyWithAssumedAlignment<128>, cute::half_t>;
 
 // same gmem layout as QKV
 auto gmem_tiled_copy_O = make_tiled_copy(
-    SmemCopyAtomO{}, GmemLayout{}, Layout<Shape<_1, _8>>{});
+  SmemCopyAtomO{}, GmemLayout{}, Layout<Shape<_1, _8>>{});
 ```
 
 Now we can create our thread slice and partition our source and destination memory.
@@ -1762,6 +1762,145 @@ Voila! El Fin.
 #### Sync Threads
 
 Haha, not quite yet. There's a slight bug in our epilogue as-is. Between the register->SMEM and SMEM->GMEM copy, threads control different parts of SMEM. We set up async waits earlier, but since we're synchronous for the O store, we simply have to call `__syncthreads()` sometime between the two copy stages. The FA2 production code opts to put it right before the final two `copy()` invocations to overlap the GMEM tiled copy setup with the register->SMEM copy, but practically it probably doesn't make much of a difference--you can just put the sync right after the r->S copy.
+
+# Plumbing: Params, Launch, Dispatch, Kernel Traits
+
+> **Source:** [`flash.h`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash.h), [`flash_fwd_launch_template.h`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_fwd_launch_template.h), [`flash_fwd_hdim{32,64,128}_fp16_sm80.cu`](https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn_cutlass), [`flash_api.cu`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_api.cu), [`kernel_traits.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/kernel_traits.cuh)
+
+The kernel itself is done. We still have to deal with the typical CUDA dispatch to make it actually runnable. We're going to speedrun the rest of these files since they are not relevant to the algorithm itself, but I'll brielfy explain what remaining files we need before we can actually call FA2 from something like PyTorch. It's not too important to comb through every line -- most of the time, you'll just copy the boilerplate from some old kernel you made and modify some variables.
+
+## Kernel Traits
+As we mentioned in [the code layout section](#code-layout-the-repo), every tiled MMA, tiled copy, and layout is defined here. It's the atomic backbone that we use for any operation in `flash_fwd_kernel.h`. Anything we wrote with `using` is simply defined here, as well as any constants. We combined the code together in blocks in this blog for reading purposes; in the actual kernel, any type references will look more like this:
+
+```cpp
+typename Traits::GmemTiledCopyQKV gmem_tiled_copy_QKV;
+```
+
+## Params Struct
+
+Everything the kernel needs is funneled through a simple data struct, `Flash_fwd_params`. Pointers for Q, K, V, and O; dimensions; per-tensor strides; and the precomputed softmax scale. The struct lives in `flash.h` because both the kernel side (`flash_fwd_kernel.h`) and the host side (`flash_api.cu`) include it.
+
+```cpp
+struct Flash_fwd_params {
+  const void *__restrict__ q_ptr, *__restrict__ k_ptr, *__restrict__ v_ptr;
+  void *__restrict__ o_ptr;
+  // unused, i just copied it over; only used in bwd pass
+  float *__restrict__ softmax_lse_ptr;  // (batch, num_heads, seqlen_q)
+
+  int batch_size, seqlen_q, seqlen_k, num_heads, num_heads_k, head_dim;
+
+  // PyTorch passes strides in elements (not bytes)
+  int q_batch_stride, q_row_stride, q_head_stride;
+  int k_batch_stride, k_row_stride, k_head_stride;
+  int v_batch_stride, v_row_stride, v_head_stride;
+  int o_batch_stride, o_row_stride, o_head_stride;
+
+  float scale_softmax;       // 1/sqrt(d_h)
+  float scale_softmax_log2;  // 1/sqrt(d_h) * log2(e), for exp2()
+};
+```
+
+- **`__restrict__`** tells the compiler the pointers don't alias (no mem overlap), which lets it optimize more aggressively.
+- Strides are in # of elements, not bytes.
+- **`scale_softmax_log2`** is precomputed on the host so we don't have to compute `log2(e)` inside the kernel's inner loop (see [the softmax scaling section](#softmax_scale_log2-dont-forget-the-scaling-factor)).
+
+## Launch Template
+
+This is the host-side function in `flash_fwd_launch_template.h` that picks the grid shape, configures SMEM, and launches the kernel. We need one template per `Traits` and one runtime entry per head_dim:
+
+```cpp
+template <typename Traits>
+void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
+  constexpr int kBlockM = Traits::kBlockM;
+  constexpr int smem_size = Traits::kSmemSize;
+
+  const int num_m_blocks = (params.seqlen_q + kBlockM - 1) / kBlockM;
+  dim3 grid(num_m_blocks, params.batch_size * params.num_heads);
+  dim3 block(Traits::kNThreads);
+
+  auto kernel = &FLASH::flash_fwd_kernel<Traits>;
+
+  if (smem_size > 48 * 1024) {
+    cudaFuncSetAttribute(
+        kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size);
+  }
+
+  kernel<<<grid, block, smem_size, stream>>>(params);
+}
+
+inline void run_mha_fwd_hdim32(Flash_fwd_params &p, cudaStream_t s)  { run_flash_fwd<Traits_hdim32>(p, s); }
+inline void run_mha_fwd_hdim64(Flash_fwd_params &p, cudaStream_t s)  { run_flash_fwd<Traits_hdim64>(p, s); }
+inline void run_mha_fwd_hdim128(Flash_fwd_params &p, cudaStream_t s) { run_flash_fwd<Traits_hdim128>(p, s); }
+```
+
+- **Grid shape.** Two-dimensional: `(num_m_blocks, batch * heads)`. The `m_block` math is just a trick to compute `ceil(seqlen_q / kBlockM)`; it's overkill for us since we assume nice dims. The `batch * heads` axis flattens the two independent batch and head dimensions into one -- the batch and head dims are completely independent so we can flatten them to make indexing simpler.
+- **We make `m_block` the *first* grid dimension.** This puts adjacent CTAs/thread blocks along the Q-tile axis, which helps L2 cache reuse since Q blocks of the same batch/head use the same K, V. If we did it along batch/head every CTA is independent and your cache will cry.
+- **Block shape.** `kNThreads = kNWarps * 32` -- 128 threads for `kNWarps = 4`. One thread block per Q-tile + fixed thread count.
+- **`cudaFuncSetAttribute` for extended SMEM.** Ampere CTAs get 48 KB of SMEM by default. Our kernel needs more (the Q + 2*KV SMEM buffer easily exceeds 48 KB at `hdim=128` -- see `kSmemSize` in `kernel_traits.cuh`). We have to tell the GPU we're not simpletons just working with little amounts of SMEM, we can ask for more by setting `cudaFuncAttributeMaxDynamicSharedMemorySize`.
+- The three `inline` wrappers exist purely to make `flash_api.cu`'s dispatch readable in the stdout.
+
+## Per-config Instantiations
+
+If you look at the source repo, you'll see that 80% of the files in the folder are just `flash_fwd_hdim{32,64,128}_fp16_sm80.cu`:
+
+```cpp
+// flash_fwd_hdim64_fp16_sm80.cu
+#include "flash_fwd_launch_template.h"
+```
+
+They're all empty boilerplate and are only there to prevent unnecessary recompilation. The point is to give `nvcc` one `.cu` per `(head_dim, dtype, arch)` combination so the build system can compile them in parallel and incremental builds only rebuild what changed. The actual instantiation happens via the `inline` functions in the header. If we bundled all three configs into one file, `nvcc` will happily recompile them every build and force you to take an extra long bathroom break.
+
+## PyTorch Binding
+
+> **Source**: `flash_api.cu`
+
+A nice wrapper so you can use the kernel in PyTorch.
+
+```cpp
+std::vector<torch::Tensor> mha_fwd(
+    torch::Tensor &q,   // (batch, seqlen_q, num_heads, head_dim)
+    torch::Tensor &k,   // (batch, seqlen_k, num_heads_k, head_dim)
+    torch::Tensor &v
+) {
+  const int batch_size = q.size(0);
+  const int seqlen_q   = q.size(1);
+  const int num_heads  = q.size(2);
+  const int head_dim   = q.size(3);
+  const int seqlen_k   = k.size(1);
+  const int num_heads_k = k.size(2);
+
+  auto output = torch::empty_like(q);
+  auto softmax_lse = torch::empty(
+      {batch_size, num_heads, seqlen_q},
+      torch::dtype(torch::kFloat32).device(q.device()));
+
+  Flash_fwd_params params;
+  params.q_ptr = q.data_ptr();  /* ...fill in pointers, dims, strides... */
+  params.scale_softmax = 1.0f / std::sqrt(static_cast<float>(head_dim));
+  params.scale_softmax_log2 = params.scale_softmax * static_cast<float>(M_LOG2E);
+
+  auto stream = at::cuda::getCurrentCUDAStream().stream();
+  switch (head_dim) {
+    case 32:  run_mha_fwd_hdim32(params, stream);  break;
+    case 64:  run_mha_fwd_hdim64(params, stream);  break;
+    case 128: run_mha_fwd_hdim128(params, stream); break;
+    default:  TORCH_CHECK(false, "unsupported head_dim ", head_dim);
+  }
+  return {output, softmax_lse};
+}
+
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+  m.def("mha_fwd", &mha_fwd, "FlashAttention-2 forward (CUDA)");
+}
+```
+
+The interesting bits:
+
+- **Output allocation happens on the host.** `torch::empty_like(q)` and `torch::empty({...})` are called here, not in the kernel. The kernel just writes into a pre-allocated buffer.
+- **`at::cuda::getCurrentCUDAStream()`** gets the CUDA stream PyTorch is currently using. If your user has `torch.cuda.stream(...)` set, your kernel runs on that stream and properly interleaves with everything else; if they don't, you get the default stream. Use this and not `cudaStreamDefault` -- the latter ignores user-set stream context and will make you cry.
+- **`PYBIND11_MODULE`** is the standard pybind11 entry point. The macro registers `mha_fwd` as a Python-callable name. Your python file can just `import flash_attn_cutlass; flash_attn_cutlass.mha_fwd(q, k, v)` :)
+
+That's the entire boilerplate stack. You can call `mha_fwd(q, k, v)` in Python; pybind11 hands the call to our C++ function; we fill in `Flash_fwd_params` and pick a launcher by head_dim; the launcher computes the grid, enables extended SMEM, and launches the kernel. The `Makefile` in my repo has all the commands for you to compile, test, and benchmark all the kernels I have. Happy testing...
 
 # Wrapping up
 
