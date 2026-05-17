@@ -734,6 +734,8 @@ Tensor tSrK = thr_mma.partition_fragment_B(sK);
 // one go
 Tensor acc_s = partition_fragment_C(
     tiled_mma, make_shape(Int<kBlockM>{}, Int<kBlockN>{}));
+// initialize with 0.0
+clear(acc_s);
 ```
 
 Next, we create the tiled copy and partition SMEM for the copy transaction.
@@ -788,6 +790,9 @@ The tiled MMA register tensors (`tSsQ`, `tSsK`) have shape `(MMA, MMA_X, MMA_Y)`
 - `MMA_Y` is the number of tiles along Y. In this case, `X=kBlockM` and `Y=kHeadDim` for `tSsQ`. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.
 
 ### MMA Loop: QK^T GEMM
+
+> **Source:** [`utils.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/utils.cuh) (`gemm`)
+
 We index these K-tiles via `register(_, _, i)` to grab the relevant K-fragment per loop iteration. The TiledMMA handles the M and N dimensions.
 
 ![Macro view of the MMA. We iterate over the K-dimension, each tile multiplying across and summing to form one output tile. The colors just mean they pair, not that they are the same. In the tiled MMA, CuTe handles all the M, N work on our behalf. We just have to concatenate via the K-dim.](mma_macro.png)
@@ -1620,11 +1625,172 @@ __device__ __forceinline__ void normalize_softmax(Tensor0 &acc_o) {
 This function is called in the epilogue after the main loop, before we store the output back to GMEM. Overall, the softmax step is not particularly complicated. There's some funky, confusing layout reshaping and learning warp-reduce primitives, but everything else pieces together nicely once you understand the MMA thread layout.
 
 # Putting It All Together
-## Softmax Rescale Call
+Let's do some bookkeeping and see where the softmax call goes and finally implement the $O=SV$ GEMM.
+
+## Creating Output Fragment `acc_o` and Softmax Struct
+Before the main loop, we first create our output fragment `acc_o`, which is the actual output we rescale in Softmax and write to our output tensor. It has shape `(kBlockM, kHeadDim)` and is a C-fragment just like `acc_s`. Similary, we initialize it with 0.
+
+```cpp
+Tensor acc_o = partition_fragment_C(
+    tiled_mma, make_shape(Int<kBlockM>{}, Int<kHeadDim>{}));
+// fill with 0
+clear(acc_o);
+```
+
+Next, we initialize our softmax struct so we can call it in the main loop. We compute the `kNRows` shape based on the MMA shape of `acc_o` that we covered in [fragment reshape](#fragment-reshape).
+
+```cpp
+...
+clear(acc_o);
+// initialize softmax, acc_s: (MMA, MMA_M, MMA_HEAD_DIM)
+// rows is 2*MMA_M dim, 2 rows per thread for each MMA tile
+FLASH::Softmax<2 * size<1>(acc_o)> softmax;
+
+for (/* main loop */) {
+  ...
+}
+```
+
+## The Softmax Rescale Call
+As described back in [TODO], The softmax rescale right after $QK^T$/V-block sync/K-block async issue in our main loop. We create an if branch to handle whether the current block is the first block or not.
+
+```cpp
+gemm_QK();
+// wait for V
+cute::cp_async_wait<0>();
+__syncthreads();
+
+// next K block prefetch
+if (nblock < nBlocksN - 1) { // not last block
+  cute::copy(gmem_tiled_copy_QKV, tKgK(_, _, _, nblock + 1), tKsK);
+  cute::cp_async_fence();
+}
+
+// 2. P=softmax(S)
+if (nblock == 0) {
+  softmax.template softmax_rescale_o</*Is_first*/ true>(
+      acc_s, acc_o, params.scale_softmax_log2);
+} else {
+  softmax.template softmax_rescale_o</*Is_first*/ false>(
+    acc_s, acc_o, params.scale_softmax_log2);
+}
+```
 
 ## MMA Loop: SV GEMM
-This GEMM is almost exactly the same as the one before, except that S is already in the registers. This means we only need to deal with V SMEM copies.
 
+> **Source:** [`utils.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/utils.cuh) (`gemm_rs`), `rs`: right side only.
+
+Next comes $SV$. This GEMM is almost exactly the same as the one before, except that S is already in the registers. This means we only need to deal with V SMEM copies in the GEMM loop this time.
+
+However, even though `acc_S` is in registers, we have to do two transformations before our GEMM:
+1. It is currently an fp32 accumulator. We have to comvert it back to fp16 before the MMA.
+2. `acc_s` is also currently stored as a `fragment_C` since it was an accumulator for $QK^T$. We need to reshape it as a `fragment_A` to pass it to the $SV$ GEMM. Therefore, we will do a frag-C to frag-A reshape, similar to our [row-col reshape util](#fragment-reshape) for Softmax.
+
+### FP32->FP16 Conversion
+CUTLASS provides us the numerical conversion operator `cutlass::NumericArrayConverter<To_type, From_type, numel>` to help us do this conversion. This function expects the tensor to be "contiguous" (which would a true requirement for GMEM/SMEM) -- but as we learned, contiguity doesn't exist for registers. Therefore, we have to force our tensor into the standard column-major layout for this op to work:
+
+```cpp
+template <typename To_type, typename Engine, typename Layout>
+__forceinline__ __device__ auto
+convert_type(Tensor<Engine, Layout> const &tensor) {
+  // Trick to grab the cute float type from source tensor
+  using From_type = typename Engine::value_type;
+  // number of elements
+  constexpr int numel = decltype(size(tensor))::value;
+  cutlass::NumericArrayConverter<To_type, From_type, numel> convert_op;
+  // HACK: force frag to "contiguous" layout
+  auto frag =
+      convert_op(*reinterpret_cast<const cutlass::Array<From_type, numel> *>(
+          tensor.data()));
+  return make_tensor(make_rmem_ptr<To_type>(&frag), tensor.layout());
+}
+```
+
+### Frag-C to Frag-A Reshape
+Now for the reshape. If you recall from our [MMA Atom thread layout](#tiled-mma), each A-fragment holds 8 values (16x16) while our C-fragment holds 8 values, but across two 16x8 tiles. To remove any guesswork, we can just print the fragment shapes:
+
+```
+A fragment layout: ((_2,_2,_2),_1,_1):((_1,_2,_4),_0,_0)
+C fragment layout: ((_2,_2),_1,_1):((_1,_2),_0,_0)
+```
+
+The second and third dimensions here are `MMA_M` and `MMA_N` (tile width/height dividing into M, N). Since the $SV$ MMA concatenates along N, we just need to combine each 2 N block pair.
+
+```python
+acc_s C shape: ((2, 2), MMA_M, MMA_N):
+               ((1, 2), STRIDE_M, STRIDE_N)
+
+# Concatenate along N, each N dim halves, stride doubles
+acc_s A shape: ((2, 2, 2), MMA_M, MMA_N/2):
+               ((1, 2, 4), STRIDE_M, STRIDE_N*2)
+```
+
+We can write this up pretty easily:
+
+```cpp
+template <typename Layout>
+__forceinline__ __device__ auto
+convert_c_frag_to_a_frag(Layout const &s) {
+  auto shape_n =
+      make_shape(make_shape(get<0>(s), _2{}), get<1>(s), get<2>(s) / _2{});
+  auto stride_n = make_stride(make_stride(get<0>(stride), get<2>(stride)),
+                              get<1>(stride), get<2>(stride) * _2{});
+
+  return make_layout(shape_n, stride_n);
+}
+```
+
+This code looks pretty awful, but the logic is simple. Similar to the row-col reshape, the FA2 source opts for some using `logical_divide` along the N-axis, which is easier to read and accomplishes the same thing:
+
+```cpp
+{
+  // _ to keep full dim
+  using _ = Underscore;
+  auto l = logical_divide(acc_layout,
+                          Shape<_, _, _2>{});
+  return make_layout(make_layout(get<0>(l), get<2, 0>(l)), get<1>(l),
+                      get<2, 1>(l));
+}
+```
+
+### GEMM RS Loop
+
+All we need to do now is to is convert `acc_s` and reshape it. Then, we can simply copy our old GEMM loop but remove the A-frag copy lines.
+
+```cpp
+...
+softmax_stuff();
+
+Tensor acc_s_fp16 = FLASH::convert_type<cute::half_t>(acc_s);
+// reshape to A fragment for next matmul
+Tensor tOrP =
+  make_tensor(acc_s_fp16.data(),
+              FLASH::convert_c_frag_to_a_frag(acc_s_fp16.layout()));
+
+Tensor tXrV = smem_thr_copy_V.retile_D(tOrVt);
+cute::copy(smem_tiled_copy_V, tOsVt(_, _, _0{}), tXrV(_, _, _0{}));
+#pragma unroll
+for (int i = 0; i < size<2>(tOrP); i++) {
+  // prefetch next block
+  if (i < size<2>(tCrB) - 1) {
+    cute::copy(smem_tiled_copy_B, tOsVt(_, _, i + 1), tXrV(_, _, i + 1));
+  }
+
+  cute::gemm(tiled_mma, tOrP(_, _, i), tXrV(_, _, i), acc);
+}
+```
+
+## Final Softmax normalization
+After our main loop concludes, we compute our final softmax normalization. It happens right outside the loop, and there is no need for a `__syncthreads()` call since the same threads own the same data until our final output SMEM->GMEM copy that we'll cover next.
+
+```cpp
+for (/* main loop */) {
+  ...
+}
+
+// final o scaling
+softmax.normalize_softmax(acc_o);
+```
 
 # Epilogue: Output->GMEM
 We now have our output stored in fragments across all the warps, and we want to write them back to `o_ptr` in GMEM. The optimal way to perform the write-back is:
