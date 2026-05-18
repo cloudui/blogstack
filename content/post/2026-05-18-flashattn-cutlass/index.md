@@ -1,16 +1,15 @@
 ---
-title: FlashAttention, but the Actual Details
+title: FlashAttention-2 in CuTe, from Scratch
 
 categories: [Engineering, GPU]
 tags: [GPU, AI, technology, CUDA, NVIDIA, LLMs, tutorial, cutlass, ampere, kernel-programming]
-# mathjax: true
 math: true
 
 author: Eric Chen
 image: thumbnail.png
-date: 2026-05-04
+date: 2026-05-18
 
-description: Taking an unfortunate look at Cutlass and CUDA
+description: An unreasonably detailed walkthrough of production FA-2. Including the line that turns out to do absolutely nothing.
 ---
 Two days. That's how long it took me to write FlashAttention-2 in Triton. I had never touched a GPU kernel before and somehow replicated a revolutionary algorithm between sips of coffee. I was looking to learn something new and somehow finished before I really got started. I knew the original source was written in CUDA, made by my Bay Area buddy who turned rocks into trillion-ade. Riding on my hubris from my recent success, I decided to translate my pièce de résistance to the native dialect of the rock-whisperers themselves.
 
