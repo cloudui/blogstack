@@ -4,6 +4,7 @@ title: Eat with the Rich
 categories: [Discussion, Politics]
 tags: [politics, inequality, socialism, satire]
 mathjax: true
+draft: true
 
 author: Eric Chen
 image: thumbnail.webp
