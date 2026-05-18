@@ -26,7 +26,7 @@ A quick note on what this blog is supposed to be -- CuTe's documentation is a re
 
 The code we'll walk through is a stripped-down mirror of Tri Dao's production FA-2: same idioms, same building blocks, often the same lines, but with the causal/RoPE/dropout/KV-cache/QK-smem-sharing template branches removed. The core logic is visible instead of buried under config flags that bloat up the repo. Where it matters, our kernel reaches close to parity with the source -- on an A100, **88-105% of production FA-2's throughput** across hdim=64/128 and seq lengths up to 64K, peaking at 63% of fp16 tensor-core utilization ([full benchmark table](https://github.com/cloudui/cuda-triton#cute-flashattention-2-cuda-batch4-heads8)).
 
-The point is not novelty -- it's just to show that our simplications do not break performance. We are rewriting one production case of many, albeit the simplest and least commonly used (LLMs are all non-causal). Where our code diverges, that's usually because we found something -- an inconsistency, a copy-paste from a CuTe example that most take for granted, a one-line simplification, a choice that turns out to be critical for some non-trivial reason. These moments are flagged in-line throughout the post, and at least one of them ([the `sVtNoSwizzle` line](#svtnoswizzle-the-no-op-nobody-caught)) appears to be a no-op that nobody in the lineage of this code understood. Make of that what you will.
+The point is not novelty -- it's just to show that our simplifications do not break performance. We are rewriting one production case of many, albeit the simplest and least commonly used (LLMs are all non-causal). Where our code diverges, that's usually because we found something -- an inconsistency, a copy-paste from a CuTe example that most take for granted, a one-line simplification, a choice that turns out to be critical for some non-trivial reason. These moments are flagged in-line throughout the post, and at least one of them ([the `sVtNoSwizzle` line](#svtnoswizzle-the-no-op-nobody-caught)) appears to be a no-op that nobody in the lineage of this code understood. Make of that what you will.
 
 What this isn't: a summary of the FA-2 paper, a Hopper/Blackwell post (newer algorithms are meaningfully different on newer hardware), or a CuTe guide. This is Ampere-specific, code-level, and committed to the bit that we don't move on from a line until we fully understand why it's there.
 
@@ -35,7 +35,7 @@ If you're reading this, I'll assume you already have a solid understanding of th
 
 If you've never touched CUDA, you should at least try to understand its SIMT programming nature and maybe implement a few basic kernels using this thread-level view. Try to build a solid understanding of how CUDA works and of NVIDIA's GPU architecture, from threads to warps to thread blocks to SMs and beyond. I'll talk about a lot of these concepts in detail, but I still assume a basic understanding of GPU or hardware paradigms. I will be as comprehensive as I can, but it will be an uphill battle should you try to read this blog in its entirety without *some* background knowledge.
 
-Most of this blog concerns how high-level concepts like "online softmax" or "GEMM" actually translate to production-grade code. The algorithm itself is not particularly difficult in theory, but the implementation details at the CUDA level can become a nightmare, particularly for beginners. Tri Dao originally wrote FA2 using **CuTe** (CUDA Templates), the layout-algebra core inside NVIDIA's CUTLASS 3.x library -- see [Why CuTe](#why-cute-and-whats-cutlass) for the philosophy behind it and how it differs from Triton, WMMA, and raw CUDA. The short version is that CuTe doesn't abstract the hardware away- - it gives you the full-fat algebra to describe hardware-aware layouts exactly. You simply writing this in CuTe will force you to understand and optimize for the hardware.
+Most of this blog concerns how high-level concepts like "online softmax" or "GEMM" actually translate to production-grade code. The algorithm itself is not particularly difficult in theory, but the implementation details at the CUDA level can become a nightmare, particularly for beginners. Tri Dao originally wrote FA2 using **CuTe** (CUDA Templates), the layout-algebra core inside NVIDIA's CUTLASS 3.x library -- see [Why CuTe](#why-cute-and-whats-cutlass) for the philosophy behind it and how it differs from Triton, WMMA, and raw CUDA. The short version is that CuTe doesn't abstract the hardware away -- it gives you the full-fat algebra to describe hardware-aware layouts exactly. Simply writing this in CuTe will force you to understand and optimize for the hardware.
 
 Since the release of Blackwell (B200), NVIDIA released CuTe's Python DSL--a Python library you can use to write the same code without all the annoying templating that comes baggaged with C++. The use case and methodology is pretty much unchanged, but debugging and templating become more palatable, and the compile times are enormously faster due to just-in-time (JIT) compilation. Moving forward, the CuTe 3.X in C++ we use today will probably be somewhat of a relic, but as a learning exercise, nothing beats the absolute struggle of working with the most annoying and explicit version of whatever you're trying to learn.
 
@@ -102,7 +102,7 @@ Only 11 steps and they're all pretty simple in concept...Let's take a deeper loo
 
 # Code Layout: The Repo
 
-All of the code in this post lives in [`@github:cloudui/cuda-triton`](https://github.com/cloudui/cuda-triton). This is the broader kernel-learning project I've been building up over the last few months as I worked through Triton, CUDA, then CuTe. The two-day Triton FA2 from the intro is in [`kernels/flash_attention_full.py`](https://github.com/cloudui/cuda-triton/blob/main/kernels/flash_attention_full.py); the intermediate WMMA CUDA FA2 (the bridge between Triton and CuTe) is in [`cuda/flash_attn/`](https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn); the [`cute/`](https://github.com/cloudui/cuda-triton/tree/main/cute) directory is an in-progress port of this kernel to NVIDIA's new Python CuTe DSL. The post itself walks through [`cuda/flash_attn_cutlass/`](https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn_cutlass) -- the C++ CuTe implementation. Everything has tests, benchmarks, and a top-level [`README.md`](https://github.com/cloudui/cuda-triton/blob/main/README.md) you can browse that are mostly up-to-date.
+All of the code in this post lives in [`@github:cloudui/cuda-triton`](https://github.com/cloudui/cuda-triton). This repo contains every kernel in Triton and CUDA I've written along the way to writing FA2 in CuTe. The two-day Triton FA2 from the intro is in [`kernels/flash_attention_full.py`](https://github.com/cloudui/cuda-triton/blob/main/kernels/flash_attention_full.py); the intermediate WMMA CUDA FA2 (the bridge between Triton and CuTe) is in [`cuda/flash_attn/`](https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn); the [`cute/`](https://github.com/cloudui/cuda-triton/tree/main/cute) directory is an in-progress port of this kernel to NVIDIA's new Python CuTe DSL. The post itself walks through [`cuda/flash_attn_cutlass/`](https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn_cutlass) -- the C++ CuTe implementation. Everything has tests, benchmarks, and a top-level [`README.md`](https://github.com/cloudui/cuda-triton/blob/main/README.md) you can browse that are mostly up-to-date.
 
 > Please refer to Tri Dao's repo as well. It contains much more edge case handling and templating that I do not touch on at all: [@github:Dao-AILab/flash-attention](https://github.com/Dao-AILab/flash-attention/tree/main).
 >
@@ -130,14 +130,14 @@ Before we dive into the implementation, here's the file map for the kernel we're
 
 > **Note**: I often combine the `kernel_traits` declarations and the `flash_fwd_kernel` code to keep them in one block, and I sometimes leave out function declarations that wrap certain blocks of code for brevity. If you ever become confused, all important sections link to their source at the top of their subsections for reference.
 
-**A note on parallel scratch.** Alongside the production kernel, [`scratch/`](https://github.com/cloudui/cuda-triton/tree/main/scratch) contains the small standalone CuTe demos I wrote while losing my mind in confusion. The [scratch README](https://github.com/cloudui/cuda-triton/blob/main/scratch/README.md) maps each file to a blog section. If a concept ever feels too abstract on the page, run corresponding scratch file and stare at its output for a while. It might help. The instructions to run are in the repos READMEs.
+**A note on parallel scratch.** Alongside the production kernel, [`scratch/`](https://github.com/cloudui/cuda-triton/tree/main/scratch) contains the small standalone CuTe demos I wrote while losing my mind in confusion. The [scratch README](https://github.com/cloudui/cuda-triton/blob/main/scratch/README.md) maps each file to a blog section. If a concept ever feels too abstract on the page, run the corresponding scratch file and stare at its output for a while. It might help. The instructions to run are in the repo's READMEs.
 
 **A note on simplification.** As called out in the [intro](#flashattention-but-the-actual-details), this blog walks through a stripped-down mirror of [Tri Dao's production FA-2](https://github.com/Dao-AILab/flash-attention/tree/main/csrc/flash_attn/src). Where the source has branches for causal masking, RoPE, KV-cache, dropout, QK SMEM sharing, etc., this kernel doesn't -- the load-bearing FA2 logic is what's left. Wherever this kernel diverges from the source in a non-trivial way, I flag it inline.
 
 # CuTe, the Basics
 As established in the intro, the CuTe docs are a reference; this section is the tutorial that doesn't exist. I won't cover all the APIs -- you can intuit 90% of them from context and the FA2 code. However, the concepts that turn your evenings into late nights will be waiting for you here. It's hard to internalize the motivations for certain CuTe features until you've encountered the problem they're meant to solve, so if a section feels abstract, skip ahead to the FA2 implementation and come back when you hit the wall it was written for.
 
-> You can find the official docs at https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html and are worth keeping open in another tab.
+> You can find the official docs at https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html; they're worth keeping open in another tab.
 
 ## Why CuTe (and what's CUTLASS?)
 
@@ -146,14 +146,14 @@ As established in the intro, the CuTe docs are a reference; this section is the 
 Why use CuTe at all? There are other options for writing high-performance GPU kernels:
 
 - **Triton:** hides the hardware. You write `tl.dot(q, k)` and Triton picks the MMA atom, swizzles SMEM, tiles for you, and the autotuner explores the configuration space. You think in tiles and Triton does all the hard work expressing it in PTX.
-- **WMMA (`nvcuda::wmma`):** hides the fragment layout. You get opaque `wmma::fragment<>` types and can't easily reason about swizzling, LDSM behavior, or per-thread register state. It's easy for getting to "tensor cores work" quickly but not useful when you need to express something WMMA doesn't model.
+- **WMMA (`nvcuda::wmma`):** hides the fragment layout. You get opaque `wmma::fragment<>` types and can't easily reason about swizzling, LDSM behavior, or per-thread register state. It's easy for getting to using the tensor cores quickly but not that useful when you need to express something WMMA doesn't model.
 - **Raw PTX/SASS:** [^2] I mean, sure, but bless your soul.
 
-CuTe is the philosophical opposite of Triton. While Triton abstracts the hardware away, CuTe makes you do all the hard work yourself, which requires you to understand exactly what the hardware wants. In Triton, you don't have to think at all what the SMEM access pattern should be to hit all 32 banks. CuTe makes you draw all those bit masks and blocks on paper so your performance doesn't get crushed by the holy memory manager himself. Triton does the entire MMA in one `tl.dot` call while CuTe forces you to choose your exact MMA atom, copy strategy, and concatenation dim. You can do a lot in Triton without understanding what's happening deep down -- CuTe hides behind its name and forces you to drag your knees through the dirt.
+CuTe is the philosophical opposite of Triton. While Triton abstracts the hardware away, CuTe makes you do all the hard work yourself, which requires you to understand exactly what the hardware wants. In Triton, you don't have to think at all about what the SMEM access pattern should be to hit all 32 banks. CuTe makes you draw all those bit masks and blocks on paper so your performance doesn't get crushed by the holy memory manager himself. Triton does the entire MMA in one `tl.dot` call while CuTe forces you to choose your exact MMA atom, copy strategy, and concatenation dim. You can do a lot in Triton without understanding what's happening deep down -- CuTe hides behind its name and forces you to drag your knees through the dirt.
 
-This is good for the same reason it's painful: you can't write CuTe well without understanding the hardware. The flip side is that learning CuTe forces you to understand the hardware because there's no abstraction for you to hide behind. You have the power to squeeze the maximum performance out of your hardware, and nothing is hidden behind a veil of nice API calls. If you read this blog in its entirety and follow along with the code, you'll come out the other side understanding the Ampere memory pipeline, swizzling math, MMA atoms, LDSM semantics, and register-fragment behavior. You'd never have to learn any of those to write FA2 in triton.
+This is good for the same reason it's painful: you can't write CuTe well without understanding the hardware. The flip side is that learning CuTe forces you to understand the hardware because there's no abstraction for you to hide behind. You have the power to squeeze the maximum performance out of your hardware, and nothing is hidden behind a veil of nice API calls. If you read this blog in its entirety and follow along with the code, you'll come out the other side understanding the Ampere memory pipeline, swizzling math, MMA atoms, LDSM semantics, and register-fragment behavior. You'd never have to learn any of those to write FA2 in Triton.
 
-You are also trading understanding for time, because I wrote the triton version in like two afternoons. It took me weeks to write and "understand" the first pass of the CuTe version, but only after spending almost 100 hours on this blog can I truly say I understand it. It's the 80-20 rule but on steroids, you can probably get 80% of the performance in a tenth of the time.
+You are also trading understanding for time, because I wrote the Triton version in like two afternoons. It took me weeks to write and "understand" the first pass of the CuTe version, but only after spending almost 100 hours on this blog can I truly say I understand it. It's the 80-20 rule but on steroids, you can probably get 80% of the performance in a tenth of the time.
 
 In practice, CuTe is essentially a templating engine that lets you manipulate memory using tensors, shapes, layouts, data types, and strides -- conceptually similar to PyTorch's `torch.Tensor` object, but much more granular and much more powerful. It lets you declare a general "shape" once and template it with fp32 vs fp16 by just passing different parameters. You're still responsible for all the sizes. The code may extract fp16 from a 128-bit load, but you'll have to figure out that 128 bits is 8 fp16 numbers. It just handles the typing on your behalf and lets you index things with nicer code. It certainly is not "easier," and is often a nightmare to read. You'll see why pretty soon.
 
@@ -790,7 +790,7 @@ Every tiled copy in this kernel boils down to one decision: do I `partition` the
 | Source | Registers | `retile_S()` |
 | Dest | Registers | `retile_D()` |
 
-Why the asymmetry? **GMEM and SMEM are shared across threads, so they need to be sliced. The partitioner hands each thread its piece of the source/destination region.** Registers are the opposite: each thread already owns its own set, there's no shared pool ([Registers Aren't Memory](#registers-arent-memory)). So you don't *partition* a register tensor -- there's nothing to slice. But, you do still need to *retile* it, because the register fragment was originally laid out for the MMA atom, and the copy atom may want a different layout in the same set of physical registers. `retile_D/S` rebinds the layout without moving anything; it tells the copy atom which logical register goes where.
+**GMEM and SMEM are shared across threads**, so they need to be sliced. The partitioner hands each thread its piece of the source/destination region. Registers are the opposite: each thread already owns its own set, so there's no shared pool ([Registers Aren't Memory](#registers-arent-memory)). You don't *partition* a register tensor since there's nothing to slice. You *retile* it, because the register fragment was originally laid out for the MMA atom, and the copy atom may want a different layout in the same set of physical registers. `retile_D/S` rebinds the layout without moving anything; it tells the copy atom which logical register goes where.
 
 > **Note**: You'll see this rule apply everywhere: Q/K SMEM->register (above), V SMEM->register, the output register->SMEM and SMEM->register staging.
 
@@ -1227,9 +1227,9 @@ There's technically nothing wrong with the code as-is, but we have a few options
 
 1. Add no-swizzle versions for Q and K as well. This is the most clear about what `partition_fragment` is supposed to care about--the unswizzled shape. It might read as a requirement, which it is not, but it is the most direct with its intention.
 2. Remove `sVtNoSwizzle`. It's not strictly necessary, and it introduces the underlying assumptions that we now know don't exist. I assume it was added because a debug print statement showed that the V fragment had a strange shape, which may cause confusion to developers.
-3. Change the swizzle pattern to `Swizzle<3,3,3>` for all relevant hdims. We can pair this with 2., which fully removes any shape inconsistencies. The swizzle pattern doesn't match the physical SMEM layout at `hdim=32,96`, but to be fair, neither using `kBlockKSmem=64` for `hdim=128`.
+3. Change the swizzle pattern to `Swizzle<3,3,3>` for all relevant hdims. We can pair this with 2., which fully removes any shape inconsistencies. The swizzle pattern doesn't match the physical SMEM layout at `hdim=32,96`, but to be fair, neither does using `kBlockKSmem=64` for `hdim=128`.
 
-The choice is ultimately up to you. I like number 3 since its the simplest and cause no shape inconsistencies, which is what I will use below. Let's refactor the code snippet we introduced in this subsection:
+The choice is ultimately up to you. I like number 3 since it's the simplest and causes no shape inconsistencies, which is what I will use below. Let's refactor the code snippet we introduced in this subsection:
 
 ```cpp
 static constexpr int kBlockKSmem = (kHeadDim % 64 == 0) ? 64 : 32;
@@ -1237,7 +1237,6 @@ static constexpr int kBlockKSmem = (kHeadDim % 64 == 0) ? 64 : 32;
 using SmemLayoutAtomQ = decltype(composition(
   Swizzle<3, 3, 3>{},
   Layout<Shape<_8, Int<kBlockKSmem>>, Stride<Int<kBlockKSmem>, _1>>{}));
-  make_tensor(sK.data() + size(sK), SmemLayoutKV{});
 ...
 Tensor sVt = make_tensor(sV.data(), SmemLayoutVt{});
 Tensor tOrV = thr_mma.partition_fragment_B(sVt);
@@ -1251,7 +1250,7 @@ At this point, we've more than covered *how* to copy. Now, let's explain *when* 
 We covered much of the strategy all the way back at the [beginning](#the-kernel-outline), so feel free to take a moment to review.
 
 ### Let's Assume the FA2 People Did the Work
-There are a dozen ways to schedule the async loads. You could load a K tile at point A or B in the code, a V tile at C or D, or pipeline a bunch of them altogether. We have some heuristics that tell us when to do what, but every decision had to be empiraclly proven at some point. You might ask, why did they do the K-tile load here instead of there, and the answer is I'm not sure. Either the choice isn't that important to begin with or there was some specific advantage of doing it that way. We will assume Dao and his team did the work instead of questioning every decision. In practice, you have to test your code even if the theory seems to make sense. Feel free to move things around or try your own strategies -- we're just going to go with it as-is to save us the headache.
+There are a dozen ways to schedule the async loads. You could load a K tile at point A or B in the code, a V tile at C or D, or pipeline a bunch of them altogether. We have some heuristics that tell us when to do what, but every decision had to be empirically proven at some point. You might ask, why did they do the K-tile load here instead of there, and the answer is I'm not sure. Either the choice isn't that important to begin with or there was some specific advantage of doing it that way. We will assume Dao and his team did the work instead of questioning every decision. In practice, you have to test your code even if the theory seems to make sense. Feel free to move things around or try your own strategies -- we're just going to go with it as-is to save us the headache.
 
 ### First Up: Q-Tile and K-Tile Prefetch
 The Q tile remains the same throughout the entire thread block, so it's arguably the one that benefits the least from the async copy. We can still overlap a small amount of compute before our main loop. At the same time, we can fetch our 0th K-tile to prepare for the immediate $QK^T$ once we hit the main loop.
@@ -1275,7 +1274,7 @@ FA2 only uses a one-block prefetch. At each iteration, we only prefetch the imme
 
 In our main loop, we prefetch K and V every iteration to keep the next blocks coming in while we do our MMAs and softmax. We issue the K prefetch during softmax and the $SV$ GEMM, and the V prefetch during the $QK^T$ to maximize our overlap. At the start of each iteration, we wait on our K-tile. Once it's loaded, we issue our V prefetch and immediately begin our MMA so the V-copy overlaps this compute period. Then we wait on the V-tile. Once it's loaded, we issue our K copy and immediately begin our V GEMM.
 
-FA2 uses the simplest fence-wait strategy possible. Issue one copy and fully wait on that to load before issuing the next async copy. This keeps the logic the easiest as we always know which block is ready, and we'll assume this allows it to manually control and optimize the load/compute overlap.
+FA2 uses the simplest fence-wait strategy possible. Issue one copy and fully wait on that to load before issuing the next async copy. This keeps the logic the easiest, as we always know which block is ready, and we'll assume this allows it to manually control and optimize the load/compute overlap.
 
 The main loop iterates over all K, V tiles, each spanning the N dimension (see [the SMEM tiled layout](#v-smem-register)). We can simply write an unrolled for loop that iterates over the `seqlen_k / kBlockN` dimensions. We can begin to fill in our strategy based on what we described above:
 
@@ -1715,7 +1714,7 @@ for (/* main loop */) {
 ```
 
 ## The Softmax Rescale Call
-As described back in [TODO], The softmax rescale right after $QK^T$/V-block sync/K-block async issue in our main loop. We create an if branch to handle whether the current block is the first block or not.
+As described back in [the main loop](#main-loop), the softmax rescale happens right after $QK^T$, the V-block sync, and the K-block async issue. We create an if branch to handle whether the current block is the first block or not.
 
 ```cpp
 gemm_QK();
@@ -1745,12 +1744,12 @@ if (nblock == 0) {
 
 Next comes $SV$. This GEMM is almost exactly the same as the one before, except that S is already in the registers. This means we only need to deal with V SMEM copies in the GEMM loop this time.
 
-However, even though `acc_S` is in registers, we have to do two transformations before our GEMM:
-1. It is currently an fp32 accumulator. We have to comvert it back to fp16 before the MMA.
+However, even though `acc_s` is in registers, we have to do two transformations before our GEMM:
+1. It is currently an fp32 accumulator. We have to convert it back to fp16 before the MMA.
 2. `acc_s` is also currently stored as a `fragment_C` since it was an accumulator for $QK^T$. We need to reshape it as a `fragment_A` to pass it to the $SV$ GEMM. Therefore, we will do a frag-C to frag-A reshape, similar to our [row-col reshape util](#fragment-reshape) for Softmax.
 
 ### FP32->FP16 Conversion
-CUTLASS provides us the numerical conversion operator `cutlass::NumericArrayConverter<To_type, From_type, numel>` to help us do this conversion. This function expects the tensor to be "contiguous" (which would a true requirement for GMEM/SMEM) -- but as we learned, contiguity doesn't exist for registers. Therefore, we have to force our tensor into the standard column-major layout for this op to work:
+CUTLASS provides us the numerical conversion operator `cutlass::NumericArrayConverter<To_type, From_type, numel>` to help us do this conversion. This function expects the tensor to be "contiguous" (which would be a true requirement for GMEM/SMEM) -- but as we learned, contiguity doesn't exist for registers. Therefore, we have to force our tensor into the standard column-major layout for this op to work:
 
 ```cpp
 template <typename To_type, typename Engine, typename Layout>
@@ -1777,7 +1776,7 @@ A fragment layout: ((_2,_2,_2),_1,_1):((_1,_2,_4),_0,_0)
 C fragment layout: ((_2,_2),_1,_1):((_1,_2),_0,_0)
 ```
 
-The second and third dimensions here are `MMA_M` and `MMA_N` (tile width/height dividing into M, N). Since the $SV$ MMA concatenates along N, we just need to combine each 2 N block pair.
+The second and third dimensions here are `MMA_M` and `MMA_N` (tile width/height dividing into M, N). Since the $SV$ MMA concatenates along N, we just need to combine each pair of N blocks.
 
 ```python
 acc_s C shape: ((2, 2), MMA_M, MMA_N):
@@ -1793,7 +1792,10 @@ We can write this up pretty easily:
 ```cpp
 template <typename Layout>
 __forceinline__ __device__ auto
-convert_c_frag_to_a_frag(Layout const &s) {
+convert_c_frag_to_a_frag(Layout const &acc_layout) {
+  auto s = acc_layout.shape();
+  auto stride = acc_layout.stride();
+
   auto shape_n =
       make_shape(make_shape(get<0>(s), _2{}), get<1>(s), get<2>(s) / _2{});
   auto stride_n = make_stride(make_stride(get<0>(stride), get<2>(stride)),
@@ -1803,7 +1805,7 @@ convert_c_frag_to_a_frag(Layout const &s) {
 }
 ```
 
-This code looks pretty awful, but the logic is simple. Similar to the row-col reshape, the FA2 source opts for some using `logical_divide` along the N-axis, which is easier to read and accomplishes the same thing:
+This code looks pretty awful, but the logic is simple. Similar to the row-col reshape, the FA2 source opts to use `logical_divide` along the N-axis, which is easier to read and accomplishes the same thing:
 
 ```cpp
 {
@@ -1818,7 +1820,7 @@ This code looks pretty awful, but the logic is simple. Similar to the row-col re
 
 ### GEMM RS Loop
 
-All we need to do now is to is convert `acc_s` and reshape it. Then, we can simply copy our old GEMM loop but remove the A-frag copy lines.
+All we need to do now is convert `acc_s` and reshape it. Then, we can simply copy our old GEMM loop but remove the A-frag copy lines.
 
 ```cpp
 ...
@@ -1996,7 +1998,7 @@ Haha, not quite yet. There's a slight bug in our epilogue as-is. Between the reg
 
 > **Source:** [`flash.h`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash.h), [`flash_fwd_launch_template.h`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_fwd_launch_template.h), [`flash_fwd_hdim{32,64,128}_fp16_sm80.cu`](https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn_cutlass), [`flash_api.cu`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_api.cu), [`kernel_traits.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/kernel_traits.cuh)
 
-The kernel itself is done. We still have to deal with the typical CUDA dispatch to make it actually runnable. We're going to speedrun the rest of these files since they are not relevant to the algorithm itself, but I'll brielfy explain what remaining files we need before we can actually call FA2 from something like PyTorch. It's not too important to comb through every line -- most of the time, you'll just copy the boilerplate from some old kernel you made and modify some variables.
+The kernel itself is done. We still have to deal with the typical CUDA dispatch to make it actually runnable. We're going to speedrun the rest of these files since they are not relevant to the algorithm itself, but I'll briefly explain what remaining files we need before we can actually call FA2 from something like PyTorch. It's not too important to comb through every line -- most of the time, you'll just copy the boilerplate from some old kernel you made and modify some variables.
 
 ## Kernel Traits
 As we mentioned in [the code layout section](#code-layout-the-repo), every tiled MMA, tiled copy, and layout is defined here. It's the atomic backbone that we use for any operation in `flash_fwd_kernel.h`. Anything we wrote with `using` is simply defined here, as well as any constants. We combined the code together in blocks in this blog for reading purposes; in the actual kernel, any type references will look more like this:
@@ -2029,7 +2031,7 @@ struct Flash_fwd_params {
 };
 ```
 
-- **`__restrict__`** tells the compiler the pointers don't alias (no mem overlap), which lets it optimize more aggressively.
+- The **`__restrict__`** keyword tells the compiler that the pointers don't alias/access the same memory, which lets it optimize the code more aggressively.
 - Strides are in # of elements, not bytes.
 - **`scale_softmax_log2`** is precomputed on the host so we don't have to compute `log2(e)` inside the kernel's inner loop (see [the softmax scaling section](#softmax_scale_log2-dont-forget-the-scaling-factor)).
 
@@ -2065,7 +2067,7 @@ inline void run_mha_fwd_hdim128(Flash_fwd_params &p, cudaStream_t s) { run_flash
 - **Grid shape.** Two-dimensional: `(num_m_blocks, batch * heads)`. The `m_block` math is just a trick to compute `ceil(seqlen_q / kBlockM)`; it's overkill for us since we assume nice dims. The `batch * heads` axis flattens the two independent batch and head dimensions into one -- the batch and head dims are completely independent so we can flatten them to make indexing simpler.
 - **We make `m_block` the *first* grid dimension.** This puts adjacent CTAs/thread blocks along the Q-tile axis, which helps L2 cache reuse since Q blocks of the same batch/head use the same K, V. If we did it along batch/head every CTA is independent and your cache will cry.
 - **Block shape.** `kNThreads = kNWarps * 32` -- 128 threads for `kNWarps = 4`. One thread block per Q-tile + fixed thread count.
-- **`cudaFuncSetAttribute` for extended SMEM.** Ampere CTAs get 48 KB of SMEM by default. Our kernel needs more (the Q + 2*KV SMEM buffer easily exceeds 48 KB at `hdim=128` -- see `kSmemSize` in `kernel_traits.cuh`). We have to tell the GPU we're not simpletons just working with little amounts of SMEM, we can ask for more by setting `cudaFuncAttributeMaxDynamicSharedMemorySize`.
+- **`cudaFuncSetAttribute` for extended SMEM.** Ampere CTAs get 48 KB of SMEM by default. Our kernel needs more (the Q + 2*KV SMEM buffer easily exceeds 48 KB at `hdim=128` -- see `kSmemSize` in `kernel_traits.cuh`). We have to tell the GPU we're not simpletons working with tiny SMEM allocations; we ask for more by setting `cudaFuncAttributeMaxDynamicSharedMemorySize`.
 - The three `inline` wrappers exist purely to make `flash_api.cu`'s dispatch readable in the stdout.
 
 ## Per-config Instantiations
