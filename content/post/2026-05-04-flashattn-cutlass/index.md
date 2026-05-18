@@ -1250,6 +1250,9 @@ At this point, we've more than covered *how* to copy. Now, let's explain *when* 
 
 We covered much of the strategy all the way back at the [beginning](#the-kernel-outline), so feel free to take a moment to review.
 
+### Let's Assume the FA2 People Did the Work
+There are a dozen ways to schedule the async loads. You could load a K tile at point A or B in the code, a V tile at C or D, or pipeline a bunch of them altogether. We have some heuristics that tell us when to do what, but every decision had to be empiraclly proven at some point. You might ask, why did they do the K-tile load here instead of there, and the answer is I'm not sure. Either the choice isn't that important to begin with or there was some specific advantage of doing it that way. We will assume Dao and his team did the work instead of questioning every decision. In practice, you have to test your code even if the theory seems to make sense. Feel free to move things around or try your own strategies -- we're just going to go with it as-is to save us the headache.
+
 ### First Up: Q-Tile and K-Tile Prefetch
 The Q tile remains the same throughout the entire thread block, so it's arguably the one that benefits the least from the async copy. We can still overlap a small amount of compute before our main loop. At the same time, we can fetch our 0th K-tile to prepare for the immediate $QK^T$ once we hit the main loop.
 
@@ -1262,15 +1265,60 @@ cute::cp_async_fence();
 
 The QK copies are immediately issued into the background, and we add a `cute::cp_async_fence()` to establish a commit point (i.e. a barrier) that tracks all the async copies before it (in this case, two). This function is used in tandem with `cute::cp_async_wait<N>()`, which blocks the current thread until only N batches of async copies are still outstanding (e.g., `cp_async_wait<0>()` waits until all batches are completely finished).
 
+> **Note**: `cp_async_wait<N>` only tells us the threads have finished loading, not that they're necessarily at the same point. Most of the time this means you have to manually call `__syncthreads()` since the threads that load the data are not usually the only threads that end up touching the data.
+
 This fence-wait pattern is extremely common for software pipelining. For example, each loop iteration we could fetch the next 10 K blocks if we had enough compute to overlap the loads. In most production GEMM kernels, each loop typically fetches two or three blocks in advance. At each loop, you might call `wait<1>` to wait for the latest block, allowing you to run multiple loop iterations without stalling instead of waiting for the next block each time.
 
-FA2 only uses a one-block prefetch. At each iteration, we simply prefetch the next block. The three main reasons are register pressure, SMEM limits, and tile sizing. FA2 gets quite close to the register limit per thread since each one has to store Q, K, V, the accumulator fragment, softmax statistics, and giant unrolled loops. Adding more memory address tracking and heavier loops pushes near the register ceiling. Furthermore, each prefetch means adding an extra buffer in SMEM. Our tiles are up to size $128\times 128$, which have a huge SMEM footprint. Doubling or tripling up these buffers would likely crush occupancy. It's reasonable to assume FA2 tested the near-optimal pipelining strategy and block sizes, so we're just going to follow suit.
+FA2 only uses a one-block prefetch. At each iteration, we only prefetch the immediate next block. The three main reasons are register pressure, SMEM limits, and tile sizing. FA2 gets quite close to the register limit per thread since each one has to store Q, K, V, the accumulator fragment, softmax statistics, and giant unrolled loops. Adding more memory address tracking and heavier loops pushes near the register ceiling. Furthermore, each prefetch means adding an extra tile buffer in SMEM. Our tiles are up to size $128\times 128$, which have a huge SMEM footprint. Doubling or tripling up these buffers would likely crush occupancy. But, as we established, [let's Assume the FA2 People Did the Work](#lets-assume-the-fa2-people-did-the-work).
 
 ### Main Loop
 
 In our main loop, we prefetch K and V every iteration to keep the next blocks coming in while we do our MMAs and softmax. We issue the K prefetch during softmax and the $SV$ GEMM, and the V prefetch during the $QK^T$ to maximize our overlap. At the start of each iteration, we wait on our K-tile. Once it's loaded, we issue our V prefetch and immediately begin our MMA so the V-copy overlaps this compute period. Then we wait on the V-tile. Once it's loaded, we issue our K copy and immediately begin our V GEMM.
 
-> TODO: finish main loop section.
+FA2 uses the simplest fence-wait strategy possible. Issue one copy and fully wait on that to load before issuing the next async copy. This keeps the logic the easiest as we always know which block is ready, and we'll assume this allows it to manually control and optimize the load/compute overlap.
+
+The main loop iterates over all K, V tiles, each spanning the N dimension (see [the SMEM tiled layout](#v-smem-register)). We can simply write an unrolled for loop that iterates over the `seqlen_k / kBlockN` dimensions. We can begin to fill in our strategy based on what we described above:
+
+```cpp
+const int nBlocksN = cute::ceil_div(params.seqlen_k, kBlockN);
+#pragma unroll
+for (int nblock = 0; nblock < nBlocksN; nblock++) {
+  // FA2 actually defines acc_s here instead of outside the loop
+  // It's more a code signal that acc_s belongs to the loop
+  // It's not actually allocating anything each iteration
+  Tensor acc_s = partition_fragment_C(
+      tiled_mma, make_shape(Int<kBlockM>{}, Int<kBlockN>{}));
+  clear(acc_s);
+
+  // wait on K
+  cute::cp_async_wait<0>();
+  // We NEED this since our threads who load now need to do work
+  // on their actual data
+  __syncthreads();
+  // issue V copy
+  cute::copy(gmem_tiled_copy_QKV, tVgV(_, _, _, nblock), tVsV);
+  cute::cp_async_fence();
+
+  // do QK gemm, pseudocode
+  gemm_QK();
+
+  // wait on V
+  cute::cp_async_wait<0>();
+  __syncthreads();
+
+  // next K block prefetch
+  if (nblock < nBlocksN - 1) { // not last block
+    cute::copy(gmem_tiled_copy_QKV, tKgK(_, _, _, nblock + 1), tKsK);
+    cute::cp_async_fence();
+  }
+
+  // softmax rescale + SV Gemm
+}
+```
+
+The Q tile and K tile 0 load are in the same fence, and all subsequent K, V loads are under their own fence. Note how we issue the current loop's V-tile every iteration and the *next* K-tile every iteration, since next K copy is fetched while the current V work is going on. As before, you might wonder why we wait on K before the softmax instead of after or whatnot -- remember, [let's assume they did the work](#lets-assume-the-fa2-people-did-the-work). You are welcome to move things around and test + benchmark it.
+
+We've finally arrived at the end of our Q, K, V copy journey, and you'll see how these simple things required a lot of work and understanding. Next, we're going to cover the online softmax and $SV$ and fill them into the main loop. Then, our final step will be more copying -- but this time storing the output from our fragments back into GMEM.
 
 # Online Softmax
 

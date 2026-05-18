@@ -35,3 +35,5 @@ be about the journey, not the destination.
 Final note on writing-style cleanup when we get there: I'll preserve the voice -- the "rocks into trillion-ade", "barren scriptures", "pseudo Java"
 phrasings are part of why the post works. I'll only touch sentences where the meaning is genuinely unclear, not where it's just informal. Send it
 whenever.
+
+main loop confusion
