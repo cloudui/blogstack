@@ -35,7 +35,7 @@ If you're reading this, I'll assume you already have a solid understanding of th
 
 If you've never touched CUDA, you should at least try to understand its SIMT programming nature and maybe implement a few basic kernels using this thread-level view. Try to build a solid understanding of how CUDA works and of NVIDIA's GPU architecture, from threads to warps to thread blocks to SMs and beyond. I'll talk about a lot of these concepts in detail, but I still assume a basic understanding of GPU or hardware paradigms. I will be as comprehensive as I can, but it will be an uphill battle should you try to read this blog in its entirety without *some* background knowledge.
 
-Most of this blog concerns how high-level concepts like "online softmax" or "GEMM" actually translate to production-grade code. The algorithm itself is not particularly difficult in theory, but the implementation details at the CUDA level can become a nightmare, particularly for beginners. Tri Dao originally wrote FA2 using **CuTe** (CUDA Templates), a core component within NVIDIA's CUTLASS library that abstracts away tensor layouts and thread-data mapping for high-performance GPU computing. Although this may seem nicer than doing it from scratch, there are a lot of intricacies and difficult-to-understand design choices that make reading CuTe code a nightmare. The core API is higher-level than your typical C program with for-loops and variables, but it's still about as close to bare metal as you can get without writing the ASM yourself. So even though you'll understand CUDA and FlashAttention much better, you will end up learning a lot about the hardware underneath the abstractions, and why NVIDIA built CuTe in the first place.
+Most of this blog concerns how high-level concepts like "online softmax" or "GEMM" actually translate to production-grade code. The algorithm itself is not particularly difficult in theory, but the implementation details at the CUDA level can become a nightmare, particularly for beginners. Tri Dao originally wrote FA2 using **CuTe** (CUDA Templates), the layout-algebra core inside NVIDIA's CUTLASS 3.x library -- see [Why CuTe](#why-cute-and-whats-cutlass) for the philosophy behind it and how it differs from Triton, WMMA, and raw CUDA. The short version is that CuTe doesn't abstract the hardware away- - it gives you the full-fat algebra to describe hardware-aware layouts exactly. You simply writing this in CuTe will force you to understand and optimize for the hardware.
 
 Since the release of Blackwell (B200), NVIDIA released CuTe's Python DSL--a Python library you can use to write the same code without all the annoying templating that comes baggaged with C++. The use case and methodology is pretty much unchanged, but debugging and templating become more palatable, and the compile times are enormously faster due to just-in-time (JIT) compilation. Moving forward, the CuTe 3.X in C++ we use today will probably be somewhat of a relic, but as a learning exercise, nothing beats the absolute struggle of working with the most annoying and explicit version of whatever you're trying to learn.
 
@@ -135,12 +135,27 @@ Before we dive into the implementation, here's the file map for the kernel we're
 **A note on simplification.** As called out in the [intro](#flashattention-but-the-actual-details), this blog walks through a stripped-down mirror of [Tri Dao's production FA-2](https://github.com/Dao-AILab/flash-attention/tree/main/csrc/flash_attn/src). Where the source has branches for causal masking, RoPE, KV-cache, dropout, QK SMEM sharing, etc., this kernel doesn't -- the load-bearing FA2 logic is what's left. Wherever this kernel diverges from the source in a non-trivial way, I flag it inline.
 
 # CuTe, the Basics
-As established in the intro, the CuTe docs are a reference; this section is the tutorial that doesn't exist. I won't cover all the APIs -- you can intuit 90% of them from context and the FA2 code. However, the concepts that turn your evenings into late nights will be waiting for you here. It's hard to internalize the motivations for certain CuTe features until you've encountered the problem they're meant to solve, so if a section feels abstract, skip ahead to the FA2 implementation and come back when you hit the wall it was written for. The official docs live at https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html and are worth keeping open in another tab.
+As established in the intro, the CuTe docs are a reference; this section is the tutorial that doesn't exist. I won't cover all the APIs -- you can intuit 90% of them from context and the FA2 code. However, the concepts that turn your evenings into late nights will be waiting for you here. It's hard to internalize the motivations for certain CuTe features until you've encountered the problem they're meant to solve, so if a section feels abstract, skip ahead to the FA2 implementation and come back when you hit the wall it was written for.
 
-## Background
-CuTe is essentially a templating engine that lets you manipulate memory using tensors, shapes, layouts, data types, and strides--quite similar to PyTorch's `torch.Tensor` object. Unfortunately, it's not nearly as friendly, but it is much more powerful. If you're familiar with any deep learning library, these concepts should click pretty quickly. It lets you declare a general "shape" once, and if you template it with fp32 vs fp16, you can just pass the relevant parameters to your kernel template.
+> You can find the official docs at https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html and are worth keeping open in another tab.
 
-In CuTe, you are still responsible for all the sizes. The code may be able to extract fp16 from a 128-bit load, but you'll have to figure out that 128 bits is 8 fp16 numbers. It just handles the typing on your behalf and lets you index things with some nicer code. It certainly is not "easier" and is often a nightmare to read. You'll see why pretty soon.
+## Why CuTe (and what's CUTLASS?)
+
+**CUTLASS** (probably writing out what it stands for takes about as long as this parenthetical)[^9] is NVIDIA's open-source library of GEMM and GEMM-adjacent building blocks -- templated kernels, atoms, copy primitives, etc. **CuTe** is the layout-algebra core *inside* CUTLASS introduced in version 3. CUTLASS 2.x was a different, more rigid GEMM-policy-composition framework; CUTLASS 3.x reorganized everything around CuTe, which is now the language we use to describe layouts, tile shapes, and thread-data mappings. "CuTe FA2" references FA2 written in the CUTLASS 3.x idiom, which is what the production source uses.
+
+Why use CuTe at all? There are other options for writing high-performance GPU kernels:
+
+- **Triton:** hides the hardware. You write `tl.dot(q, k)` and Triton picks the MMA atom, swizzles SMEM, tiles for you, and the autotuner explores the configuration space. You think in tiles and Triton does all the hard work expressing it in PTX.
+- **WMMA (`nvcuda::wmma`):** hides the fragment layout. You get opaque `wmma::fragment<>` types and can't easily reason about swizzling, LDSM behavior, or per-thread register state. It's easy for getting to "tensor cores work" quickly but not useful when you need to express something WMMA doesn't model.
+- **Raw PTX/SASS:** [^2] I mean, sure, but bless your soul.
+
+CuTe is the philosophical opposite of Triton. While Triton abstracts the hardware away, CuTe makes you do all the hard work yourself, which requires you to understand exactly what the hardware wants. In Triton, you don't have to think at all what the SMEM access pattern should be to hit all 32 banks. CuTe makes you draw all those bit masks and blocks on paper so your performance doesn't get crushed by the holy memory manager himself. Triton does the entire MMA in one `tl.dot` call while CuTe forces you to choose your exact MMA atom, copy strategy, and concatenation dim. You can do a lot in Triton without understanding what's happening deep down -- CuTe hides behind its name and forces you to drag your knees through the dirt.
+
+This is good for the same reason it's painful: you can't write CuTe well without understanding the hardware. The flip side is that learning CuTe forces you to understand the hardware because there's no abstraction for you to hide behind. You have the power to squeeze the maximum performance out of your hardware, and nothing is hidden behind a veil of nice API calls. If you read this blog in its entirety and follow along with the code, you'll come out the other side understanding the Ampere memory pipeline, swizzling math, MMA atoms, LDSM semantics, and register-fragment behavior. You'd never have to learn any of those to write FA2 in triton.
+
+You are also trading understanding for time, because I wrote the triton version in like two afternoons. It took me weeks to write and "understand" the first pass of the CuTe version, but only after spending almost 100 hours on this blog can I truly say I understand it. It's the 80-20 rule but on steroids, you can probably get 80% of the performance in a tenth of the time.
+
+In practice, CuTe is essentially a templating engine that lets you manipulate memory using tensors, shapes, layouts, data types, and strides -- conceptually similar to PyTorch's `torch.Tensor` object, but much more granular and much more powerful. It lets you declare a general "shape" once and template it with fp32 vs fp16 by just passing different parameters. You're still responsible for all the sizes. The code may extract fp16 from a 128-bit load, but you'll have to figure out that 128 bits is 8 fp16 numbers. It just handles the typing on your behalf and lets you index things with nicer code. It certainly is not "easier," and is often a nightmare to read. You'll see why pretty soon.
 
 ## Layouts, Shapes, and Strides
 
@@ -520,7 +535,7 @@ We use the cute namespace types for robustness, and our source data type is fp16
 
 #### How do 32 threads load 128 bits each?
 
-We have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes, or 128 words[^3], or 4x32 bank accesses (see the [bank conflicts section](#bank-conflicts-and-smem-layout) below). The GPU cannot physically load 512 bytes in one go -- both GMEM and SMEM can only move 128-bytes at a time:
+We have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 512 total bytes, or 128 words[^3], or 4x32 bank accesses (see the [bank conflicts section](#bank-conflicts-and-smem-layout) below). The GPU cannot physically load 512 bytes in one go -- both GMEM and SMEM can only move 128-bytes at a time[^10]:
 - GMEM can load **128 contiguous bytes** in one memory transaction.
 - SMEM can load any **128 bytes as long as there are no bank conflicts**.
 - Both assume the memory addresses are aligned to your data width (e.g. 128-bit load -> 16-byte aligned address).
@@ -2064,7 +2079,7 @@ The interesting bits:
 
 - **Output allocation happens on the host.** `torch::empty_like(q)` and `torch::empty({...})` are called here, not in the kernel. The kernel just writes into a pre-allocated buffer.
 - **`at::cuda::getCurrentCUDAStream()`** gets the CUDA stream PyTorch is currently using. If your user has `torch.cuda.stream(...)` set, your kernel runs on that stream and properly interleaves with everything else; if they don't, you get the default stream. Use this and not `cudaStreamDefault` -- the latter ignores user-set stream context and will make you cry.
-- **`PYBIND11_MODULE`** is the standard pybind11 entry point. The macro registers `mha_fwd` as a Python-callable name. Your python file can just `import flash_attn_cutlass; flash_attn_cutlass.mha_fwd(q, k, v)` :)
+- **`PYBIND11_MODULE`** is the standard pybind11 entry point. The macro registers `mha_fwd` as a Python-callable name. Your python file can just `import flash_attn_cutlass; flash_attn_cutlass.mha_fwd(q, k, v)`
 
 That's the entire boilerplate stack. You can call `mha_fwd(q, k, v)` in Python; pybind11 hands the call to our C++ function; we fill in `Flash_fwd_params` and pick a launcher by head_dim; the launcher computes the grid, enables extended SMEM, and launches the kernel. The `Makefile` in my repo has all the commands for you to compile, test, and benchmark all the kernels I have. Happy testing...
 
@@ -2085,5 +2100,5 @@ My AI learning guide had led me astray more times than I could count, but someho
 [^6]: Oxford shuffle lecture notes, p.6 for XOR warp shuffle: https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf
 [^7]: CuTe `partition_fragment()` source: https://github.com/NVIDIA/cutlass/blob/e406c186f510a15091cce01f782020ceb7ba8eb5/include/cute/atom/mma_atom.hpp#L508
 [^8]: CuTe `make_fragment_like()` source: https://github.com/NVIDIA/cutlass/blob/e406c186f510a15091cce01f782020ceb7ba8eb5/include/cute/tensor_impl.hpp#L463
-
-512 = 128 byte https://forums.developer.nvidia.com/t/128-bit-access-bank-conflict/287039/5
+[^9]: Ok sorry. CUTLASS is a a cool sword and also CUDA Templates for Linear Algebra Subroutines and Solvers
+[^10]: Four-transaction 512-byte load explanation: https://forums.developer.nvidia.com/t/128-bit-access-bank-conflict/287039/5

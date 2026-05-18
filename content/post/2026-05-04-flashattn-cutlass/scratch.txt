@@ -1,3 +1,37 @@
 - reorder memory coalesce vs vectorize
 - swizzle talk about memory as a controller, the producers/subscribers never know what's there, it's just like a hash
 - q stored in regs
+
+1. Warp reduce butterfly / __shfl_xor_sync pattern. Softmax is currently text-only. A 32-thread butterfly diagram showing how XOR-stride 16, 8, 4, 2,
+1 ends with every thread holding the full max is one of those things where the picture is the explanation -- text always reads convoluted. This is
+the highest-value missing diagram by a wide margin.
+2. Bank conflicts before/after for the FA2 read pattern. You have the swizzle butterfly (8x8 and 32x32), which is great for showing what swizzle does
+abstractly. What's missing is the specific "here's a 16-way conflict reading column 0 of an unswizzled 16x64 tile, here's it gone after
+Swizzle<3,3,3>" picture. That nails the why for someone who only half-believes the abstract version.
+3. Async pipeline timeline. async_pipeline.png is conceptual. What's missing is the actual kernel timeline -- "iteration N: wait K, prefetch V, do
+QK^T, wait V, prefetch K+1, do SV" laid out horizontally with overlaps shown. That section ("The Actual Async Copy Strategy") is one of the hardest
+to follow in text and would benefit enormously from a Gantt-style visualization.
+4. (Optional) The 4-phase 128-byte transaction. A diagram of "32 threads issue → 4 cache-lines fetched, here's which 8 threads each transaction
+serves." Probably overkill if your text is clear, but if you ever feel that section lands too hand-wavy it would help.
+
+I wouldn't add more than two of these -- the post is long enough that diagrams should be high-leverage, not completionist. (1) and (3) are the two
+that move the needle most.
+
+On the conclusion / final recap. Stub-killer suggestion in three short subsections:
+
+- What surprised me. A list of 3-5 things the post taught you that you didn't expect going in. The warp-per-row decision being load-bearing for
+softmax; partition_fragment only needing the layout; the sVtNoSwizzle line being a no-op; "registers aren't memory" being the actual unlock for
+understanding fragment behavior. This is the section that earns the reader's trust that the post wasn't just a regurgitation -- it's where you say
+"here's what I learned writing this."
+- What I didn't cover. Causal masking, dropout, the backward pass, KV cache, Hopper's TMA/WGMMA changes, the Python CuTe DSL port. Each gets a
+sentence. The point isn't to apologize, it's to tell the reader "the things you don't see in this post aren't because I forgot -- they're scoped out,
+and here's where to look next." Links to the cute/ (https://github.com/cloudui/cuda-triton/tree/main/cute) WIP directory belong here.
+- What I'd do next. Either honestly ("finish the CuTe DSL port") or aspirationally ("port to Hopper with TMA"). Keep it short. Tells the reader
+you're not done thinking about this.
+
+Skip a formal "summary of the algorithm" -- you walked through it 1700 lines, the reader doesn't need a recap of FA2 mechanics. The conclusion should
+be about the journey, not the destination.
+
+Final note on writing-style cleanup when we get there: I'll preserve the voice -- the "rocks into trillion-ade", "barren scriptures", "pseudo Java"
+phrasings are part of why the post works. I'll only touch sentences where the meaning is genuinely unclear, not where it's just informal. Send it
+whenever.
