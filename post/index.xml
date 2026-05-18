@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Posts on echen's blog</title><link>https://blog.echen.io/post/</link><description>Recent content in Posts on echen's blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Mon, 04 May 2026 00:00:00 +0000</lastBuildDate><atom:link href="https://blog.echen.io/post/index.xml" rel="self" type="application/rss+xml"/><item><title>FlashAttention, but the Actual Details</title><link>https://blog.echen.io/p/flashattention-but-the-actual-details/</link><pubDate>Mon, 04 May 2026 00:00:00 +0000</pubDate><guid>https://blog.echen.io/p/flashattention-but-the-actual-details/</guid><description>&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/thumbnail.png" alt="Featured image of post FlashAttention, but the Actual Details" />&lt;p>Two days. That&amp;rsquo;s how long it took me to write FlashAttention-2 in Triton. I had never touched a GPU kernel before and somehow replicated a revolutionary algorithm between sips of coffee. I was looking to learn something new and somehow finished before I really got started. I knew the original source was written in CUDA, made by my Bay Area buddy who turned rocks into trillion-ade. Riding on my hubris from my recent success, I decided to translate my pièce de résistance to the native dialect of the rock-whisperers themselves.&lt;/p>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?><rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Posts on echen's blog</title><link>https://blog.echen.io/post/</link><description>Recent content in Posts on echen's blog</description><generator>Hugo -- gohugo.io</generator><language>en-us</language><lastBuildDate>Mon, 18 May 2026 00:00:00 +0000</lastBuildDate><atom:link href="https://blog.echen.io/post/index.xml" rel="self" type="application/rss+xml"/><item><title>FlashAttention-2 in CuTe, from Scratch</title><link>https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/</link><pubDate>Mon, 18 May 2026 00:00:00 +0000</pubDate><guid>https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/</guid><description>&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/thumbnail.png" alt="Featured image of post FlashAttention-2 in CuTe, from Scratch" />&lt;p>Two days. That&amp;rsquo;s how long it took me to write FlashAttention-2 in Triton. I had never touched a GPU kernel before and somehow replicated a revolutionary algorithm between sips of coffee. I was looking to learn something new and somehow finished before I really got started. I knew the original source was written in CUDA, made by my Bay Area buddy who turned rocks into trillion-ade. Riding on my hubris from my recent success, I decided to translate my pièce de résistance to the native dialect of the rock-whisperers themselves.&lt;/p>
 &lt;p>Three hundred cups of not-Java later, I raised the blood-soaked script in triumph. I spent many moons deciphering the barren scriptures and getting led by astray stochastic parrots and silicon oracles. That month was not a party with the rocks but a bad trip I barely came down from.&lt;/p>
 &lt;p>Every kernel developer has to walk this path eventually. I&amp;rsquo;ve seen the fear in the eyes of the avoiders and the bodies along the way. This post is for whoever&amp;rsquo;s next.&lt;/p>
 &lt;hr>
@@ -6,12 +6,12 @@
 &lt;p>A quick note on what this blog is supposed to be &amp;ndash; CuTe&amp;rsquo;s documentation is a reference, not a tutorial. You can read it cover to cover and walk away still not knowing CuTe; it&amp;rsquo;s only really worth consulting once you&amp;rsquo;re already trying to do something specific and have hit a wall. This post attempts to be that something specific, and we&amp;rsquo;re going to run straight into those walls together. Most public CuTe writing covers one layer at a time: a layout here, a swizzle there, an MMA atom over there. Tying them into a real kernel is where the difficulty actually lies, and that&amp;rsquo;s the gap this post is trying to fill.&lt;/p>
 &lt;p>The code we&amp;rsquo;ll walk through is a stripped-down mirror of Tri Dao&amp;rsquo;s production FA-2: same idioms, same building blocks, often the same lines, but with the causal/RoPE/dropout/KV-cache/QK-smem-sharing template branches removed. The core logic is visible instead of buried under config flags that bloat up the repo. Where it matters, our kernel reaches close to parity with the source &amp;ndash; on an A100, &lt;strong>88-105% of production FA-2&amp;rsquo;s throughput&lt;/strong> across hdim=64/128 and seq lengths up to 64K, peaking at 63% of fp16 tensor-core utilization (&lt;a class="link" href="https://github.com/cloudui/cuda-triton#cute-flashattention-2-cuda-batch4-heads8" target="_blank" rel="noopener"
 >full benchmark table&lt;/a>).&lt;/p>
-&lt;p>The point is not novelty &amp;ndash; it&amp;rsquo;s just to show that our simplications do not break performance. We are rewriting one production case of many, albeit the simplest and least commonly used (LLMs are all non-causal). Where our code diverges, that&amp;rsquo;s usually because we found something &amp;ndash; an inconsistency, a copy-paste from a CuTe example that most take for granted, a one-line simplification, a choice that turns out to be critical for some non-trivial reason. These moments are flagged in-line throughout the post, and at least one of them (&lt;a class="link" href="#svtnoswizzle-the-no-op-nobody-caught" >the &lt;code>sVtNoSwizzle&lt;/code> line&lt;/a>) appears to be a no-op that nobody in the lineage of this code understood. Make of that what you will.&lt;/p>
+&lt;p>The point is not novelty &amp;ndash; it&amp;rsquo;s just to show that our simplifications do not break performance. We are rewriting one production case of many, albeit the simplest and least commonly used (LLMs are all non-causal). Where our code diverges, that&amp;rsquo;s usually because we found something &amp;ndash; an inconsistency, a copy-paste from a CuTe example that most take for granted, a one-line simplification, a choice that turns out to be critical for some non-trivial reason. These moments are flagged in-line throughout the post, and at least one of them (&lt;a class="link" href="#svtnoswizzle-the-no-op-nobody-caught" >the &lt;code>sVtNoSwizzle&lt;/code> line&lt;/a>) appears to be a no-op that nobody in the lineage of this code understood. Make of that what you will.&lt;/p>
 &lt;p>What this isn&amp;rsquo;t: a summary of the FA-2 paper, a Hopper/Blackwell post (newer algorithms are meaningfully different on newer hardware), or a CuTe guide. This is Ampere-specific, code-level, and committed to the bit that we don&amp;rsquo;t move on from a line until we fully understand why it&amp;rsquo;s there.&lt;/p>
 &lt;h1 id="flashattention-2">FlashAttention-2&lt;/h1>
 &lt;p>If you&amp;rsquo;re reading this, I&amp;rsquo;ll assume you already have a solid understanding of the attention mechanism and at least the basics of the FlashAttention-2 algorithm itself. If not, I recommend reading the original flash attention paper&lt;sup id="fnref:1">&lt;a href="#fn:1" class="footnote-ref" role="doc-noteref">1&lt;/a>&lt;/sup> before coming back. Or, you could just read the article as-is, because you&amp;rsquo;ll probably piece it together through the struggle of trying to understand. It would be helpful to at least know the pseudocode/baseline algorithm for FA2, and even better if you&amp;rsquo;ve tried simulating it in PyTorch (or your framework of choice) or maybe even wrote it in Triton.&lt;/p>
 &lt;p>If you&amp;rsquo;ve never touched CUDA, you should at least try to understand its SIMT programming nature and maybe implement a few basic kernels using this thread-level view. Try to build a solid understanding of how CUDA works and of NVIDIA&amp;rsquo;s GPU architecture, from threads to warps to thread blocks to SMs and beyond. I&amp;rsquo;ll talk about a lot of these concepts in detail, but I still assume a basic understanding of GPU or hardware paradigms. I will be as comprehensive as I can, but it will be an uphill battle should you try to read this blog in its entirety without &lt;em>some&lt;/em> background knowledge.&lt;/p>
-&lt;p>Most of this blog concerns how high-level concepts like &amp;ldquo;online softmax&amp;rdquo; or &amp;ldquo;GEMM&amp;rdquo; actually translate to production-grade code. The algorithm itself is not particularly difficult in theory, but the implementation details at the CUDA level can become a nightmare, particularly for beginners. Tri Dao originally wrote FA2 using &lt;strong>CuTe&lt;/strong> (CUDA Templates), the layout-algebra core inside NVIDIA&amp;rsquo;s CUTLASS 3.x library &amp;ndash; see &lt;a class="link" href="#why-cute-and-whats-cutlass" >Why CuTe&lt;/a> for the philosophy behind it and how it differs from Triton, WMMA, and raw CUDA. The short version is that CuTe doesn&amp;rsquo;t abstract the hardware away- - it gives you the full-fat algebra to describe hardware-aware layouts exactly. You simply writing this in CuTe will force you to understand and optimize for the hardware.&lt;/p>
+&lt;p>Most of this blog concerns how high-level concepts like &amp;ldquo;online softmax&amp;rdquo; or &amp;ldquo;GEMM&amp;rdquo; actually translate to production-grade code. The algorithm itself is not particularly difficult in theory, but the implementation details at the CUDA level can become a nightmare, particularly for beginners. Tri Dao originally wrote FA2 using &lt;strong>CuTe&lt;/strong> (CUDA Templates), the layout-algebra core inside NVIDIA&amp;rsquo;s CUTLASS 3.x library &amp;ndash; see &lt;a class="link" href="#why-cute-and-whats-cutlass" >Why CuTe&lt;/a> for the philosophy behind it and how it differs from Triton, WMMA, and raw CUDA. The short version is that CuTe doesn&amp;rsquo;t abstract the hardware away &amp;ndash; it gives you the full-fat algebra to describe hardware-aware layouts exactly. Simply writing this in CuTe will force you to understand and optimize for the hardware.&lt;/p>
 &lt;p>Since the release of Blackwell (B200), NVIDIA released CuTe&amp;rsquo;s Python DSL&amp;ndash;a Python library you can use to write the same code without all the annoying templating that comes baggaged with C++. The use case and methodology is pretty much unchanged, but debugging and templating become more palatable, and the compile times are enormously faster due to just-in-time (JIT) compilation. Moving forward, the CuTe 3.X in C++ we use today will probably be somewhat of a relic, but as a learning exercise, nothing beats the absolute struggle of working with the most annoying and explicit version of whatever you&amp;rsquo;re trying to learn.&lt;/p>
 &lt;h1 id="overview">Overview&lt;/h1>
 &lt;h2 id="design-choices">Design Choices&lt;/h2>
@@ -87,7 +87,7 @@ O &amp;amp;= S \cdot V
 &lt;p>Only 11 steps and they&amp;rsquo;re all pretty simple in concept&amp;hellip;Let&amp;rsquo;s take a deeper look into the implementation details.&lt;/p>
 &lt;h1 id="code-layout-the-repo">Code Layout: The Repo&lt;/h1>
 &lt;p>All of the code in this post lives in &lt;a class="link" href="https://github.com/cloudui/cuda-triton" target="_blank" rel="noopener"
->&lt;code>@github:cloudui/cuda-triton&lt;/code>&lt;/a>. This is the broader kernel-learning project I&amp;rsquo;ve been building up over the last few months as I worked through Triton, CUDA, then CuTe. The two-day Triton FA2 from the intro is in &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/kernels/flash_attention_full.py" target="_blank" rel="noopener"
+>&lt;code>@github:cloudui/cuda-triton&lt;/code>&lt;/a>. This repo contains every kernel in Triton and CUDA I&amp;rsquo;ve written along the way to writing FA2 in CuTe. The two-day Triton FA2 from the intro is in &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/kernels/flash_attention_full.py" target="_blank" rel="noopener"
 >&lt;code>kernels/flash_attention_full.py&lt;/code>&lt;/a>; the intermediate WMMA CUDA FA2 (the bridge between Triton and CuTe) is in &lt;a class="link" href="https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn" target="_blank" rel="noopener"
 >&lt;code>cuda/flash_attn/&lt;/code>&lt;/a>; the &lt;a class="link" href="https://github.com/cloudui/cuda-triton/tree/main/cute" target="_blank" rel="noopener"
 >&lt;code>cute/&lt;/code>&lt;/a> directory is an in-progress port of this kernel to NVIDIA&amp;rsquo;s new Python CuTe DSL. The post itself walks through &lt;a class="link" href="https://github.com/cloudui/cuda-triton/tree/main/cuda/flash_attn_cutlass" target="_blank" rel="noopener"
@@ -167,26 +167,26 @@ O &amp;amp;= S \cdot V
 &lt;/blockquote>
 &lt;p>&lt;strong>A note on parallel scratch.&lt;/strong> Alongside the production kernel, &lt;a class="link" href="https://github.com/cloudui/cuda-triton/tree/main/scratch" target="_blank" rel="noopener"
 >&lt;code>scratch/&lt;/code>&lt;/a> contains the small standalone CuTe demos I wrote while losing my mind in confusion. The &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/README.md" target="_blank" rel="noopener"
->scratch README&lt;/a> maps each file to a blog section. If a concept ever feels too abstract on the page, run corresponding scratch file and stare at its output for a while. It might help. The instructions to run are in the repos READMEs.&lt;/p>
+>scratch README&lt;/a> maps each file to a blog section. If a concept ever feels too abstract on the page, run the corresponding scratch file and stare at its output for a while. It might help. The instructions to run are in the repo&amp;rsquo;s READMEs.&lt;/p>
 &lt;p>&lt;strong>A note on simplification.&lt;/strong> As called out in the &lt;a class="link" href="#flashattention-but-the-actual-details" >intro&lt;/a>, this blog walks through a stripped-down mirror of &lt;a class="link" href="https://github.com/Dao-AILab/flash-attention/tree/main/csrc/flash_attn/src" target="_blank" rel="noopener"
 >Tri Dao&amp;rsquo;s production FA-2&lt;/a>. Where the source has branches for causal masking, RoPE, KV-cache, dropout, QK SMEM sharing, etc., this kernel doesn&amp;rsquo;t &amp;ndash; the load-bearing FA2 logic is what&amp;rsquo;s left. Wherever this kernel diverges from the source in a non-trivial way, I flag it inline.&lt;/p>
 &lt;h1 id="cute-the-basics">CuTe, the Basics&lt;/h1>
 &lt;p>As established in the intro, the CuTe docs are a reference; this section is the tutorial that doesn&amp;rsquo;t exist. I won&amp;rsquo;t cover all the APIs &amp;ndash; you can intuit 90% of them from context and the FA2 code. However, the concepts that turn your evenings into late nights will be waiting for you here. It&amp;rsquo;s hard to internalize the motivations for certain CuTe features until you&amp;rsquo;ve encountered the problem they&amp;rsquo;re meant to solve, so if a section feels abstract, skip ahead to the FA2 implementation and come back when you hit the wall it was written for.&lt;/p>
 &lt;blockquote>
-&lt;p>You can find the official docs at &lt;a class="link" href="https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html" target="_blank" rel="noopener"
->https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html&lt;/a> and are worth keeping open in another tab.&lt;/p>
+&lt;p>You can find the official docs at &lt;a class="link" href="https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html;" target="_blank" rel="noopener"
+>https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html;&lt;/a> they&amp;rsquo;re worth keeping open in another tab.&lt;/p>
 &lt;/blockquote>
 &lt;h2 id="why-cute-and-whats-cutlass">Why CuTe (and what&amp;rsquo;s CUTLASS?)&lt;/h2>
 &lt;p>&lt;strong>CUTLASS&lt;/strong> (probably writing out what it stands for takes about as long as this parenthetical)&lt;sup id="fnref:2">&lt;a href="#fn:2" class="footnote-ref" role="doc-noteref">2&lt;/a>&lt;/sup> is NVIDIA&amp;rsquo;s open-source library of GEMM and GEMM-adjacent building blocks &amp;ndash; templated kernels, atoms, copy primitives, etc. &lt;strong>CuTe&lt;/strong> is the layout-algebra core &lt;em>inside&lt;/em> CUTLASS introduced in version 3. CUTLASS 2.x was a different, more rigid GEMM-policy-composition framework; CUTLASS 3.x reorganized everything around CuTe, which is now the language we use to describe layouts, tile shapes, and thread-data mappings. &amp;ldquo;CuTe FA2&amp;rdquo; references FA2 written in the CUTLASS 3.x idiom, which is what the production source uses.&lt;/p>
 &lt;p>Why use CuTe at all? There are other options for writing high-performance GPU kernels:&lt;/p>
 &lt;ul>
 &lt;li>&lt;strong>Triton:&lt;/strong> hides the hardware. You write &lt;code>tl.dot(q, k)&lt;/code> and Triton picks the MMA atom, swizzles SMEM, tiles for you, and the autotuner explores the configuration space. You think in tiles and Triton does all the hard work expressing it in PTX.&lt;/li>
-&lt;li>&lt;strong>WMMA (&lt;code>nvcuda::wmma&lt;/code>):&lt;/strong> hides the fragment layout. You get opaque &lt;code>wmma::fragment&amp;lt;&amp;gt;&lt;/code> types and can&amp;rsquo;t easily reason about swizzling, LDSM behavior, or per-thread register state. It&amp;rsquo;s easy for getting to &amp;ldquo;tensor cores work&amp;rdquo; quickly but not useful when you need to express something WMMA doesn&amp;rsquo;t model.&lt;/li>
+&lt;li>&lt;strong>WMMA (&lt;code>nvcuda::wmma&lt;/code>):&lt;/strong> hides the fragment layout. You get opaque &lt;code>wmma::fragment&amp;lt;&amp;gt;&lt;/code> types and can&amp;rsquo;t easily reason about swizzling, LDSM behavior, or per-thread register state. It&amp;rsquo;s easy for getting to using the tensor cores quickly but not that useful when you need to express something WMMA doesn&amp;rsquo;t model.&lt;/li>
 &lt;li>&lt;strong>Raw PTX/SASS:&lt;/strong> &lt;sup id="fnref:3">&lt;a href="#fn:3" class="footnote-ref" role="doc-noteref">3&lt;/a>&lt;/sup> I mean, sure, but bless your soul.&lt;/li>
 &lt;/ul>
-&lt;p>CuTe is the philosophical opposite of Triton. While Triton abstracts the hardware away, CuTe makes you do all the hard work yourself, which requires you to understand exactly what the hardware wants. In Triton, you don&amp;rsquo;t have to think at all what the SMEM access pattern should be to hit all 32 banks. CuTe makes you draw all those bit masks and blocks on paper so your performance doesn&amp;rsquo;t get crushed by the holy memory manager himself. Triton does the entire MMA in one &lt;code>tl.dot&lt;/code> call while CuTe forces you to choose your exact MMA atom, copy strategy, and concatenation dim. You can do a lot in Triton without understanding what&amp;rsquo;s happening deep down &amp;ndash; CuTe hides behind its name and forces you to drag your knees through the dirt.&lt;/p>
-&lt;p>This is good for the same reason it&amp;rsquo;s painful: you can&amp;rsquo;t write CuTe well without understanding the hardware. The flip side is that learning CuTe forces you to understand the hardware because there&amp;rsquo;s no abstraction for you to hide behind. You have the power to squeeze the maximum performance out of your hardware, and nothing is hidden behind a veil of nice API calls. If you read this blog in its entirety and follow along with the code, you&amp;rsquo;ll come out the other side understanding the Ampere memory pipeline, swizzling math, MMA atoms, LDSM semantics, and register-fragment behavior. You&amp;rsquo;d never have to learn any of those to write FA2 in triton.&lt;/p>
-&lt;p>You are also trading understanding for time, because I wrote the triton version in like two afternoons. It took me weeks to write and &amp;ldquo;understand&amp;rdquo; the first pass of the CuTe version, but only after spending almost 100 hours on this blog can I truly say I understand it. It&amp;rsquo;s the 80-20 rule but on steroids, you can probably get 80% of the performance in a tenth of the time.&lt;/p>
+&lt;p>CuTe is the philosophical opposite of Triton. While Triton abstracts the hardware away, CuTe makes you do all the hard work yourself, which requires you to understand exactly what the hardware wants. In Triton, you don&amp;rsquo;t have to think at all about what the SMEM access pattern should be to hit all 32 banks. CuTe makes you draw all those bit masks and blocks on paper so your performance doesn&amp;rsquo;t get crushed by the holy memory manager himself. Triton does the entire MMA in one &lt;code>tl.dot&lt;/code> call while CuTe forces you to choose your exact MMA atom, copy strategy, and concatenation dim. You can do a lot in Triton without understanding what&amp;rsquo;s happening deep down &amp;ndash; CuTe hides behind its name and forces you to drag your knees through the dirt.&lt;/p>
+&lt;p>This is good for the same reason it&amp;rsquo;s painful: you can&amp;rsquo;t write CuTe well without understanding the hardware. The flip side is that learning CuTe forces you to understand the hardware because there&amp;rsquo;s no abstraction for you to hide behind. You have the power to squeeze the maximum performance out of your hardware, and nothing is hidden behind a veil of nice API calls. If you read this blog in its entirety and follow along with the code, you&amp;rsquo;ll come out the other side understanding the Ampere memory pipeline, swizzling math, MMA atoms, LDSM semantics, and register-fragment behavior. You&amp;rsquo;d never have to learn any of those to write FA2 in Triton.&lt;/p>
+&lt;p>You are also trading understanding for time, because I wrote the Triton version in like two afternoons. It took me weeks to write and &amp;ldquo;understand&amp;rdquo; the first pass of the CuTe version, but only after spending almost 100 hours on this blog can I truly say I understand it. It&amp;rsquo;s the 80-20 rule but on steroids, you can probably get 80% of the performance in a tenth of the time.&lt;/p>
 &lt;p>In practice, CuTe is essentially a templating engine that lets you manipulate memory using tensors, shapes, layouts, data types, and strides &amp;ndash; conceptually similar to PyTorch&amp;rsquo;s &lt;code>torch.Tensor&lt;/code> object, but much more granular and much more powerful. It lets you declare a general &amp;ldquo;shape&amp;rdquo; once and template it with fp32 vs fp16 by just passing different parameters. You&amp;rsquo;re still responsible for all the sizes. The code may extract fp16 from a 128-bit load, but you&amp;rsquo;ll have to figure out that 128 bits is 8 fp16 numbers. It just handles the typing on your behalf and lets you index things with nicer code. It certainly is not &amp;ldquo;easier,&amp;rdquo; and is often a nightmare to read. You&amp;rsquo;ll see why pretty soon.&lt;/p>
 &lt;h2 id="layouts-shapes-and-strides">Layouts, Shapes, and Strides&lt;/h2>
 &lt;blockquote>
@@ -477,10 +477,10 @@ $$&lt;/p>
 &lt;p>You can leverage the &lt;code>print_layout()&lt;/code> function from &lt;a class="link" href="#layouts-shapes-and-strides" >earlier&lt;/a> to view this in your shell.&lt;/p>
 &lt;/blockquote>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/row_col_major.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/row_col_major.png"
 width="2344"
 height="1308"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/row_col_major_hu7363f3ddb81f2e4ee7ea8b7de3601ec8_208236_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/row_col_major_hu7363f3ddb81f2e4ee7ea8b7de3601ec8_208236_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/row_col_major_hu7363f3ddb81f2e4ee7ea8b7de3601ec8_208236_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/row_col_major.png 2344w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/row_col_major_hu7363f3ddb81f2e4ee7ea8b7de3601ec8_208236_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/row_col_major_hu7363f3ddb81f2e4ee7ea8b7de3601ec8_208236_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/row_col_major_hu7363f3ddb81f2e4ee7ea8b7de3601ec8_208236_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/row_col_major.png 2344w"
 loading="lazy"
 alt="Row vs. col major indexing on a layout with shape (2, 8)."
 class="gallery-image"
@@ -647,7 +647,7 @@ data-flex-basis="430px"
 &lt;/div>&lt;p>In &lt;code>l2&lt;/code>, we iterate through the inner (left) shape in groups of 2, column-major by default. In this case, the composed layout is purely decorative. We can still address a tensor with layout &lt;code>l1&lt;/code> or &lt;code>l2&lt;/code> with two coordinates &lt;code>(i, j)&lt;/code>, and CuTe maps the translation underneath. However, we are now also grouping the inner dimension as four groups of two. We&amp;rsquo;ll see nested layouts become a powerful tool during the &lt;a class="link" href="#fragment-reshape" >MMA tiling reshape&lt;/a>, where we cannot simply flatten a 3D tensor into a non-nested 2D tensor for our specific access pattern.&lt;/p>
 &lt;h1 id="the-beginning-cute-copy-then-cry">The Beginning: CuTe, Copy, then Cry&lt;/h1>
 &lt;p>Okay, with the CuTe vomit over, let&amp;rsquo;s get started with FA2!&lt;/p>
-&lt;p>Much of the learning path from here is nonlinear &amp;ndash; some things will click immediately and somethings will only make sense in hindsight. You have to be comfortable accepting certain things early before the full understanding comes raging back once you&amp;rsquo;ve hit a snag. I&amp;rsquo;ll tackle some concepts up front and gloss over some others, but these choices are intentional &amp;ndash; you won&amp;rsquo;t always have the full context up-front when you are trying to do something. I spent hours thinking I understood something only to realize I didn&amp;rsquo;t understand a week later, and sometimes, it would take five of these I understand/I definitely don&amp;rsquo;t understand cycles before everything fell into place. Let&amp;rsquo;s dive in before you have time to reconsider 😇.&lt;/p>
+&lt;p>Much of the learning path from here is nonlinear &amp;ndash; some concepts will click immediately and some will only make sense in hindsight. You have to be comfortable accepting certain things early; the full understanding only kicks in once you&amp;rsquo;ve hit a mental snag. I&amp;rsquo;ll tackle some concepts up front and gloss over some others, but these choices are intentional &amp;ndash; you won&amp;rsquo;t always have the full context up-front when you are trying to do something. I spent hours thinking I understood something only to realize I didn&amp;rsquo;t understand a week later, and sometimes, it would take five of these I understand/I definitely don&amp;rsquo;t understand cycles before everything fell into place. Let&amp;rsquo;s dive in before you have time to reconsider 😇.&lt;/p>
 &lt;h2 id="a100-ampere-specs">A100 (Ampere) Specs&lt;/h2>
 &lt;p>The entire point of FA2 or even GPU optimization in general is to maximize compute by overlapping it with memory loads. Here are the memory and card specs of A100 GPU (Ampere):&lt;/p>
 &lt;table>
@@ -740,10 +740,10 @@ data-flex-basis="430px"
 &lt;p>Since NVIDIA introduced the Ampere architecture, we can take advantage of asynchronous copying from GMEM-&amp;gt;SMEM to help us overlap our tile fetches with compute. Before, you might have had to wait hundreds or thousands of cycles for your bytes to hit SMEM; on Ampere, we can issue some loads and immediately begin doing useful work while the memory loads in the background.&lt;/p>
 &lt;p>The async design pattern is quite simple:&lt;/p>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/async_pipeline.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/async_pipeline.png"
 width="2308"
 height="1284"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/async_pipeline_hu246a953f40b88517180cbe2b4a521786_239370_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/async_pipeline_hu246a953f40b88517180cbe2b4a521786_239370_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/async_pipeline_hu246a953f40b88517180cbe2b4a521786_239370_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/async_pipeline.png 2308w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/async_pipeline_hu246a953f40b88517180cbe2b4a521786_239370_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/async_pipeline_hu246a953f40b88517180cbe2b4a521786_239370_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/async_pipeline_hu246a953f40b88517180cbe2b4a521786_239370_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/async_pipeline.png 2308w"
 loading="lazy"
 alt="Fetch next data, do stuff with current data, wait for new data, and repeat."
 class="gallery-image"
@@ -781,10 +781,10 @@ data-flex-basis="431px"
 &lt;/table>
 &lt;/blockquote>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/vec.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/vec.png"
 width="1814"
 height="1274"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/vec_hu330d518e49285b7068a4fe6df27d5816_171152_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/vec_hu330d518e49285b7068a4fe6df27d5816_171152_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/vec.png 1814w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/vec_hu330d518e49285b7068a4fe6df27d5816_171152_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/vec_hu330d518e49285b7068a4fe6df27d5816_171152_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/vec.png 1814w"
 loading="lazy"
 alt="Vectorized load example. Can issue 4 fp32 load instructions or just 1 128-bit load and reinterpret as fp32. Byte-addressed, so 0x4 address increment per float."
 class="gallery-image"
@@ -793,10 +793,10 @@ data-flex-basis="341px"
 >
 &lt;/p>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/coalesce.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/coalesce.png"
 width="1788"
 height="984"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/coalesce_hu841b47aa88dd1af49e00c1cc3f4212d4_342432_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/coalesce_hu841b47aa88dd1af49e00c1cc3f4212d4_342432_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/coalesce.png 1788w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/coalesce_hu841b47aa88dd1af49e00c1cc3f4212d4_342432_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/coalesce_hu841b47aa88dd1af49e00c1cc3f4212d4_342432_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/coalesce.png 1788w"
 loading="lazy"
 alt="Coalesced load example. Four threads want 128-bits&amp;ndash;making a 64-byte contiguous chunk. The memory controller combines it into one transaction."
 class="gallery-image"
@@ -813,7 +813,7 @@ data-flex-basis="436px"
 &lt;/blockquote>
 &lt;h3 id="copy-atoms">Copy Atoms&lt;/h3>
 &lt;p>Every NVIDIA GPU has a boatload of copy instructions&amp;ndash;you can fetch 32 bytes, 64 bytes, one byte, synchronously or asynchronously. CuTe neatly packages these copy instructions into a core piece called an &lt;code>Atom&lt;/code>. These &amp;ldquo;atomic&amp;rdquo; pieces are the core hardware instructions that you eventually pass to the &lt;code>copy&lt;/code> function so it knows which instruction to use to copy your data.&lt;/p>
-&lt;p>Ampere has a specific asynchronous &lt;code>Copy_Atom&lt;/code> with the architecture name &lt;code>SM_80&lt;/code>: &lt;code>SM80_CP_ASYNC_CACHEGLOBAL&amp;lt;bit_size&amp;gt;&lt;/code> or &lt;code>SM80_CP_ASYNC_CACHEALWAYS&amp;lt;bit_size&amp;gt;&lt;/code>. The &lt;code>cache_global&lt;/code> and &lt;code>cache_always&lt;/code> map to the PTX&lt;sup id="fnref1:3">&lt;a href="#fn:3" class="footnote-ref" role="doc-noteref">3&lt;/a>&lt;/sup> instructions &lt;code>ld.global.cg.u32&lt;/code> and &lt;code>ld.global.ca.u32&lt;/code>; &lt;code>cache_global&lt;/code> loads straight from L2 to the destination, skipping over L1 cache, while &lt;code>cache_always&lt;/code> also loads the data into L1. Most kernels use &lt;code>cache_always&lt;/code> by default because of improved spatial and temporal locality across threads. But in FA2, we never reference Q, K, or V again once they&amp;rsquo;re loaded into SMEM&amp;ndash;therefore, we can bypass the L1 cache, which is slightly faster. It also reduces thrashing at the L1 level and allows more important data to stay in-cache. In practice, this is a micro-optimization and not that important.&lt;/p>
+&lt;p>Ampere has a specific asynchronous &lt;code>Copy_Atom&lt;/code> with the architecture name &lt;code>SM_80&lt;/code>: &lt;code>SM80_CP_ASYNC_CACHEGLOBAL&amp;lt;bit_size&amp;gt;&lt;/code> or &lt;code>SM80_CP_ASYNC_CACHEALWAYS&amp;lt;bit_size&amp;gt;&lt;/code>. The &lt;code>cache_global&lt;/code> and &lt;code>cache_always&lt;/code> map to the PTX&lt;sup id="fnref1:3">&lt;a href="#fn:3" class="footnote-ref" role="doc-noteref">3&lt;/a>&lt;/sup> instructions &lt;code>cp.async.cg.shared.global&lt;/code> and &lt;code>cp.async.ca.shared.global&lt;/code>; &lt;code>cache_global&lt;/code> loads straight from L2 to the destination, skipping over L1 cache, while &lt;code>cache_always&lt;/code> also loads the data into L1. Most kernels use &lt;code>cache_always&lt;/code> by default because of improved spatial and temporal locality across threads. But in FA2, we never reference Q, K, or V again once they&amp;rsquo;re loaded into SMEM&amp;ndash;therefore, we can bypass the L1 cache, which is slightly faster. It also reduces thrashing at the L1 level and allows more important data to stay in-cache. In practice, this is a micro-optimization and not that important.&lt;/p>
 &lt;p>The &lt;code>bit_size&lt;/code> supports up to 128-bit loads. &lt;strong>Bits&lt;/strong>, not bytes, since these atoms are viewed through the &lt;strong>thread perspective&lt;/strong>. Hence, our atom loads a total of $128 \text{ bits} \cdot 32 / 8 = 512 \text{ bytes}$. This means each 128-bit fetch across the 32 threads in a warp takes $512/128 = 4$ memory transactions in four &amp;ldquo;phases&amp;rdquo; (more on this later). For our purposes, we want that full coalesced 128-bit power using &lt;code>cache_global&lt;/code>. We can define the &lt;code>Copy_Atom&lt;/code> with the following code:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -835,7 +835,7 @@ data-flex-basis="436px"
 &lt;li>SMEM can load any &lt;strong>128 bytes as long as there are no bank conflicts&lt;/strong>.&lt;/li>
 &lt;li>Both assume the memory addresses are aligned to your data width (e.g. 128-bit load -&amp;gt; 16-byte aligned address).&lt;/li>
 &lt;/ul>
-&lt;p>As a result, for both GMEM/SMEM handles these 512-byte loads in four separate 128-byte memory transactions (or two for a 256-byte load). Each &lt;em>transaction phase&lt;/em> provides 8-threads (also called a &lt;em>quarter-warp&lt;/em>) worth of data. The memory controller is smart enough to group the relevant addresses together to ensure each transaction uses the full 128-byte bandwith when possible (see &lt;a class="link" href="#vectorized-and-coalesced-loads" >vectorization/coalescing&lt;/a>).&lt;/p>
+&lt;p>As a result, GMEM/SMEM handles these 512-byte loads in four separate 128-byte memory transactions. Each &lt;em>transaction phase&lt;/em> provides 8-threads (also called a &lt;em>quarter-warp&lt;/em>) worth of data. The memory controller is smart enough to group the relevant addresses together to ensure each transaction uses the full 128-byte bandwith when possible (see &lt;a class="link" href="#vectorized-and-coalesced-loads" >vectorization/coalescing&lt;/a>).&lt;/p>
 &lt;p>After each phase, each quarter-warp is handed its contiguous 8x128-bit (128-byte) block. So by design, our async copies perfectly copy our data using the full HBM bandwidth.&lt;/p>
 &lt;blockquote>
 &lt;p>&lt;strong>Note&lt;/strong>: this behavior is handled at the &lt;strong>hardware level&lt;/strong>. CuTe doesn&amp;rsquo;t do some 4-iteration loop or anything &amp;ndash; it&amp;rsquo;s the memory controller&amp;rsquo;s job.&lt;/p>
@@ -906,10 +906,10 @@ data-flex-basis="436px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/gmem_tiling.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/gmem_tiling.png"
 width="1828"
 height="1186"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/gmem_tiling_hu8471f6b995ae5327f227a2a9278bf604_124679_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/gmem_tiling_hu8471f6b995ae5327f227a2a9278bf604_124679_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/gmem_tiling.png 1828w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/gmem_tiling_hu8471f6b995ae5327f227a2a9278bf604_124679_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/gmem_tiling_hu8471f6b995ae5327f227a2a9278bf604_124679_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/gmem_tiling.png 1828w"
 loading="lazy"
 alt="The tiling strategy above, but assume two warps, not four to show how warps cycle. Each row is 8 threads, each square is a thread&amp;rsquo;s 128-bit load (8 fp16s). Each full tile is two warp-loads, four rows per warp, so 8 rows per tile."
 class="gallery-image"
@@ -1082,12 +1082,12 @@ data-flex-basis="369px"
 &lt;/ol>
 &lt;p>This is by no means an exhaustive list, and tensor core shapes change generation-to-generation for a multitude of reasons. It&amp;rsquo;s best to just use it as-is instead of wondering all day why it is the way it is. The TiledMMA atom conveniently defines which threads get which chunks and which registers are used for the MMA, which we can see below:&lt;/p>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_atom.png"
 width="1338"
 height="1712"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom_hu2245a945016555384b8151cb2072505d_690927_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom_hu2245a945016555384b8151cb2072505d_690927_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_atom.png 1338w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_atom_hu2245a945016555384b8151cb2072505d_690927_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_atom_hu2245a945016555384b8151cb2072505d_690927_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_atom.png 1338w"
 loading="lazy"
-alt="MMA Atom thread layout. We can see each thread gets 32-bits (2 halfs) at a time. For each 16x16 tile, each thread has two 32-bit pairs per row, and only 1 32-bit pair for each 16x8 tile."
+alt="MMA Atom thread layout. We can see each thread gets 32-bits (2 halfs) at a time. For each 16x16 tile, each thread has two half-pairs per row, and only 1 half-pair for each 16x8 tile."
 class="gallery-image"
 data-flex-grow="78"
 data-flex-basis="187px"
@@ -1107,10 +1107,10 @@ data-flex-basis="187px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/tiled_mma.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/tiled_mma.png"
 width="2046"
 height="1194"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/tiled_mma_hu6d0f913c83b5c5c4c0c7a54bbb63ffab_119902_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/tiled_mma_hu6d0f913c83b5c5c4c0c7a54bbb63ffab_119902_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/tiled_mma.png 2046w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/tiled_mma_hu6d0f913c83b5c5c4c0c7a54bbb63ffab_119902_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/tiled_mma_hu6d0f913c83b5c5c4c0c7a54bbb63ffab_119902_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/tiled_mma.png 2046w"
 loading="lazy"
 alt="Tiled MMA layout. Each solid color is one of four warps. If we had more rows/cols, the color pattern would repeat. The tiled layout for fragment B is pretty much the same as for fragment C, only with a size difference. Each 16x16 B-tile is composed of two fragments that are 1 N-tile adjacent for shape (K, N). Note that B is transposed in this visualization."
 class="gallery-image"
@@ -1124,10 +1124,10 @@ data-flex-basis="411px"
 &lt;p>&lt;strong>Note&lt;/strong>: $N=16$, not 8, because we must aggregate across adjacent N-atoms to produce one 16x16 output tile due to the 16x8 asymmetry. That also means our &lt;code>LDSM&lt;/code> copy atom loads two K, V tiles per instruction. This works because our N-tiles are index-adjacent.&lt;/p>
 &lt;/blockquote>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_in_to_out.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_in_to_out.png"
 width="2000"
 height="1202"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_in_to_out_hud13a14ae1d8af1c8036e837b47af987c_92685_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_in_to_out_hud13a14ae1d8af1c8036e837b47af987c_92685_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_in_to_out.png 2000w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_in_to_out_hud13a14ae1d8af1c8036e837b47af987c_92685_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_in_to_out_hud13a14ae1d8af1c8036e837b47af987c_92685_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_in_to_out.png 2000w"
 loading="lazy"
 alt="(16,16) x (16,8) MMA produces an (16,8) output. MMA of one A tile with two adjacent B tiles &amp;#43; concatenation produces one (16,16) output tile."
 class="gallery-image"
@@ -1261,7 +1261,7 @@ data-flex-basis="399px"
 &lt;/tr>
 &lt;/tbody>
 &lt;/table>
-&lt;p>Why the asymmetry? &lt;strong>GMEM and SMEM are shared across threads, so they need to be sliced. The partitioner hands each thread its piece of the source/destination region.&lt;/strong> Registers are the opposite: each thread already owns its own set, there&amp;rsquo;s no shared pool (&lt;a class="link" href="#registers-arent-memory" >Registers Aren&amp;rsquo;t Memory&lt;/a>). So you don&amp;rsquo;t &lt;em>partition&lt;/em> a register tensor &amp;ndash; there&amp;rsquo;s nothing to slice. But, you do still need to &lt;em>retile&lt;/em> it, because the register fragment was originally laid out for the MMA atom, and the copy atom may want a different layout in the same set of physical registers. &lt;code>retile_D/S&lt;/code> rebinds the layout without moving anything; it tells the copy atom which logical register goes where.&lt;/p>
+&lt;p>&lt;strong>GMEM and SMEM are shared across threads&lt;/strong>, so they need to be sliced. The partitioner hands each thread its piece of the source/destination region. Registers are the opposite: each thread already owns its own set, so there&amp;rsquo;s no shared pool (&lt;a class="link" href="#registers-arent-memory" >Registers Aren&amp;rsquo;t Memory&lt;/a>). You don&amp;rsquo;t &lt;em>partition&lt;/em> a register tensor since there&amp;rsquo;s nothing to slice. You &lt;em>retile&lt;/em> it, because the register fragment was originally laid out for the MMA atom, and the copy atom may want a different layout in the same set of physical registers. &lt;code>retile_D/S&lt;/code> rebinds the layout without moving anything; it tells the copy atom which logical register goes where.&lt;/p>
 &lt;blockquote>
 &lt;p>&lt;strong>Note&lt;/strong>: You&amp;rsquo;ll see this rule apply everywhere: Q/K SMEM-&amp;gt;register (above), V SMEM-&amp;gt;register, the output register-&amp;gt;SMEM and SMEM-&amp;gt;register staging.&lt;/p>
 &lt;/blockquote>
@@ -1281,10 +1281,10 @@ data-flex-basis="399px"
 &lt;/blockquote>
 &lt;p>We index these K-tiles via &lt;code>register(_, _, i)&lt;/code> to grab the relevant K-fragment per loop iteration. The TiledMMA handles the M and N dimensions.&lt;/p>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_macro.png"
 width="2270"
 height="1244"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro_hu04f74aa79072a560bd0ec98594996ed7_145696_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro_hu04f74aa79072a560bd0ec98594996ed7_145696_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro_hu04f74aa79072a560bd0ec98594996ed7_145696_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_macro.png 2270w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_macro_hu04f74aa79072a560bd0ec98594996ed7_145696_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_macro_hu04f74aa79072a560bd0ec98594996ed7_145696_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_macro_hu04f74aa79072a560bd0ec98594996ed7_145696_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_macro.png 2270w"
 loading="lazy"
 alt="Macro view of the MMA. We iterate over the K-dimension, each tile multiplying across and summing to form one output tile. The colors just mean they pair, not that they are the same. In the tiled MMA, CuTe handles all the M, N work on our behalf. We just have to concatenate via the K-dim."
 class="gallery-image"
@@ -1389,10 +1389,10 @@ data-flex-basis="437px"
 &lt;p>Going back to our example, the reason we end up with bank conflicts is that our row stride is a multiple of our 32-bank, 4-byte cycle. Every address separated by 128 bytes maps to the same bank. So a column-major access pattern for a 32x32 float array is an absolute death sentence. This wouldn&amp;rsquo;t be any better for 32x64, 32x96, or 32x1024 float arrays either, because the column width in each case is a multiple of 128 bytes.&lt;/p>
 &lt;p>We can break this 128-byte stride pattern simply by padding each row with an extra float. So instead of 32x32, we now force our SMEM to have shape 32x33. Our SMEM chunk occupies 32 more bytes with one dummy float per row, but our column access pattern no longer suffers from bank conflicts. If we look at our column access pattern from before, at &lt;code>j=0&lt;/code>, thread 0 still accesses (0, 0), thread 1 still accesses (1, 0), &amp;hellip;, and thread 31 still accesses (31, 0). But each row stride is now &amp;ldquo;33&amp;rdquo; banks apart, so thread 0 accesses memory address 0, while thread 1 now accesses address 33, not 32. So in one cycle, thread 0 accesses bank 0, thread 1 accesses bank 1, &amp;hellip;, and thread 31 accesses bank 31. On the next iteration, we shift by 1 bank, where thread 0 accesses bank 1 and thread 1 accesses bank 2. We are now conflict-free, at the expense of 32 &amp;ldquo;empty&amp;rdquo; floats.&lt;/p>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/padding.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/padding.png"
 width="2302"
 height="1296"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/padding_hu3e502985a7792c47736837d91aa89839_287968_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/padding_hu3e502985a7792c47736837d91aa89839_287968_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/padding_hu3e502985a7792c47736837d91aa89839_287968_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/padding.png 2302w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/padding_hu3e502985a7792c47736837d91aa89839_287968_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/padding_hu3e502985a7792c47736837d91aa89839_287968_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/padding_hu3e502985a7792c47736837d91aa89839_287968_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/padding.png 2302w"
 loading="lazy"
 alt="Example of two-way column conflict access and a simple padding solution."
 class="gallery-image"
@@ -1467,10 +1467,10 @@ data-flex-basis="426px"
 &lt;/div>&lt;p>Why does this work? Let&amp;rsquo;s examine our float example. We access &lt;code>(0...31, 0)&lt;/code> then &lt;code>(0...31, 1)&lt;/code> and so on. For column 0, &lt;code>n ^ 0 = n&lt;/code>. This means our outputs map to (0&amp;hellip;31, 0&amp;hellip;31). Since each row starts at a different bank, we adequately diversify across all 32 banks. For the other columns, we&amp;rsquo;ve shown that &lt;code>a ^ b&lt;/code> is unique for any fixed &lt;code>b=col&lt;/code>, so we are guaranteed to hit all 32 banks for all 32 threads. Neat! If you&amp;rsquo;re unconvinced, try a few column examples yourself.&lt;/p>
 &lt;p>Let&amp;rsquo;s visualize where each float ends up. The number of each square represents the column it originally belonged to. The color points to where it was originally.&lt;/p>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/swizzle-32x32.png"
 width="3114"
 height="1577"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32_hu6596b57894f6490cbf0e273c8793060d_380231_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32_hu6596b57894f6490cbf0e273c8793060d_380231_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32_hu6596b57894f6490cbf0e273c8793060d_380231_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-32x32.png 3114w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/swizzle-32x32_hu6596b57894f6490cbf0e273c8793060d_380231_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/swizzle-32x32_hu6596b57894f6490cbf0e273c8793060d_380231_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/swizzle-32x32_hu6596b57894f6490cbf0e273c8793060d_380231_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/swizzle-32x32.png 3114w"
 loading="lazy"
 alt="32x32 swizzle pattern"
 class="gallery-image"
@@ -1480,10 +1480,10 @@ data-flex-basis="473px"
 &lt;/p>
 &lt;p>Ok, this is kind of hard to look at. Let&amp;rsquo;s look at an 8x8 example for more clarity on where each column ends up:&lt;/p>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-8x8.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/swizzle-8x8.png"
 width="1749"
 height="980"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-8x8_hu6a7db30d722cbb431d4322770efc8b0b_91421_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-8x8_hu6a7db30d722cbb431d4322770efc8b0b_91421_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle-8x8.png 1749w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/swizzle-8x8_hu6a7db30d722cbb431d4322770efc8b0b_91421_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/swizzle-8x8_hu6a7db30d722cbb431d4322770efc8b0b_91421_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/swizzle-8x8.png 1749w"
 loading="lazy"
 alt="8x8 swizzle pattern"
 class="gallery-image"
@@ -1491,7 +1491,7 @@ data-flex-grow="178"
 data-flex-basis="428px"
 >
 &lt;/p>
-&lt;p>We can now see that each element of each column ends up in a different bank. XOR interleaves our elements with this beautiful diagonal butterfly pattern, which you can see the best in the 32x32 grid.&lt;/p>
+&lt;p>We can now see that each element of each column ends up in a different bank. Any column access pattern now hits every 32 bank in its 128-byte glory. XOR interleaves our elements with this beautiful diagonal butterfly pattern, which you can see the best in the 32x32 grid.&lt;/p>
 &lt;blockquote>
 &lt;p>This XOR technique works great, but it&amp;rsquo;s not exactly trivial as to why it is the default option. Part of it seems like divine benevolence, which is probably true, but the short answer is that it&amp;rsquo;s fast, it works, and it&amp;rsquo;s an access pattern no normal kernel engineer would use in almost any situation. It isn&amp;rsquo;t foolproof and may need to be combined with padding or different access patterns; more complex multidimensional kernels typically employ even more complex swizzling patterns. This article shows in more detail why XOR works: &lt;a class="link" href="https://leimao.github.io/blog/CuTe-Swizzle/" target="_blank" rel="noopener"
 >https://leimao.github.io/blog/CuTe-Swizzle/&lt;/a>&lt;/p>
@@ -1625,10 +1625,10 @@ data-flex-basis="428px"
 &lt;/div>&lt;h3 id="v-smem-register">V: SMEM-&amp;gt;Register&lt;/h3>
 &lt;p>This is the step where we have to tread a bit carefully. V is sitting in SMEM in the same format as Q and K&amp;ndash;contiguous along &lt;code>kHeadDim&lt;/code>&amp;ndash;so we can&amp;rsquo;t just copy our SMEM-&amp;gt;register pipeline from earlier. This part is a bit confusing, so let&amp;rsquo;s visualize the problem first:&lt;/p>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_v_layout.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_v_layout.png"
 width="1920"
 height="1080"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_v_layout_hu0ed971fc0e6f32098603b2d6f2c28536_106126_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_v_layout_hu0ed971fc0e6f32098603b2d6f2c28536_106126_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_v_layout.png 1920w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_v_layout_hu0ed971fc0e6f32098603b2d6f2c28536_106126_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_v_layout_hu0ed971fc0e6f32098603b2d6f2c28536_106126_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_v_layout.png 1920w"
 loading="lazy"
 alt="SMEM physical layout for our MMAs. Each block is a tile."
 class="gallery-image"
@@ -1648,10 +1648,10 @@ data-flex-basis="426px"
 &lt;/blockquote>
 &lt;p>The &lt;code>LDSM_T&lt;/code> instruction is slightly different because the contiguous data is meant to be transposed before hitting the registers. In the &lt;a class="link" href="#tiled-mma" >thread layout diagram&lt;/a> from earlier, we see how each thread holds its data in two halfs, each packed into one 32-bit register. During the &lt;code>LDSM_N&lt;/code> instruction, it can split the 128 bits (8 halfs) into 4 32-bit chunks directly, since the two fp16s are contiguous. However, for the transposed view, two contiguous fp16s no longer belong to the same thread&amp;rsquo;s register. One fp16 in a 32-bit chunk goes to half of one register and the other goes to the half of another&amp;rsquo;s to fit the MMA Atom&amp;rsquo;s expectation:&lt;/p>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/ldsm_reg.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/ldsm_reg.png"
 width="2340"
 height="1312"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/ldsm_reg_hu5c1a81e20100c08caf0f5fe4f1c1f005_185553_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/ldsm_reg_hu5c1a81e20100c08caf0f5fe4f1c1f005_185553_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/ldsm_reg_hu5c1a81e20100c08caf0f5fe4f1c1f005_185553_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/ldsm_reg.png 2340w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/ldsm_reg_hu5c1a81e20100c08caf0f5fe4f1c1f005_185553_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/ldsm_reg_hu5c1a81e20100c08caf0f5fe4f1c1f005_185553_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/ldsm_reg_hu5c1a81e20100c08caf0f5fe4f1c1f005_185553_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/ldsm_reg.png 2340w"
 loading="lazy"
 alt="LDSM_N vs. LDSM_T SMEM-&amp;gt;register movement following the 16x8x16 MMA atom layout."
 class="gallery-image"
@@ -1671,10 +1671,10 @@ data-flex-basis="428px"
 &lt;/div>&lt;h4 id="v-smem-partition">V SMEM Partition&lt;/h4>
 &lt;p>The tiled MMA already handles the tiling strategy for our SMEM copy, but we have to transpose the &lt;code>sV&lt;/code> layout to match our new transposed atom and fit our tiling strategy from the &lt;a class="link" href="#v-smem-register" >visualization&lt;/a>. If we tiled &lt;code>sV&lt;/code> as-is, the atom tile and each thread tile would grab the wrong &amp;ldquo;next block&amp;rdquo; of SMEM:&lt;/p>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/v_tile.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/v_tile.png"
 width="2342"
 height="1246"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/v_tile_hu17bc38c7333ce895cd68441321bdfb02_211033_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/v_tile_hu17bc38c7333ce895cd68441321bdfb02_211033_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/v_tile_hu17bc38c7333ce895cd68441321bdfb02_211033_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/v_tile.png 2342w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/v_tile_hu17bc38c7333ce895cd68441321bdfb02_211033_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/v_tile_hu17bc38c7333ce895cd68441321bdfb02_211033_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/v_tile_hu17bc38c7333ce895cd68441321bdfb02_211033_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/v_tile.png 2342w"
 loading="lazy"
 alt="Thread tiling strategy on sV as-is. It grabs the next 128 bits along kHeadDim instead of along kBlockN. Note the actual SMEM is swizzled."
 class="gallery-image"
@@ -1839,10 +1839,10 @@ data-flex-basis="451px"
 &lt;/div>&lt;p>These are the same constants from &lt;a class="link" href="#kblocksmem" >&lt;code>kBlockSmem&lt;/code>&lt;/a>. The hdim=32/96 path uses &lt;code>Swizzle&amp;lt;2,3,3&amp;gt;&lt;/code> instead of &lt;code>&amp;lt;3,3,3&amp;gt;&lt;/code> because the SMEM row is only 32 halfs wide &amp;ndash; 4 columns per 128-bit load, two rows per bit-mask row &amp;ndash; enough to clear conflicts without the wider permutation.&lt;/p>
 &lt;p>However, we can notice that our row and column bits S and B are no longer adjacent:&lt;/p>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle_233_333.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/swizzle_233_333.png"
 width="2154"
 height="1208"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle_233_333_hu7849fed29fd6961eacfe8b04e97fb1a3_149018_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle_233_333_hu7849fed29fd6961eacfe8b04e97fb1a3_149018_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle_233_333_hu7849fed29fd6961eacfe8b04e97fb1a3_149018_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/swizzle_233_333.png 2154w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/swizzle_233_333_hu7849fed29fd6961eacfe8b04e97fb1a3_149018_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/swizzle_233_333_hu7849fed29fd6961eacfe8b04e97fb1a3_149018_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/swizzle_233_333_hu7849fed29fd6961eacfe8b04e97fb1a3_149018_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/swizzle_233_333.png 2154w"
 loading="lazy"
 alt="Swizzle bit masks for &amp;lt;3,3,3&amp;gt; and &amp;lt;2,3,3&amp;gt;."
 class="gallery-image"
@@ -1852,10 +1852,10 @@ data-flex-basis="427px"
 &lt;/p>
 &lt;p>For the &lt;code>Swizzle&amp;lt;2, 3, 3&amp;gt;&lt;/code> pattern, two rows $2n, 2n+1$ map to the same &amp;ldquo;row&amp;rdquo; since bank conflicts cycle every 64 halfs. It preserves the 5th offset bit so the swizzling only permutes the blocks within each true SMEM row. When we print out the resulting layout for &lt;code>sQ&lt;/code> and &lt;code>sVt&lt;/code>, we begin to understand:&lt;/p>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/sk_svt_layout.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/sk_svt_layout.png"
 width="2330"
 height="1026"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/sk_svt_layout_hu9cb3d163ccec2f4856d73fbd4fd288ea_337383_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/sk_svt_layout_hu9cb3d163ccec2f4856d73fbd4fd288ea_337383_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/sk_svt_layout_hu9cb3d163ccec2f4856d73fbd4fd288ea_337383_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/sk_svt_layout.png 2330w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/sk_svt_layout_hu9cb3d163ccec2f4856d73fbd4fd288ea_337383_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/sk_svt_layout_hu9cb3d163ccec2f4856d73fbd4fd288ea_337383_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/sk_svt_layout_hu9cb3d163ccec2f4856d73fbd4fd288ea_337383_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/sk_svt_layout.png 2330w"
 loading="lazy"
 alt="Layout of sK and sVt, kHeadDim=32, Swizzle&amp;lt;2,3,3&amp;gt;."
 class="gallery-image"
@@ -1920,10 +1920,10 @@ so this allocates the 0th mode with LayoutLeft regardless of the reference layou
 &lt;/div>
 &lt;/div>&lt;p>Yeah, me neither. For &lt;code>kBlockKSmem=32&lt;/code>, we said that &lt;code>B=2&lt;/code> because there are only four 8-half columns per row (2 bits). But does it have to be? Physical SMEM is just L1 cache and has no concept of a layout&amp;ndash;that&amp;rsquo;s purely software. We can simply treat each even-odd row pair as one 64-half row by setting &lt;code>kSwizzle=3&lt;/code>. Our &lt;code>B&lt;/code> bitmask just treats the underlying SMEM as if it were 64 wide again. Just like before, each pseudo-row is conflict-free and the tiled layout still extends 8 rows deep for our thread copy. I scratched my head for a while thinking that this would fix all the shape problems from earlier but break some access pattern somewhere else. Like a good engineer, I simply changed &lt;code>kSwizzle=3&lt;/code> in my code and tested it&amp;hellip;and&lt;/p>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/tests_pass.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/tests_pass.png"
 width="243"
 height="208"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/tests_pass.png 243w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/tests_pass.png 243w"
 loading="lazy"
 alt="Testing passed."
 class="gallery-image"
@@ -1937,9 +1937,9 @@ data-flex-basis="280px"
 &lt;ol>
 &lt;li>Add no-swizzle versions for Q and K as well. This is the most clear about what &lt;code>partition_fragment&lt;/code> is supposed to care about&amp;ndash;the unswizzled shape. It might read as a requirement, which it is not, but it is the most direct with its intention.&lt;/li>
 &lt;li>Remove &lt;code>sVtNoSwizzle&lt;/code>. It&amp;rsquo;s not strictly necessary, and it introduces the underlying assumptions that we now know don&amp;rsquo;t exist. I assume it was added because a debug print statement showed that the V fragment had a strange shape, which may cause confusion to developers.&lt;/li>
-&lt;li>Change the swizzle pattern to &lt;code>Swizzle&amp;lt;3,3,3&amp;gt;&lt;/code> for all relevant hdims. We can pair this with 2., which fully removes any shape inconsistencies. The swizzle pattern doesn&amp;rsquo;t match the physical SMEM layout at &lt;code>hdim=32,96&lt;/code>, but to be fair, neither using &lt;code>kBlockKSmem=64&lt;/code> for &lt;code>hdim=128&lt;/code>.&lt;/li>
+&lt;li>Change the swizzle pattern to &lt;code>Swizzle&amp;lt;3,3,3&amp;gt;&lt;/code> for all relevant hdims. We can pair this with 2., which fully removes any shape inconsistencies. The swizzle pattern doesn&amp;rsquo;t match the physical SMEM layout at &lt;code>hdim=32,96&lt;/code>, but to be fair, neither does using &lt;code>kBlockKSmem=64&lt;/code> for &lt;code>hdim=128&lt;/code>.&lt;/li>
 &lt;/ol>
-&lt;p>The choice is ultimately up to you. I like number 3 since its the simplest and cause no shape inconsistencies, which is what I will use below. Let&amp;rsquo;s refactor the code snippet we introduced in this subsection:&lt;/p>
+&lt;p>The choice is ultimately up to you. I like number 3 since it&amp;rsquo;s the simplest and causes no shape inconsistencies, which is what I will use below. Let&amp;rsquo;s refactor the code snippet we introduced in this subsection:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -1950,7 +1950,6 @@ data-flex-basis="280px"
 &lt;/span>&lt;span class="lnt">6
 &lt;/span>&lt;span class="lnt">7
 &lt;/span>&lt;span class="lnt">8
-&lt;/span>&lt;span class="lnt">9
 &lt;/span>&lt;/code>&lt;/pre>&lt;/td>
 &lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">static&lt;/span> &lt;span class="k">constexpr&lt;/span> &lt;span class="kt">int&lt;/span> &lt;span class="n">kBlockKSmem&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">kHeadDim&lt;/span> &lt;span class="o">%&lt;/span> &lt;span class="mi">64&lt;/span> &lt;span class="o">==&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">?&lt;/span> &lt;span class="mi">64&lt;/span> &lt;span class="o">:&lt;/span> &lt;span class="mi">32&lt;/span>&lt;span class="p">;&lt;/span>
@@ -1958,7 +1957,6 @@ data-flex-basis="280px"
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">using&lt;/span> &lt;span class="n">SmemLayoutAtomQ&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="k">decltype&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">composition&lt;/span>&lt;span class="p">(&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Swizzle&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">3&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">{},&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Shape&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">_8&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockKSmem&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">Stride&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="n">kBlockKSmem&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_1&lt;/span>&lt;span class="o">&amp;gt;&amp;gt;&lt;/span>&lt;span class="p">{}));&lt;/span>
-&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sK&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">()&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sK&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">SmemLayoutKV&lt;/span>&lt;span class="p">{});&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">...&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">sVt&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_tensor&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sV&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">data&lt;/span>&lt;span class="p">(),&lt;/span> &lt;span class="n">SmemLayoutVt&lt;/span>&lt;span class="p">{});&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">Tensor&lt;/span> &lt;span class="n">tOrV&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">thr_mma&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">partition_fragment_B&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">sVt&lt;/span>&lt;span class="p">);&lt;/span>
@@ -1971,7 +1969,7 @@ data-flex-basis="280px"
 &lt;p>At this point, we&amp;rsquo;ve more than covered &lt;em>how&lt;/em> to copy. Now, let&amp;rsquo;s explain &lt;em>when&lt;/em> to copy.&lt;/p>
 &lt;p>We covered much of the strategy all the way back at the &lt;a class="link" href="#the-kernel-outline" >beginning&lt;/a>, so feel free to take a moment to review.&lt;/p>
 &lt;h3 id="lets-assume-the-fa2-people-did-the-work">Let&amp;rsquo;s Assume the FA2 People Did the Work&lt;/h3>
-&lt;p>There are a dozen ways to schedule the async loads. You could load a K tile at point A or B in the code, a V tile at C or D, or pipeline a bunch of them altogether. We have some heuristics that tell us when to do what, but every decision had to be empiraclly proven at some point. You might ask, why did they do the K-tile load here instead of there, and the answer is I&amp;rsquo;m not sure. Either the choice isn&amp;rsquo;t that important to begin with or there was some specific advantage of doing it that way. We will assume Dao and his team did the work instead of questioning every decision. In practice, you have to test your code even if the theory seems to make sense. Feel free to move things around or try your own strategies &amp;ndash; we&amp;rsquo;re just going to go with it as-is to save us the headache.&lt;/p>
+&lt;p>There are a dozen ways to schedule the async loads. K tile here or there, V tile pipelined two-deep, fences merged or split. We have some heuristics that tell us when to do what, but every decision had to be empirically proven at some point. You might ask, why did they specifically choose &lt;em>this&lt;/em>, and the answer is probably I&amp;rsquo;m not sure. Either the choice isn&amp;rsquo;t that important to begin with or there was some specific advantage of doing it that way. We will assume Dao and his team did the work instead of questioning every decision. If you want to chase the rest down with &lt;code>ncu&lt;/code>, be my guest.&lt;/p>
 &lt;h3 id="first-up-q-tile-and-k-tile-prefetch">First Up: Q-Tile and K-Tile Prefetch&lt;/h3>
 &lt;p>The Q tile remains the same throughout the entire thread block, so it&amp;rsquo;s arguably the one that benefits the least from the async copy. We can still overlap a small amount of compute before our main loop. At the same time, we can fetch our 0th K-tile to prepare for the immediate $QK^T$ once we hit the main loop.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
@@ -1993,10 +1991,22 @@ data-flex-basis="280px"
 &lt;p>&lt;strong>Note&lt;/strong>: &lt;code>cp_async_wait&amp;lt;N&amp;gt;&lt;/code> only tells us the threads have finished loading, not that they&amp;rsquo;re necessarily at the same point. Most of the time this means you have to manually call &lt;code>__syncthreads()&lt;/code> since the threads that load the data are not usually the only threads that end up touching the data.&lt;/p>
 &lt;/blockquote>
 &lt;p>This fence-wait pattern is extremely common for software pipelining. For example, each loop iteration we could fetch the next 10 K blocks if we had enough compute to overlap the loads. In most production GEMM kernels, each loop typically fetches two or three blocks in advance. At each loop, you might call &lt;code>wait&amp;lt;1&amp;gt;&lt;/code> to wait for the latest block, allowing you to run multiple loop iterations without stalling instead of waiting for the next block each time.&lt;/p>
-&lt;p>FA2 only uses a one-block prefetch. At each iteration, we only prefetch the immediate next block. The three main reasons are register pressure, SMEM limits, and tile sizing. FA2 gets quite close to the register limit per thread since each one has to store Q, K, V, the accumulator fragment, softmax statistics, and giant unrolled loops. Adding more memory address tracking and heavier loops pushes near the register ceiling. Furthermore, each prefetch means adding an extra tile buffer in SMEM. Our tiles are up to size $128\times 128$, which have a huge SMEM footprint. Doubling or tripling up these buffers would likely crush occupancy. But, as we established, &lt;a class="link" href="#lets-assume-the-fa2-people-did-the-work" >let&amp;rsquo;s Assume the FA2 People Did the Work&lt;/a>.&lt;/p>
+&lt;p>FA2 only uses a one-block prefetch. At each iteration, we only prefetch the immediate next block. The three main reasons are register pressure, SMEM limits, and tile sizing. FA2 gets quite close to the register limit per thread since each one has to store Q, K, V, the accumulator fragment, softmax statistics, and giant unrolled loops. Adding more memory address tracking and heavier loops pushes near the register ceiling. Furthermore, each prefetch means adding an extra tile buffer in SMEM. Our tiles are up to size $128\times 128$, which have a huge SMEM footprint. Doubling or tripling up these buffers would likely crush occupancy.&lt;/p>
 &lt;h3 id="main-loop">Main Loop&lt;/h3>
 &lt;p>In our main loop, we prefetch K and V every iteration to keep the next blocks coming in while we do our MMAs and softmax. We issue the K prefetch during softmax and the $SV$ GEMM, and the V prefetch during the $QK^T$ to maximize our overlap. At the start of each iteration, we wait on our K-tile. Once it&amp;rsquo;s loaded, we issue our V prefetch and immediately begin our MMA so the V-copy overlaps this compute period. Then we wait on the V-tile. Once it&amp;rsquo;s loaded, we issue our K copy and immediately begin our V GEMM.&lt;/p>
-&lt;p>FA2 uses the simplest fence-wait strategy possible. Issue one copy and fully wait on that to load before issuing the next async copy. This keeps the logic the easiest as we always know which block is ready, and we&amp;rsquo;ll assume this allows it to manually control and optimize the load/compute overlap.&lt;/p>
+&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/main_loop.png"
+width="2360"
+height="1312"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/main_loop_hu2343f0e7a0324f5ede8f0b989a56f96a_217582_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/main_loop_hu2343f0e7a0324f5ede8f0b989a56f96a_217582_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/main_loop_hu2343f0e7a0324f5ede8f0b989a56f96a_217582_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/main_loop.png 2360w"
+loading="lazy"
+alt="Main Loop Flow"
+class="gallery-image"
+data-flex-grow="179"
+data-flex-basis="431px"
+>
+&lt;/p>
+&lt;p>FA2 uses the simplest fence-wait strategy possible. Issue one copy and fully wait on that to load before issuing the next async copy. This keeps the logic the easiest, as we always know which block is ready, and we&amp;rsquo;ll assume this allows it to manually control and optimize the load/compute overlap.&lt;/p>
 &lt;p>The main loop iterates over all K, V tiles, each spanning the N dimension (see &lt;a class="link" href="#v-smem-register" >the SMEM tiled layout&lt;/a>). We can simply write an unrolled for loop that iterates over the &lt;code>seqlen_k / kBlockN&lt;/code> dimensions. We can begin to fill in our strategy based on what we described above:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
@@ -2072,7 +2082,7 @@ data-flex-basis="280px"
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="p">}&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>The Q tile and K tile 0 load are in the same fence, and all subsequent K, V loads are under their own fence. Note how we issue the current loop&amp;rsquo;s V-tile every iteration and the &lt;em>next&lt;/em> K-tile every iteration, since next K copy is fetched while the current V work is going on. As before, you might wonder why we wait on K before the softmax instead of after or whatnot &amp;ndash; remember, &lt;a class="link" href="#lets-assume-the-fa2-people-did-the-work" >let&amp;rsquo;s assume they did the work&lt;/a>. You are welcome to move things around and test + benchmark it.&lt;/p>
+&lt;/div>&lt;p>The Q tile and K tile 0 load are in the same fence, and all subsequent K, V loads are under their own fence. Note how we issue the current loop&amp;rsquo;s V-tile every iteration and the &lt;em>next&lt;/em> K-tile every iteration, since next K copy is fetched while the current V work is going on. As before, you might wonder why we issue the K-copy before the softmax instead of after or whatnot &amp;ndash; I assume this location maximizes overlap before K is needed again, but I&amp;rsquo;m not sure. I guess, &lt;a class="link" href="#lets-assume-the-fa2-people-did-the-work" >let&amp;rsquo;s assume they did the work&lt;/a>. You are welcome to move things around and test + benchmark it to verify.&lt;/p>
 &lt;p>We&amp;rsquo;ve finally arrived at the end of our Q, K, V copy journey, and you&amp;rsquo;ll see how these simple things required a lot of work and understanding. Next, we&amp;rsquo;re going to cover the online softmax and $SV$ and fill them into the main loop. Then, our final step will be more copying &amp;ndash; but this time storing the output from our fragments back into GMEM.&lt;/p>
 &lt;h1 id="online-softmax">Online Softmax&lt;/h1>
 &lt;blockquote>
@@ -2130,6 +2140,18 @@ data-flex-basis="280px"
 &lt;/div>&lt;p>So what actually goes into computing the max and the sum?&lt;/p>
 &lt;h2 id="row-reduce">Row Reduce&lt;/h2>
 &lt;p>This is the moment where the &lt;a class="link" href="#tiled-mma" >warp-per-row tiling&lt;/a> pays off. Each warp owns 16 rows of its MMA tile, fully&amp;ndash;no row is split across warps. Therefore, the per-row max and sum reductions stay inside a warp and resolve via &lt;strong>warp reduction&lt;/strong>, &amp;ldquo;a highly efficient CUDA parallel reduction technique that aggregates data across 32 threads within a single GPU warp.&amp;rdquo;&lt;sup id="fnref:8">&lt;a href="#fn:8" class="footnote-ref" role="doc-noteref">8&lt;/a>&lt;/sup> CUDA provides warp primitives such as &lt;code>__shfl_down_sync()&lt;/code> and &lt;code>__shfl_xor_sync()&lt;/code>, which shuffle data across threads in a warp without any load/stores or shared-memory staging. Zero memory latency, zero &lt;code>__syncthreads()&lt;/code>, and our max/sum is pretty much free.&lt;/p>
+&lt;p>
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/xor.png"
+width="2112"
+height="1632"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/xor_hu631af095a94c75ca8e2dcd7248099ffd_220459_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/xor_hu631af095a94c75ca8e2dcd7248099ffd_220459_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/xor_hu631af095a94c75ca8e2dcd7248099ffd_220459_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/xor.png 2112w"
+loading="lazy"
+alt="XOR shuffle pattern. Thanks to Hyunsung Lee&amp;rsquo;s Blog for this graphic"
+class="gallery-image"
+data-flex-grow="129"
+data-flex-basis="310px"
+>
+&lt;/p>
 &lt;blockquote>
 &lt;p>&lt;strong>Note&lt;/strong>: Warp reduction is the primary and fastest way to perform intra-warp communication.&lt;/p>
 &lt;/blockquote>
@@ -2137,7 +2159,7 @@ data-flex-basis="280px"
 &lt;h3 id="thread-reduce">Thread Reduce&lt;/h3>
 &lt;p>Recall that every thread in a 16x8 MMA output fragment holds $16\cdot 8 / 32=4$ output values. To find the thread&amp;rsquo;s row max or row sum, we have to find the max/sum of all the elements the thread owns per row, across all the rows the thread touches. If you&amp;rsquo;re confused, don&amp;rsquo;t worry. It will make sense as we re-examine the &lt;a class="link" href="#tiled-mma" >MMA Atom&amp;rsquo;s thread layout&lt;/a> from earlier.&lt;/p>
 &lt;p>Let&amp;rsquo;s look at the bottom right output fragment C this time and zoom in on thread 0&amp;rsquo;s values. We can see it owns output elements &lt;code>(0, 0), (0, 1), (8, 0), (8, 1)&lt;/code>. If we examine all the other threads, we see that they each own 4 elements across two rows. Let&amp;rsquo;s clarify the math a bit:&lt;/p>
-&lt;p>From the &lt;a class="link" href="#mma-shape" >MMA Shape&lt;/a> section, the C-fragment has shape &lt;code>((2, 2), MMA_M, MMA_N)&lt;/code> where &lt;code>MMA_M = kBlockM / 16&lt;/code> and &lt;code>MMA_N = kBlockN / 8&lt;/code>. The &lt;code>(2, 2)&lt;/code> is each thread&amp;rsquo;s 4 values per tile (2 rows, 2 columns) so each thread&amp;rsquo;s values span &lt;code>MMA_M * 2&lt;/code> rows and &lt;code>MMA_N * 2&lt;/code> columns total.&lt;/p>
+&lt;p>From the &lt;a class="link" href="#mma-shape" >MMA Shape&lt;/a> section, the C-fragment has shape &lt;code>((2, 2), MMA_M, MMA_N)&lt;/code> where &lt;code>MMA_M = kBlockM / (16*kNWarps)&lt;/code> and &lt;code>MMA_N = kBlockN / 8&lt;/code>. The &lt;code>(2, 2)&lt;/code> is each thread&amp;rsquo;s 4 values per tile (2 rows, 2 columns) so each thread&amp;rsquo;s values span &lt;code>MMA_M * 2&lt;/code> rows and &lt;code>MMA_N * 2&lt;/code> columns total.&lt;/p>
 &lt;p>To make the reduction loop look like ordinary 2D code, Dao reshapes this hierarchical fragment into a flat row-major &lt;code>(2*MMA_M, 2*MMA_N)&lt;/code> view. Since the block sizes are static, the reshape is free. It&amp;rsquo;s purely a code-quality trick; the resulting PTX is identical to iterating over the raw MMA shape.&lt;/p>
 &lt;h3 id="fragment-reshape">Fragment Reshape&lt;/h3>
 &lt;blockquote>
@@ -2147,10 +2169,10 @@ data-flex-basis="280px"
 >&lt;code>scratch/fragment_reshape.cu&lt;/code>&lt;/a>&lt;/p>
 &lt;/blockquote>
 &lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/layout_row_col.png"
 width="2310"
 height="1270"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col_hu75a85792dfe651d98ea8fc8269578250_161303_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col_hu75a85792dfe651d98ea8fc8269578250_161303_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col_hu75a85792dfe651d98ea8fc8269578250_161303_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-but-the-actual-details/layout_row_col.png 2310w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/layout_row_col_hu75a85792dfe651d98ea8fc8269578250_161303_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/layout_row_col_hu75a85792dfe651d98ea8fc8269578250_161303_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/layout_row_col_hu75a85792dfe651d98ea8fc8269578250_161303_2048x0_resize_lanczos_3.png 2048w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/layout_row_col.png 2310w"
 loading="lazy"
 alt="Visualization of reshape from left, ((2,2), MMA_M, MMA_N), to right, row x column format: (2xMMA_M, 2xMMA_N)."
 class="gallery-image"
@@ -2187,10 +2209,10 @@ data-flex-basis="436px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;p>
-&lt;img src="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout.png"
+&lt;img src="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_thread_value_layout.png"
 width="1312"
 height="1314"
-srcset="https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout_huf5ef5f6c8af0c31e3f8ca5d56f73a263_186770_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout_huf5ef5f6c8af0c31e3f8ca5d56f73a263_186770_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-but-the-actual-details/mma_thread_value_layout.png 1312w"
+srcset="https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_thread_value_layout_huf5ef5f6c8af0c31e3f8ca5d56f73a263_186770_480x0_resize_lanczos_3.png 480w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_thread_value_layout_huf5ef5f6c8af0c31e3f8ca5d56f73a263_186770_1024x0_resize_lanczos_3.png 1024w, https://blog.echen.io/p/flashattention-2-in-cute-from-scratch/mma_thread_value_layout.png 1312w"
 loading="lazy"
 alt="MMA C fragment thread value layout. The row labels are the thread numbers and the columns are the thread values. I truncated it at threads 0-7 for brevity, but the full print shows all 32 threads. There are 8 thread values instead of 4 because this is the full output C tile which is two 16x8 atoms to form the 16x16 output; this is equivalent to the values in two adjacent N-tiles in acc_s."
 class="gallery-image"
@@ -2668,7 +2690,7 @@ data-flex-basis="239px"
 &lt;h1 id="putting-it-all-together">Putting It All Together&lt;/h1>
 &lt;p>Let&amp;rsquo;s do some bookkeeping and see where the softmax call goes and finally implement the $O=SV$ GEMM.&lt;/p>
 &lt;h2 id="creating-output-fragment-acc_o-and-softmax-struct">Creating Output Fragment &lt;code>acc_o&lt;/code> and Softmax Struct&lt;/h2>
-&lt;p>Before the main loop, we first create our output fragment &lt;code>acc_o&lt;/code>, which is the actual output we rescale in Softmax and write to our output tensor. It has shape &lt;code>(kBlockM, kHeadDim)&lt;/code> and is a C-fragment just like &lt;code>acc_s&lt;/code>. Similary, we initialize it with 0.&lt;/p>
+&lt;p>Before the main loop, we first create our output fragment &lt;code>acc_o&lt;/code>, which is the actual output we rescale in Softmax and write to our output tensor. It has shape &lt;code>(kBlockM, kHeadDim)&lt;/code> and is a C-fragment just like &lt;code>acc_s&lt;/code>. Similarly, we initialize it with 0.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -2699,7 +2721,7 @@ data-flex-basis="239px"
 &lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="p">...&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">clear&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">acc_o&lt;/span>&lt;span class="p">);&lt;/span>
-&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// initialize softmax, acc_s: (MMA, MMA_M, MMA_HEAD_DIM)
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// initialize softmax, acc_o: (MMA, MMA_M, MMA_HEAD_DIM)
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">// rows is 2*MMA_M dim, 2 rows per thread for each MMA tile
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">FLASH&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">Softmax&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">2&lt;/span> &lt;span class="o">*&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">acc_o&lt;/span>&lt;span class="p">)&lt;/span>&lt;span class="o">&amp;gt;&lt;/span> &lt;span class="n">softmax&lt;/span>&lt;span class="p">;&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
@@ -2709,7 +2731,7 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;h2 id="the-softmax-rescale-call">The Softmax Rescale Call&lt;/h2>
-&lt;p>As described back in [TODO], The softmax rescale right after $QK^T$/V-block sync/K-block async issue in our main loop. We create an if branch to handle whether the current block is the first block or not.&lt;/p>
+&lt;p>As described back in &lt;a class="link" href="#main-loop" >the main loop&lt;/a>, the softmax rescale happens right after $QK^T$, the V-block sync, and the K-block async issue. We create an if branch to handle whether the current block is the first block or not.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
@@ -2760,13 +2782,13 @@ data-flex-basis="239px"
 >&lt;code>utils.cuh&lt;/code>&lt;/a> (&lt;code>gemm_rs&lt;/code>), &lt;code>rs&lt;/code>: right side only.&lt;/p>
 &lt;/blockquote>
 &lt;p>Next comes $SV$. This GEMM is almost exactly the same as the one before, except that S is already in the registers. This means we only need to deal with V SMEM copies in the GEMM loop this time.&lt;/p>
-&lt;p>However, even though &lt;code>acc_S&lt;/code> is in registers, we have to do two transformations before our GEMM:&lt;/p>
+&lt;p>However, even though &lt;code>acc_s&lt;/code> is in registers, we have to do two transformations before our GEMM:&lt;/p>
 &lt;ol>
-&lt;li>It is currently an fp32 accumulator. We have to comvert it back to fp16 before the MMA.&lt;/li>
+&lt;li>It is currently an fp32 accumulator. We have to convert it back to fp16 before the MMA.&lt;/li>
 &lt;li>&lt;code>acc_s&lt;/code> is also currently stored as a &lt;code>fragment_C&lt;/code> since it was an accumulator for $QK^T$. We need to reshape it as a &lt;code>fragment_A&lt;/code> to pass it to the $SV$ GEMM. Therefore, we will do a frag-C to frag-A reshape, similar to our &lt;a class="link" href="#fragment-reshape" >row-col reshape util&lt;/a> for Softmax.&lt;/li>
 &lt;/ol>
 &lt;h3 id="fp32-fp16-conversion">FP32-&amp;gt;FP16 Conversion&lt;/h3>
-&lt;p>CUTLASS provides us the numerical conversion operator &lt;code>cutlass::NumericArrayConverter&amp;lt;To_type, From_type, numel&amp;gt;&lt;/code> to help us do this conversion. This function expects the tensor to be &amp;ldquo;contiguous&amp;rdquo; (which would a true requirement for GMEM/SMEM) &amp;ndash; but as we learned, contiguity doesn&amp;rsquo;t exist for registers. Therefore, we have to force our tensor into the standard column-major layout for this op to work:&lt;/p>
+&lt;p>CUTLASS provides us the numerical conversion operator &lt;code>cutlass::NumericArrayConverter&amp;lt;To_type, From_type, numel&amp;gt;&lt;/code> to help us do this conversion. This function expects the tensor to be &amp;ldquo;contiguous&amp;rdquo; (which would be a true requirement for GMEM/SMEM) &amp;ndash; but as we learned, contiguity doesn&amp;rsquo;t exist for registers. Therefore, we have to force our tensor into the standard column-major layout for this op to work:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
@@ -2813,7 +2835,7 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">C fragment layout: ((_2,_2),_1,_1):((_1,_2),_0,_0)
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>The second and third dimensions here are &lt;code>MMA_M&lt;/code> and &lt;code>MMA_N&lt;/code> (tile width/height dividing into M, N). Since the $SV$ MMA concatenates along N, we just need to combine each 2 N block pair.&lt;/p>
+&lt;/div>&lt;p>The second and third dimensions here are &lt;code>MMA_M&lt;/code> and &lt;code>MMA_N&lt;/code> (tile width/height dividing into M, N). Since the $SV$ MMA concatenates along N, we just need to combine each pair of N blocks.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -2845,11 +2867,17 @@ data-flex-basis="239px"
 &lt;/span>&lt;span class="lnt"> 8
 &lt;/span>&lt;span class="lnt"> 9
 &lt;/span>&lt;span class="lnt">10
+&lt;/span>&lt;span class="lnt">11
+&lt;/span>&lt;span class="lnt">12
+&lt;/span>&lt;span class="lnt">13
 &lt;/span>&lt;/code>&lt;/pre>&lt;/td>
 &lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code class="language-cpp" data-lang="cpp">&lt;span class="line">&lt;span class="cl">&lt;span class="k">template&lt;/span> &lt;span class="o">&amp;lt;&lt;/span>&lt;span class="k">typename&lt;/span> &lt;span class="n">Layout&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">__forceinline__&lt;/span> &lt;span class="n">__device__&lt;/span> &lt;span class="k">auto&lt;/span>
-&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">convert_c_frag_to_a_frag&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Layout&lt;/span> &lt;span class="k">const&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">s&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="n">convert_c_frag_to_a_frag&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Layout&lt;/span> &lt;span class="k">const&lt;/span> &lt;span class="o">&amp;amp;&lt;/span>&lt;span class="n">acc_layout&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">auto&lt;/span> &lt;span class="n">s&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">acc_layout&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">shape&lt;/span>&lt;span class="p">();&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">auto&lt;/span> &lt;span class="n">stride&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">acc_layout&lt;/span>&lt;span class="p">.&lt;/span>&lt;span class="n">stride&lt;/span>&lt;span class="p">();&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">auto&lt;/span> &lt;span class="n">shape_n&lt;/span> &lt;span class="o">=&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_shape&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">get&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">s&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">_2&lt;/span>&lt;span class="p">{}),&lt;/span> &lt;span class="n">get&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">1&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">s&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">get&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">s&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">/&lt;/span> &lt;span class="n">_2&lt;/span>&lt;span class="p">{});&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="k">auto&lt;/span> &lt;span class="n">stride_n&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">get&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">0&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">stride&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">get&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">stride&lt;/span>&lt;span class="p">)),&lt;/span>
@@ -2859,7 +2887,7 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>This code looks pretty awful, but the logic is simple. Similar to the row-col reshape, the FA2 source opts for some using &lt;code>logical_divide&lt;/code> along the N-axis, which is easier to read and accomplishes the same thing:&lt;/p>
+&lt;/div>&lt;p>This code looks pretty awful, but the logic is simple. Similar to the row-col reshape, the FA2 source opts to use &lt;code>logical_divide&lt;/code> along the N-axis, which is easier to read and accomplishes the same thing:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt">1
@@ -2883,7 +2911,7 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;h3 id="gemm-rs-loop">GEMM RS Loop&lt;/h3>
-&lt;p>All we need to do now is to is convert &lt;code>acc_s&lt;/code> and reshape it. Then, we can simply copy our old GEMM loop but remove the A-frag copy lines.&lt;/p>
+&lt;p>All we need to do now is convert &lt;code>acc_s&lt;/code> and reshape it. Then, we can simply copy our old GEMM loop but remove the A-frag copy lines.&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
 &lt;table class="lntable">&lt;tr>&lt;td class="lntd">
 &lt;pre tabindex="0" class="chroma">&lt;code>&lt;span class="lnt"> 1
@@ -2922,11 +2950,11 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">#pragma unroll
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="cp">&lt;/span>&lt;span class="k">for&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="kt">int&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="mi">0&lt;/span>&lt;span class="p">;&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tOrP&lt;/span>&lt;span class="p">);&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="o">++&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="c1">// prefetch next block
-&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">i&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tCrB&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">-&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
-&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">copy&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">smem_tiled_copy_B&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tOsVt&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">tXrV&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">));&lt;/span>
+&lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span> &lt;span class="k">if&lt;/span> &lt;span class="p">(&lt;/span>&lt;span class="n">i&lt;/span> &lt;span class="o">&amp;lt;&lt;/span> &lt;span class="n">size&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">2&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tCrV&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="o">-&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">)&lt;/span> &lt;span class="p">{&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">copy&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">smem_tiled_copy_V&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tOsVt&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">tXrV&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">i&lt;/span> &lt;span class="o">+&lt;/span> &lt;span class="mi">1&lt;/span>&lt;span class="p">));&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="p">}&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">
-&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">gemm&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tiled_mma&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tOrP&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">tXrV&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">acc&lt;/span>&lt;span class="p">);&lt;/span>
+&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl"> &lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">gemm&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">tiled_mma&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tOrP&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">tXrV&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">_&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">i&lt;/span>&lt;span class="p">),&lt;/span> &lt;span class="n">acc_o&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
@@ -3146,9 +3174,9 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="c1">&lt;/span>&lt;span class="n">cute&lt;/span>&lt;span class="o">::&lt;/span>&lt;span class="n">copy&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">gmem_tiled_copy_O&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tOrO&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="n">tOgO&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>Voila! El Fin.&lt;/p>
+&lt;/div>&lt;p>OMG! We&amp;rsquo;re&amp;hellip;&lt;/p>
 &lt;h4 id="sync-threads">Sync Threads&lt;/h4>
-&lt;p>Haha, not quite yet. There&amp;rsquo;s a slight bug in our epilogue as-is. Between the register-&amp;gt;SMEM and SMEM-&amp;gt;GMEM copy, threads control different parts of SMEM. We set up async waits earlier, but since we&amp;rsquo;re synchronous for the O store, we simply have to call &lt;code>__syncthreads()&lt;/code> sometime between the two copy stages. The FA2 production code opts to put it right before the final two &lt;code>copy()&lt;/code> invocations to overlap the GMEM tiled copy setup with the register-&amp;gt;SMEM copy, but practically it probably doesn&amp;rsquo;t make much of a difference&amp;ndash;you can just put the sync right after the r-&amp;gt;S copy.&lt;/p>
+&lt;p>Not quite yet. We have one last dance. There&amp;rsquo;s a slight bug in our epilogue as-is. Between the register-&amp;gt;SMEM and SMEM-&amp;gt;GMEM copy, threads control different parts of SMEM. We set up async waits earlier, but since we&amp;rsquo;re synchronous for the O store, we simply have to call &lt;code>__syncthreads()&lt;/code> sometime between the two copy stages. The FA2 production code opts to put it right before the final two &lt;code>copy()&lt;/code> invocations to overlap the GMEM tiled copy setup with the register-&amp;gt;SMEM copy, but practically it probably doesn&amp;rsquo;t make much of a difference&amp;ndash;you can just put the sync right after the r-&amp;gt;S copy.&lt;/p>
 &lt;h1 id="plumbing-params-launch-dispatch-kernel-traits">Plumbing: Params, Launch, Dispatch, Kernel Traits&lt;/h1>
 &lt;blockquote>
 &lt;p>&lt;strong>Source:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash.h" target="_blank" rel="noopener"
@@ -3158,7 +3186,7 @@ data-flex-basis="239px"
 >&lt;code>flash_api.cu&lt;/code>&lt;/a>, &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/kernel_traits.cuh" target="_blank" rel="noopener"
 >&lt;code>kernel_traits.cuh&lt;/code>&lt;/a>&lt;/p>
 &lt;/blockquote>
-&lt;p>The kernel itself is done. We still have to deal with the typical CUDA dispatch to make it actually runnable. We&amp;rsquo;re going to speedrun the rest of these files since they are not relevant to the algorithm itself, but I&amp;rsquo;ll brielfy explain what remaining files we need before we can actually call FA2 from something like PyTorch. It&amp;rsquo;s not too important to comb through every line &amp;ndash; most of the time, you&amp;rsquo;ll just copy the boilerplate from some old kernel you made and modify some variables.&lt;/p>
+&lt;p>The kernel itself is done. We still have to deal with the typical CUDA dispatch to make it actually runnable. We&amp;rsquo;re going to speedrun the rest of these files since they are not relevant to the algorithm itself, but I&amp;rsquo;ll briefly explain what remaining files we need before we can actually call FA2 from something like PyTorch. It&amp;rsquo;s not too important to comb through every line &amp;ndash; most of the time, you&amp;rsquo;ll just copy the boilerplate from some old kernel you made and modify some variables.&lt;/p>
 &lt;h2 id="kernel-traits">Kernel Traits&lt;/h2>
 &lt;p>As we mentioned in &lt;a class="link" href="#code-layout-the-repo" >the code layout section&lt;/a>, every tiled MMA, tiled copy, and layout is defined here. It&amp;rsquo;s the atomic backbone that we use for any operation in &lt;code>flash_fwd_kernel.h&lt;/code>. Anything we wrote with &lt;code>using&lt;/code> is simply defined here, as well as any constants. We combined the code together in blocks in this blog for reading purposes; in the actual kernel, any type references will look more like this:&lt;/p>
 &lt;div class="highlight">&lt;div class="chroma">
@@ -3212,7 +3240,7 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
 &lt;/div>&lt;ul>
-&lt;li>&lt;strong>&lt;code>__restrict__&lt;/code>&lt;/strong> tells the compiler the pointers don&amp;rsquo;t alias (no mem overlap), which lets it optimize more aggressively.&lt;/li>
+&lt;li>The &lt;strong>&lt;code>__restrict__&lt;/code>&lt;/strong> keyword tells the compiler that the pointers don&amp;rsquo;t alias/access the same memory, which lets it optimize the code more aggressively.&lt;/li>
 &lt;li>Strides are in # of elements, not bytes.&lt;/li>
 &lt;li>&lt;strong>&lt;code>scale_softmax_log2&lt;/code>&lt;/strong> is precomputed on the host so we don&amp;rsquo;t have to compute &lt;code>log2(e)&lt;/code> inside the kernel&amp;rsquo;s inner loop (see &lt;a class="link" href="#softmax_scale_log2-dont-forget-the-scaling-factor" >the softmax scaling section&lt;/a>).&lt;/li>
 &lt;/ul>
@@ -3272,7 +3300,7 @@ data-flex-basis="239px"
 &lt;li>&lt;strong>Grid shape.&lt;/strong> Two-dimensional: &lt;code>(num_m_blocks, batch * heads)&lt;/code>. The &lt;code>m_block&lt;/code> math is just a trick to compute &lt;code>ceil(seqlen_q / kBlockM)&lt;/code>; it&amp;rsquo;s overkill for us since we assume nice dims. The &lt;code>batch * heads&lt;/code> axis flattens the two independent batch and head dimensions into one &amp;ndash; the batch and head dims are completely independent so we can flatten them to make indexing simpler.&lt;/li>
 &lt;li>&lt;strong>We make &lt;code>m_block&lt;/code> the &lt;em>first&lt;/em> grid dimension.&lt;/strong> This puts adjacent CTAs/thread blocks along the Q-tile axis, which helps L2 cache reuse since Q blocks of the same batch/head use the same K, V. If we did it along batch/head every CTA is independent and your cache will cry.&lt;/li>
 &lt;li>&lt;strong>Block shape.&lt;/strong> &lt;code>kNThreads = kNWarps * 32&lt;/code> &amp;ndash; 128 threads for &lt;code>kNWarps = 4&lt;/code>. One thread block per Q-tile + fixed thread count.&lt;/li>
-&lt;li>&lt;strong>&lt;code>cudaFuncSetAttribute&lt;/code> for extended SMEM.&lt;/strong> Ampere CTAs get 48 KB of SMEM by default. Our kernel needs more (the Q + 2*KV SMEM buffer easily exceeds 48 KB at &lt;code>hdim=128&lt;/code> &amp;ndash; see &lt;code>kSmemSize&lt;/code> in &lt;code>kernel_traits.cuh&lt;/code>). We have to tell the GPU we&amp;rsquo;re not simpletons just working with little amounts of SMEM, we can ask for more by setting &lt;code>cudaFuncAttributeMaxDynamicSharedMemorySize&lt;/code>.&lt;/li>
+&lt;li>&lt;strong>&lt;code>cudaFuncSetAttribute&lt;/code> for extended SMEM.&lt;/strong> Ampere CTAs get 48 KB of SMEM by default. Our kernel needs more (the Q + 2*KV SMEM buffer easily exceeds 48 KB at &lt;code>hdim=128&lt;/code> &amp;ndash; see &lt;code>kSmemSize&lt;/code> in &lt;code>kernel_traits.cuh&lt;/code>). We have to tell the GPU we&amp;rsquo;re not simpletons working with tiny SMEM allocations; we ask for more by setting &lt;code>cudaFuncAttributeMaxDynamicSharedMemorySize&lt;/code>.&lt;/li>
 &lt;li>The three &lt;code>inline&lt;/code> wrappers exist purely to make &lt;code>flash_api.cu&lt;/code>&amp;rsquo;s dispatch readable in the stdout.&lt;/li>
 &lt;/ul>
 &lt;h2 id="per-config-instantiations">Per-config Instantiations&lt;/h2>
@@ -3369,8 +3397,7 @@ data-flex-basis="239px"
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="p">}&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>The interesting bits:&lt;/p>
-&lt;ul>
+&lt;/div>&lt;ul>
 &lt;li>&lt;strong>Output allocation happens on the host.&lt;/strong> &lt;code>torch::empty_like(q)&lt;/code> and &lt;code>torch::empty({...})&lt;/code> are called here, not in the kernel. The kernel just writes into a pre-allocated buffer.&lt;/li>
 &lt;li>&lt;strong>&lt;code>at::cuda::getCurrentCUDAStream()&lt;/code>&lt;/strong> gets the CUDA stream PyTorch is currently using. If your user has &lt;code>torch.cuda.stream(...)&lt;/code> set, your kernel runs on that stream and properly interleaves with everything else; if they don&amp;rsquo;t, you get the default stream. Use this and not &lt;code>cudaStreamDefault&lt;/code> &amp;ndash; the latter ignores user-set stream context and will make you cry.&lt;/li>
 &lt;li>&lt;strong>&lt;code>PYBIND11_MODULE&lt;/code>&lt;/strong> is the standard pybind11 entry point. The macro registers &lt;code>mha_fwd&lt;/code> as a Python-callable name. Your python file can just &lt;code>import flash_attn_cutlass; flash_attn_cutlass.mha_fwd(q, k, v)&lt;/code>&lt;/li>
@@ -3378,14 +3405,68 @@ data-flex-basis="239px"
 &lt;p>That&amp;rsquo;s the entire boilerplate stack. You can call &lt;code>mha_fwd(q, k, v)&lt;/code> in Python; pybind11 hands the call to our C++ function; we fill in &lt;code>Flash_fwd_params&lt;/code> and pick a launcher by head_dim; the launcher computes the grid, enables extended SMEM, and launches the kernel. The &lt;code>Makefile&lt;/code> in my repo has all the commands for you to compile, test, and benchmark all the kernels I have. Happy testing&amp;hellip;&lt;/p>
 &lt;h1 id="wrapping-up">Wrapping up&lt;/h1>
 &lt;blockquote>
-&lt;p>&lt;strong>Source:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_fwd_kernel.h" target="_blank" rel="noopener"
->&lt;code>flash_fwd_kernel.h&lt;/code>&lt;/a>, &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_api.cu" target="_blank" rel="noopener"
->&lt;code>flash_api.cu&lt;/code>&lt;/a>&lt;/p>
-&lt;p>&lt;strong>Play:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/fa_test.cu" target="_blank" rel="noopener"
->&lt;code>scratch/fa_test.cu&lt;/code>&lt;/a> (full kernel vs. CPU reference), &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/bench.py" target="_blank" rel="noopener"
->&lt;code>scratch/bench.py&lt;/code>&lt;/a>&lt;/p>
+&lt;p>9-1-1, there&amp;rsquo;s a psycho here. What do you mean reading is not a crime? What kind of lunatic reads a 28,000 word GPU programming blog about some three-year old algorithm? I have to ask him whether he just skimmed it or skipped to the end? Oh, well, fair point.&lt;/p>
 &lt;/blockquote>
-&lt;p>My AI learning guide had led me astray more times than I could count, but somehow I still had faith that it wouldn&amp;rsquo;t disappoint me this time.&lt;/p>
+&lt;p>If you&amp;rsquo;ve even dug into a few sections of this post, you&amp;rsquo;ve probably realized how unforgiving CuTe is. Reading that it&amp;rsquo;s a &amp;ldquo;library&amp;rdquo; is so misleading in the sense that it&amp;rsquo;s just a template engine that hides some additions and divisions behind some friendly words. It&amp;rsquo;s a starter pack without a single instruction or label on it. When you expect it to handle some basic shapes or strides on your behalf, it spits in your face by telling you to specify every single dim and stride by yourself &amp;ndash; and when you inevitably get it wrong, it&amp;rsquo;ll give you a thousand-line stack trace that sends you straight back to the starter room.&lt;/p>
+&lt;p>But, you&amp;rsquo;ll also realize that&amp;rsquo;s why it&amp;rsquo;s so powerful. You have control over every single knob and every single decision. The hardware is at your fingertips and you have the full potential to unlock as much or little of it as you want. It&amp;rsquo;s an F1 steering wheel with a thousand switches, Federer&amp;rsquo;s 90-sq inch racket, or a $50,000 cinema camera rig. The layouts might hide some manual PTX but the hardware sits in plain view.&lt;/p>
+&lt;p>Once you&amp;rsquo;ve written something as complex as FA2 in CuTe, you&amp;rsquo;ll understand swizzling, cache reuse, tiled copies, or MMAs better than anyone who slapped together some kernel in Triton on a Thursday afternoon. In 2026, there&amp;rsquo;s no such thing as &lt;em>just&lt;/em> a Triton engineer &amp;ndash; the GPU world is moving so rapidly there&amp;rsquo;s no stable baseline mature enough for such a profession to exist. There&amp;rsquo;s no doubt that it will happen some day, but for now, people who spend their days writing Triton right now spent years gruelling away doing the stuff we just did together. So even though there are dozens of fancy tools being written right now, getting your hands dirty is still such a powerful asset. When the day comes where ClaudeGPT Gemini Pro Max is doing all of the work, there still won&amp;rsquo;t be a potion for understanding.&lt;sup id="fnref:10">&lt;a href="#fn:10" class="footnote-ref" role="doc-noteref">10&lt;/a>&lt;/sup>&lt;/p>
+&lt;h2 id="whats-left">What&amp;rsquo;s Left&lt;/h2>
+&lt;p>Even though we covered all concepts in more detail than the teacher who hates you grades your homework, we never really touched on the empirical backbone that drives kernel engineering. Everything we&amp;rsquo;ve done must be validated via test &amp;ndash; print statements, shape checking, testing, benchmarking. Even after your code runs and works, you have to manually profile your FLOPS, your register pressure, occupancy, SMEM usage, and bank conflicts using tools like &lt;a class="link" href="https://developer.nvidia.com/nsight-compute" target="_blank" rel="noopener"
+>Nsight Compute&lt;/a>. Only then can you see you can improve your performance by 42% by optimizing GMEM access patterns or something. This is a skill in itself, but knowing the concepts as deeply as we do now is absolutely critical for interpreting any charts. I leave this as an exercise for the reader &amp;ndash; maybe you&amp;rsquo;ll find bugs or problems with my explanations that I might not even be aware about. If so, please cite me on your revolutionary research paper so I get to share some of the credit.&lt;/p>
+&lt;p>We also only covered a slightly out-of-date algorithm running on a somewhat-out-of-date GPU. All the big AI labs are paying the big bucks to optimize on top of the fancier H100s or B200s &amp;ndash; bajillion dollar chips made specifically for your AI girlfriend to break your heart at 2am. We&amp;rsquo;re already on FA3 and even FA4. Newer hardware supports things like:&lt;/p>
+&lt;ul>
+&lt;li>FP8/FP4 MMA&lt;/li>
+&lt;li>Warp specialization: producer warps use the new Tensor Memory Accelerator (TMA) to load things while consumer warps perform warp-group MMAs at lightning speed. The whole data/compute ratio is completely different.&lt;/li>
+&lt;li>New async paradigms with more specific barriers and fences.&lt;/li>
+&lt;/ul>
+&lt;p>And much more. Every hardware generation introduces more and more fancy things and the labs are racing just to keep up. The GPU world is tiny and the break-in period is so challenging that it takes months just to get some existing kernel loosely-optimized for the new-gen hardware. The hardware is becoming more and more mature, but you never know if some new architecture looming on the horizon will completely shake everything up. Some companies are betting their existence on that happening.&lt;/p>
+&lt;p>However, having such a fundamental understanding of FA2 is enough that these new paradigms will feel just like a small new layer on top of all the complexity you&amp;rsquo;ve already learned. And that&amp;rsquo;s the silver lining. Everything only becomes more digestible from here.&lt;/p>
+&lt;h2 id="on-writing-this">On Writing This&lt;/h2>
+&lt;p>Welcome to the true epilogue. This is by far the longest thing I have ever written in my life. I had never even written a technical blog about programming before, but hey, there&amp;rsquo;s always a first. I sat down in late March hoping to learn a little bit about all this GPU kernel hubbub I&amp;rsquo;ve been hearing about. Like a starter player in a level 1000 dungeon, I had no idea what kind of beasts were lurking just past the first room.&lt;/p>
+&lt;p>This journey has been extremely tiring yet rewarding. After I got my kernel to compile for the first time, I felt like I finally understood after weeks of gruelling work. But the funny thing is most of my real understanding came from writing this blog. I spent almost a hundred hours working on this &amp;ndash; I drew diagrams in Canva only to delete them thinking I made them wrong, only to redraw them because I was actually right the first time. Understanding &lt;code>sVtNoSwizzle&lt;/code> took like five passes over three weeks &amp;ndash; I would think I had it, hallucinate a plausible explanation, and eventually have to do a three-hour documentation deep-dive. Only then was I enlightened enough to realize the lovely docs don&amp;rsquo;t always explain crap, either. It&amp;rsquo;s been a true struggle. Whether you read only this last paragraph or the whole thing, the fact that you even read some of it means a lot to me.&lt;/p>
+&lt;p>Anyway, welcome to the club. Your tears and sweat are non-refundable.&lt;/p>
+&lt;h1 id="resources">Resources&lt;/h1>
+&lt;h2 id="this-blogs-code">This blog&amp;rsquo;s code&lt;/h2>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://github.com/cloudui/cuda-triton" target="_blank" rel="noopener"
+>&lt;code>cloudui/cuda-triton&lt;/code>&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;h2 id="production-fa2">Production FA2&lt;/h2>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://github.com/Dao-AILab/flash-attention" target="_blank" rel="noopener"
+>&lt;code>Dao-AILab/flash-attention&lt;/code>&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://github.com/Dao-AILab/flash-attention/tree/main/csrc/flash_attn/src" target="_blank" rel="noopener"
+>&lt;code>csrc/flash_attn/src/&lt;/code>&lt;/a> &amp;ndash; C++ source. Most relevant files: &lt;code>flash_fwd_kernel.h&lt;/code>, &lt;code>kernel_traits.h&lt;/code>.&lt;/li>
+&lt;li>&lt;a class="link" href="https://arxiv.org/pdf/2307.08691" target="_blank" rel="noopener"
+>FlashAttention-2 paper (Dao, 2023)&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://tridao.me/blog/2024/flash3/" target="_blank" rel="noopener"
+>FlashAttention-3&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;h2 id="cutlass--cute-official">CUTLASS / CuTe official&lt;/h2>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html" target="_blank" rel="noopener"
+>CuTe/CUTLASS Docs&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://github.com/NVIDIA/cutlass" target="_blank" rel="noopener"
+>NVIDIA/cutlass repo&lt;/a>. The source files are in &lt;code>include/&lt;/code>.&lt;/li>
+&lt;/ul>
+&lt;h2 id="blogs">Blogs&lt;/h2>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://leimao.github.io/blog/CuTe-Swizzle/" target="_blank" rel="noopener"
+>Lei Mao&amp;rsquo;s Blog&lt;/a>. Browse around, he has great explanations on CuTe.&lt;/li>
+&lt;li>&lt;a class="link" href="https://developer.nvidia.com/blog" target="_blank" rel="noopener"
+>NVIDIA Blogs&lt;/a>&lt;/li>
+&lt;li>&lt;a class="link" href="https://lubits.ch/flash/" target="_blank" rel="noopener"
+>Sonny&amp;rsquo;s Blog &amp;ndash; FA2 from Scratch&lt;/a>. Literally raw inline PTX for those with time.&lt;/li>
+&lt;li>&lt;a class="link" href="https://ita9naiwa.github.io/mlsys/2023/11/16/attention-cuda.html" target="_blank" rel="noopener"
+>Hyunsung Lee&amp;rsquo;s Blog &amp;ndash; CUDA + Attention&lt;/a>&lt;/li>
+&lt;/ul>
+&lt;h2 id="nvidia-reference-docs">NVIDIA reference docs&lt;/h2>
+&lt;ul>
+&lt;li>&lt;a class="link" href="https://docs.nvidia.com/cuda/cuda-programming-guide/index.html" target="_blank" rel="noopener"
+>CUDA C++ Programming Guide&lt;/a>. Literally every CUDA concept from the Big Boss himself.&lt;/li>
+&lt;li>&lt;a class="link" href="https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async" target="_blank" rel="noopener"
+>PTX ISA Dictionary&lt;/a>. For those who love torture.&lt;/li>
+&lt;/ul>
 &lt;h1 id="appendix">Appendix&lt;/h1>
 &lt;div class="footnotes" role="doc-endnotes">
 &lt;hr>
@@ -3422,6 +3503,9 @@ data-flex-basis="239px"
 &lt;li id="fn:9">
 &lt;p>Oxford shuffle lecture notes, p.6 for XOR warp shuffle: &lt;a class="link" href="https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf" target="_blank" rel="noopener"
 >https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf&lt;/a>&amp;#160;&lt;a href="#fnref:9" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
+&lt;/li>
+&lt;li id="fn:10">
+&lt;p>Honestly, maybe they&amp;rsquo;ll figure out how to inject our brains directly with learning modules and everyone becomes an expert tomorrow.&amp;#160;&lt;a href="#fnref:10" class="footnote-backref" role="doc-backlink">&amp;#x21a9;&amp;#xfe0e;&lt;/a>&lt;/p>
 &lt;/li>
 &lt;/ol>
 &lt;/div></description></item><item><title>Eat with the Rich</title><link>https://blog.echen.io/p/eat-with-the-rich/</link><pubDate>Wed, 05 Nov 2025 00:00:00 +0000</pubDate><guid>https://blog.echen.io/p/eat-with-the-rich/</guid><description>&lt;img src="https://blog.echen.io/p/eat-with-the-rich/thumbnail.webp" alt="Featured image of post Eat with the Rich" />&lt;p>I’ve been wanting to make fun of a specific breed of people I’ve seen becoming more and more popular over the past decade: the rich person who hates billionaires.&lt;/p>
