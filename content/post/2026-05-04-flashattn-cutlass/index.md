@@ -1988,11 +1988,11 @@ cute::copy(gmem_tiled_copy_O, tOsO, tOrO);
 cute::copy(gmem_tiled_copy_O, tOrO, tOgO);
 ```
 
-Voila! El Fin.
+OMG! We're...
 
 #### Sync Threads
 
-Haha, not quite yet. There's a slight bug in our epilogue as-is. Between the register->SMEM and SMEM->GMEM copy, threads control different parts of SMEM. We set up async waits earlier, but since we're synchronous for the O store, we simply have to call `__syncthreads()` sometime between the two copy stages. The FA2 production code opts to put it right before the final two `copy()` invocations to overlap the GMEM tiled copy setup with the register->SMEM copy, but practically it probably doesn't make much of a difference--you can just put the sync right after the r->S copy.
+Not quite yet. We have one last dance. There's a slight bug in our epilogue as-is. Between the register->SMEM and SMEM->GMEM copy, threads control different parts of SMEM. We set up async waits earlier, but since we're synchronous for the O store, we simply have to call `__syncthreads()` sometime between the two copy stages. The FA2 production code opts to put it right before the final two `copy()` invocations to overlap the GMEM tiled copy setup with the register->SMEM copy, but practically it probably doesn't make much of a difference--you can just put the sync right after the r->S copy.
 
 # Plumbing: Params, Launch, Dispatch, Kernel Traits
 
@@ -2125,8 +2125,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
 }
 ```
 
-The interesting bits:
-
 - **Output allocation happens on the host.** `torch::empty_like(q)` and `torch::empty({...})` are called here, not in the kernel. The kernel just writes into a pre-allocated buffer.
 - **`at::cuda::getCurrentCUDAStream()`** gets the CUDA stream PyTorch is currently using. If your user has `torch.cuda.stream(...)` set, your kernel runs on that stream and properly interleaves with everything else; if they don't, you get the default stream. Use this and not `cudaStreamDefault` -- the latter ignores user-set stream context and will make you cry.
 - **`PYBIND11_MODULE`** is the standard pybind11 entry point. The macro registers `mha_fwd` as a Python-callable name. Your python file can just `import flash_attn_cutlass; flash_attn_cutlass.mha_fwd(q, k, v)`
@@ -2140,6 +2138,35 @@ That's the entire boilerplate stack. You can call `mha_fwd(q, k, v)` in Python; 
 > **Play:** [`scratch/fa_test.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/fa_test.cu) (full kernel vs. CPU reference), [`scratch/bench.py`](https://github.com/cloudui/cuda-triton/blob/main/scratch/bench.py)
 
 My AI learning guide had led me astray more times than I could count, but somehow I still had faith that it wouldn't disappoint me this time.
+
+# Resources
+
+## This blog's code
+
+- [`cloudui/cuda-triton`](https://github.com/cloudui/cuda-triton)
+
+## Production FA2
+
+- [`Dao-AILab/flash-attention`](https://github.com/Dao-AILab/flash-attention)
+- [`csrc/flash_attn/src/`](https://github.com/Dao-AILab/flash-attention/tree/main/csrc/flash_attn/src) -- C++ source. Most relevant files: `flash_fwd_kernel.h`, `kernel_traits.h`.
+- [FlashAttention-2 paper (Dao, 2023)](https://arxiv.org/pdf/2307.08691)
+- [FlashAttention-3](https://tridao.me/blog/2024/flash3/)
+
+## CUTLASS / CuTe official
+
+- [CuTe/CUTLASS Docs](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html)
+- [NVIDIA/cutlass repo](https://github.com/NVIDIA/cutlass). The source files are in `include/`.
+
+## Blogs and Deep Dives
+
+- [Lei Mao's Blog](https://leimao.github.io/blog/CuTe-Swizzle/). Browse around, he has great explanations on CuTe.
+- [NVIDIA Blogs](https://developer.nvidia.com/blog)
+- [Sonny's Blog -- FA2 from Scratch](https://lubits.ch/flash/). Literally raw inline PTX for those with time.
+
+## NVIDIA reference docs
+
+- [CUDA C++ Programming Guide](https://docs.nvidia.com/cuda/cuda-programming-guide/index.html). Literally every CUDA concept from the Big Boss himself.
+- [PTX ISA Dictionary](https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async). For those who love torture.
 
 # Appendix
 [^1]: Tri Dao original FA2 paper: https://arxiv.org/pdf/2307.08691
