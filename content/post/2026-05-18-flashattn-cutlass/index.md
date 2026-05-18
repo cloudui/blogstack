@@ -9,7 +9,7 @@ author: Eric Chen
 image: thumbnail.png
 date: 2026-05-18
 
-description: An unreasonably detailed walkthrough of production FA-2. Including the line that turns out to do absolutely nothing.
+description: A line-by-line dredge-through of Tri Dao's production FA2.
 ---
 Two days. That's how long it took me to write FlashAttention-2 in Triton. I had never touched a GPU kernel before and somehow replicated a revolutionary algorithm between sips of coffee. I was looking to learn something new and somehow finished before I really got started. I knew the original source was written in CUDA, made by my Bay Area buddy who turned rocks into trillion-ade. Riding on my hubris from my recent success, I decided to translate my pièce de résistance to the native dialect of the rock-whisperers themselves.
 
@@ -2136,7 +2136,7 @@ That's the entire boilerplate stack. You can call `mha_fwd(q, k, v)` in Python; 
 
 # Wrapping up
 
-> 9-1-1, there's a psycho here. What do you mean reading is not a crime? What kind of lunatic reads a 28,000 word GPU programming blog about some three-year old algorithm? I have to ask him whether he just skimmed it or skipped to the end? Oh, well, fair point.
+> 9-1-1, there's a psycho here. What do you mean reading is not a crime? What kind of lunatic reads a 29,000 word GPU programming blog about some three-year old algorithm? I have to ask him whether he just skimmed it or skipped to the end? Oh, well, fair point.
 
 If you've even dug into a few sections of this post, you've probably realized how unforgiving CuTe is. Reading that it's a "library" is so misleading in the sense that it's just a template engine that hides some additions and divisions behind some friendly words. It's a starter pack without a single instruction or label on it. When you expect it to handle some basic shapes or strides on your behalf, it spits in your face by telling you to specify every single dim and stride by yourself -- and when you inevitably get it wrong, it'll give you a thousand-line stack trace that sends you straight back to the starter room.
 
