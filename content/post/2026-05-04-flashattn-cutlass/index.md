@@ -2133,11 +2133,30 @@ That's the entire boilerplate stack. You can call `mha_fwd(q, k, v)` in Python; 
 
 # Wrapping up
 
-> **Source:** [`flash_fwd_kernel.h`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_fwd_kernel.h), [`flash_api.cu`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/flash_api.cu)
->
-> **Play:** [`scratch/fa_test.cu`](https://github.com/cloudui/cuda-triton/blob/main/scratch/fa_test.cu) (full kernel vs. CPU reference), [`scratch/bench.py`](https://github.com/cloudui/cuda-triton/blob/main/scratch/bench.py)
+> 9-1-1, there's a psycho here. What do you mean reading is not a crime? What kind of lunatic reads a 28,000 word GPU programming blog about some three-year old algorithm? I have to ask him whether he just skimmed it or skipped to the end? Oh, well, fair point.
 
-My AI learning guide had led me astray more times than I could count, but somehow I still had faith that it wouldn't disappoint me this time.
+Welcome to the true epilogue. This is by far the longest thing I have ever written in my life. I had never even written a technical blog about programming before, but hey, there's always a first. I sat down in late March hoping to learn a little bit about all this GPU kernel hubbub I've been hearing about. Like a starter player in a level 1000 dungeon, I had no idea what kind of beasts were lurking just past the first room.
+
+If you've even dug into a few sections of this post, you've probably realized how unforgiving CuTe is. Reading that it's a "library" is so misleading in the sense that it's just a template engine that hides some additions and divisions behind some friendly words. It's a starter pack without a single instruction or label on it. When you expect it to handle some basic shapes or strides on your behalf, it spits in your face by telling you to specify every single dim and stride by yourself -- and when you inevitably get it wrong, it'll give you a thousand-line stack trace that sends you straight back to the starter room.
+
+But, you'll also realize that's why it's so powerful. You have control over every single knob and every single decision. The hardware is at your fingertips and you have the full potential to unlock as much or little of it as you want. It's an F1 steering wheel with a thousand switches, Federer's 90-sq inch racket, or a $50,000 cinema camera rig. The layouts might hide some manual PTX but the hardware sits in plain view.
+
+Once you've written something as complex as FA2 in CuTe, you'll understand swizzling, cache reuse, tiled copies, or MMAs better than anyone who slapped together some kernel in Triton on a Thursday afternoon. In 2026, there's no such thing as *just* a Triton engineer -- the GPU world is moving so rapidly there's no stable baseline mature enough for such a profession to exist. There's no doubt that it will happen some day, but for now, people who spend their days writing Triton right now spent years gruelling away doing the stuff we just did together. So even though there are dozens of fancy tools being written right now, getting your hands dirty is still such a powerful asset. When the day comes where ClaudeGPT Gemini Pro Max is doing all of the work, there still won't be a potion for understanding.[^11]
+
+## Limitations
+Even though we covered all concepts in more detail than the teacher who hates you grades your homework, we never really touched on the empirical backbone that drives kernel engineering. Everything we've done must be validated via test -- print statements, shape checking, testing, benchmarking. Even after your code runs and works, you have to manually profile your FLOPS, your register pressure, occupancy, SMEM usage, and bank conflicts using tools like [Nsight Compute](https://developer.nvidia.com/nsight-compute). Only then can you see you can improve your performance by 42% by optimizing GMEM access patterns or something. This is a skill in itself, but knowing the concepts as deeply as we do now is absolutely critical for interpreting any charts. I leave this as an exercise for the reader -- maybe you'll find bugs or problems with my explanations that I might not even be aware about. If so, please cite me on your revolutionary research paper so I get to share some of the credit.
+
+We also only covered a slightly out-of-date algorithm running on a somewhat-out-of-date GPU. All the big AI labs are paying the big bucks to optimize on top of the fancier H100s or B200s -- bajillion dollar chips made specifically for your AI girlfriend to break your heart at 2am. We're already on FA3 and even FA4. Newer hardware supports things like:
+- FP8/FP4 MMA
+- Warp specialization: producer warps use the new Tensor Memory Accelerator (TMA) to load things while consumer warps perform warp-group MMAs at lightning speed. The whole data/compute ratio is completely different.
+- New async paradigms with more specific barriers and fences.
+
+And much more. Every hardware generation introduces more and more fancy things and the labs are racing just to keep up. The GPU world is tiny and the break-in period is so challenging that it takes months just to get some existing kernel loosely-optimized for the new-gen hardware. The hardware is becoming more and more mature, but you never know if some new architecture looming on the horizon will completely shake everything up. Some companies are betting their existence on that happening.
+
+However, having such a fundamental understanding of FA2 is enough that these new paradigms will feel just like a small new layer on top of all the complexity you've already learned. And that's the silver lining. Everything only becomes more digestible from here.
+
+## Thank You
+Whether you read a little or a lot of this, I am glad if you got something from this blog. This journey has been extremely tiring yet rewarding. After I got my kernel to compile for the first time, I felt like I finally understood after weeks of gruelling work. But the funny thing is most of my real understanding came from writing this blog, where on second thought, I realized my understanding was either incomplete or completely wrong. I spent almost a hundred hours working on this -- often typing and deleting, drawing diagrams on Canva, angrily running scratch code, or pounding some ideas into my head. The fact that you even read some of it means a lot to me, and I am proud that I was able to push through it all. I can only look forward to what comes next, and I will keep you all updated along the way.
 
 # Resources
 
@@ -2179,3 +2198,4 @@ My AI learning guide had led me astray more times than I could count, but someho
 [^8]: CuTe `make_fragment_like()` source: https://github.com/NVIDIA/cutlass/blob/e406c186f510a15091cce01f782020ceb7ba8eb5/include/cute/tensor_impl.hpp#L463
 [^9]: Ok sorry. CUTLASS is a a cool sword and also CUDA Templates for Linear Algebra Subroutines and Solvers
 [^10]: Four-transaction 512-byte load explanation: https://forums.developer.nvidia.com/t/128-bit-access-bank-conflict/287039/5
+[^11]: Honestly, maybe they'll figure out how to inject our brains directly with learning modules and everyone becomes an expert tomorrow.
