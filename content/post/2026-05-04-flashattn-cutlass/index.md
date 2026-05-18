@@ -456,7 +456,7 @@ In `l2`, we iterate through the inner (left) shape in groups of 2, column-major 
 # The Beginning: CuTe, Copy, then Cry
 Okay, with the CuTe vomit over, let's get started with FA2!
 
-Much of the learning path from here is nonlinear -- some things will click immediately and somethings will only make sense in hindsight. You have to be comfortable accepting certain things early before the full understanding comes raging back once you've hit a snag. I'll tackle some concepts up front and gloss over some others, but these choices are intentional -- you won't always have the full context up-front when you are trying to do something. I spent hours thinking I understood something only to realize I didn't understand a week later, and sometimes, it would take five of these I understand/I definitely don't understand cycles before everything fell into place. Let's dive in before you have time to reconsider 😇.
+Much of the learning path from here is nonlinear -- some concepts will click immediately and some will only make sense in hindsight. You have to be comfortable accepting certain things early; the full understanding only kicks in once you've hit a mental snag. I'll tackle some concepts up front and gloss over some others, but these choices are intentional -- you won't always have the full context up-front when you are trying to do something. I spent hours thinking I understood something only to realize I didn't understand a week later, and sometimes, it would take five of these I understand/I definitely don't understand cycles before everything fell into place. Let's dive in before you have time to reconsider 😇.
 
 ## A100 (Ampere) Specs
 The entire point of FA2 or even GPU optimization in general is to maximize compute by overlapping it with memory loads. Here are the memory and card specs of A100 GPU (Ampere):
@@ -522,7 +522,7 @@ Both vectorized and coalesced loads expect the data to be contiguous (e.g. 128 b
 ### Copy Atoms
 Every NVIDIA GPU has a boatload of copy instructions--you can fetch 32 bytes, 64 bytes, one byte, synchronously or asynchronously. CuTe neatly packages these copy instructions into a core piece called an `Atom`. These "atomic" pieces are the core hardware instructions that you eventually pass to the `copy` function so it knows which instruction to use to copy your data.
 
-Ampere has a specific asynchronous `Copy_Atom` with the architecture name `SM_80`: `SM80_CP_ASYNC_CACHEGLOBAL<bit_size>` or `SM80_CP_ASYNC_CACHEALWAYS<bit_size>`. The `cache_global` and `cache_always` map to the PTX[^2] instructions `ld.global.cg.u32` and `ld.global.ca.u32`; `cache_global` loads straight from L2 to the destination, skipping over L1 cache, while `cache_always` also loads the data into L1. Most kernels use `cache_always` by default because of improved spatial and temporal locality across threads. But in FA2, we never reference Q, K, or V again once they're loaded into SMEM--therefore, we can bypass the L1 cache, which is slightly faster. It also reduces thrashing at the L1 level and allows more important data to stay in-cache. In practice, this is a micro-optimization and not that important.
+Ampere has a specific asynchronous `Copy_Atom` with the architecture name `SM_80`: `SM80_CP_ASYNC_CACHEGLOBAL<bit_size>` or `SM80_CP_ASYNC_CACHEALWAYS<bit_size>`. The `cache_global` and `cache_always` map to the PTX[^2] instructions `cp.async.cg.shared.global` and `cp.async.ca.shared.global`; `cache_global` loads straight from L2 to the destination, skipping over L1 cache, while `cache_always` also loads the data into L1. Most kernels use `cache_always` by default because of improved spatial and temporal locality across threads. But in FA2, we never reference Q, K, or V again once they're loaded into SMEM--therefore, we can bypass the L1 cache, which is slightly faster. It also reduces thrashing at the L1 level and allows more important data to stay in-cache. In practice, this is a micro-optimization and not that important.
 
 The `bit_size` supports up to 128-bit loads. **Bits**, not bytes, since these atoms are viewed through the **thread perspective**. Hence, our atom loads a total of $128 \text{ bits} \cdot 32 / 8 = 512 \text{ bytes}$. This means each 128-bit fetch across the 32 threads in a warp takes $512/128 = 4$ memory transactions in four "phases" (more on this later). For our purposes, we want that full coalesced 128-bit power using `cache_global`. We can define the `Copy_Atom` with the following code:
 
@@ -540,7 +540,7 @@ We have 32 threads in each warp loading 32 128-bit chunks in tandem, which is 51
 - SMEM can load any **128 bytes as long as there are no bank conflicts**.
 - Both assume the memory addresses are aligned to your data width (e.g. 128-bit load -> 16-byte aligned address).
 
-As a result, for both GMEM/SMEM handles these 512-byte loads in four separate 128-byte memory transactions (or two for a 256-byte load). Each *transaction phase* provides 8-threads (also called a *quarter-warp*) worth of data. The memory controller is smart enough to group the relevant addresses together to ensure each transaction uses the full 128-byte bandwith when possible (see [vectorization/coalescing](#vectorized-and-coalesced-loads)).
+As a result, GMEM/SMEM handles these 512-byte loads in four separate 128-byte memory transactions. Each *transaction phase* provides 8-threads (also called a *quarter-warp*) worth of data. The memory controller is smart enough to group the relevant addresses together to ensure each transaction uses the full 128-byte bandwith when possible (see [vectorization/coalescing](#vectorized-and-coalesced-loads)).
 
 After each phase, each quarter-warp is handed its contiguous 8x128-bit (128-byte) block. So by design, our async copies perfectly copy our data using the full HBM bandwidth.
 
@@ -702,7 +702,7 @@ You might wonder why 16x8x16 and not 16x16x16. Again, it's a hardware design cho
 
 This is by no means an exhaustive list, and tensor core shapes change generation-to-generation for a multitude of reasons. It's best to just use it as-is instead of wondering all day why it is the way it is. The TiledMMA atom conveniently defines which threads get which chunks and which registers are used for the MMA, which we can see below:
 
-![MMA Atom thread layout. We can see each thread gets 32-bits (2 halfs) at a time. For each 16x16 tile, each thread has two 32-bit pairs per row, and only 1 32-bit pair for each 16x8 tile.](mma_atom.png)
+![MMA Atom thread layout. We can see each thread gets 32-bits (2 halfs) at a time. For each 16x16 tile, each thread has two half-pairs per row, and only 1 half-pair for each 16x8 tile.](mma_atom.png)
 
 With this info, let's define the full `Tiled_MMA`:
 
@@ -930,7 +930,7 @@ Ok, this is kind of hard to look at. Let's look at an 8x8 example for more clari
 
 ![8x8 swizzle pattern](swizzle-8x8.png)
 
-We can now see that each element of each column ends up in a different bank. XOR interleaves our elements with this beautiful diagonal butterfly pattern, which you can see the best in the 32x32 grid.
+We can now see that each element of each column ends up in a different bank. Any column access pattern now hits every 32 bank in its 128-byte glory. XOR interleaves our elements with this beautiful diagonal butterfly pattern, which you can see the best in the 32x32 grid.
 
 > This XOR technique works great, but it's not exactly trivial as to why it is the default option. Part of it seems like divine benevolence, which is probably true, but the short answer is that it's fast, it works, and it's an access pattern no normal kernel engineer would use in almost any situation. It isn't foolproof and may need to be combined with padding or different access patterns; more complex multidimensional kernels typically employ even more complex swizzling patterns. This article shows in more detail why XOR works: https://leimao.github.io/blog/CuTe-Swizzle/
 
@@ -1274,6 +1274,8 @@ FA2 only uses a one-block prefetch. At each iteration, we only prefetch the imme
 
 In our main loop, we prefetch K and V every iteration to keep the next blocks coming in while we do our MMAs and softmax. We issue the K prefetch during softmax and the $SV$ GEMM, and the V prefetch during the $QK^T$ to maximize our overlap. At the start of each iteration, we wait on our K-tile. Once it's loaded, we issue our V prefetch and immediately begin our MMA so the V-copy overlaps this compute period. Then we wait on the V-tile. Once it's loaded, we issue our K copy and immediately begin our V GEMM.
 
+![Main Loop Flow](main_loop.png)
+
 FA2 uses the simplest fence-wait strategy possible. Issue one copy and fully wait on that to load before issuing the next async copy. This keeps the logic the easiest, as we always know which block is ready, and we'll assume this allows it to manually control and optimize the load/compute overlap.
 
 The main loop iterates over all K, V tiles, each spanning the N dimension (see [the SMEM tiled layout](#v-smem-register)). We can simply write an unrolled for loop that iterates over the `seqlen_k / kBlockN` dimensions. We can begin to fill in our strategy based on what we described above:
@@ -1362,6 +1364,8 @@ So what actually goes into computing the max and the sum?
 ## Row Reduce
 This is the moment where the [warp-per-row tiling](#tiled-mma) pays off. Each warp owns 16 rows of its MMA tile, fully--no row is split across warps. Therefore, the per-row max and sum reductions stay inside a warp and resolve via **warp reduction**, "a highly efficient CUDA parallel reduction technique that aggregates data across 32 threads within a single GPU warp."[^5] CUDA provides warp primitives such as `__shfl_down_sync()` and `__shfl_xor_sync()`, which shuffle data across threads in a warp without any load/stores or shared-memory staging. Zero memory latency, zero `__syncthreads()`, and our max/sum is pretty much free.
 
+![XOR shuffle pattern. Thanks to Hyunsung Lee's Blog for this graphic](xor.png)
+
 > **Note**: Warp reduction is the primary and fastest way to perform intra-warp communication.
 
 However, warp reduction is actually step two--it finds the max/sum *between threads*. We first have to find the max/sum *per-thread*.
@@ -1371,7 +1375,7 @@ Recall that every thread in a 16x8 MMA output fragment holds $16\cdot 8 / 32=4$ 
 
 Let's look at the bottom right output fragment C this time and zoom in on thread 0's values. We can see it owns output elements `(0, 0), (0, 1), (8, 0), (8, 1)`. If we examine all the other threads, we see that they each own 4 elements across two rows. Let's clarify the math a bit:
 
-From the [MMA Shape](#mma-shape) section, the C-fragment has shape `((2, 2), MMA_M, MMA_N)` where `MMA_M = kBlockM / 16` and `MMA_N = kBlockN / 8`. The `(2, 2)` is each thread's 4 values per tile (2 rows, 2 columns) so each thread's values span `MMA_M * 2` rows and `MMA_N * 2` columns total.
+From the [MMA Shape](#mma-shape) section, the C-fragment has shape `((2, 2), MMA_M, MMA_N)` where `MMA_M = kBlockM / (16*kNWarps)` and `MMA_N = kBlockN / 8`. The `(2, 2)` is each thread's 4 values per tile (2 rows, 2 columns) so each thread's values span `MMA_M * 2` rows and `MMA_N * 2` columns total.
 
 To make the reduction loop look like ordinary 2D code, Dao reshapes this hierarchical fragment into a flat row-major `(2*MMA_M, 2*MMA_N)` view. Since the block sizes are static, the reshape is free. It's purely a code-quality trick; the resulting PTX is identical to iterating over the raw MMA shape.
 
@@ -1690,7 +1694,7 @@ This function is called in the epilogue after the main loop, before we store the
 Let's do some bookkeeping and see where the softmax call goes and finally implement the $O=SV$ GEMM.
 
 ## Creating Output Fragment `acc_o` and Softmax Struct
-Before the main loop, we first create our output fragment `acc_o`, which is the actual output we rescale in Softmax and write to our output tensor. It has shape `(kBlockM, kHeadDim)` and is a C-fragment just like `acc_s`. Similary, we initialize it with 0.
+Before the main loop, we first create our output fragment `acc_o`, which is the actual output we rescale in Softmax and write to our output tensor. It has shape `(kBlockM, kHeadDim)` and is a C-fragment just like `acc_s`. Similarly, we initialize it with 0.
 
 ```cpp
 Tensor acc_o = partition_fragment_C(
@@ -1704,7 +1708,7 @@ Next, we initialize our softmax struct so we can call it in the main loop. We co
 ```cpp
 ...
 clear(acc_o);
-// initialize softmax, acc_s: (MMA, MMA_M, MMA_HEAD_DIM)
+// initialize softmax, acc_o: (MMA, MMA_M, MMA_HEAD_DIM)
 // rows is 2*MMA_M dim, 2 rows per thread for each MMA tile
 FLASH::Softmax<2 * size<1>(acc_o)> softmax;
 
@@ -1837,11 +1841,11 @@ cute::copy(smem_tiled_copy_V, tOsVt(_, _, _0{}), tXrV(_, _, _0{}));
 #pragma unroll
 for (int i = 0; i < size<2>(tOrP); i++) {
   // prefetch next block
-  if (i < size<2>(tCrB) - 1) {
-    cute::copy(smem_tiled_copy_B, tOsVt(_, _, i + 1), tXrV(_, _, i + 1));
+  if (i < size<2>(tCrV) - 1) {
+    cute::copy(smem_tiled_copy_V, tOsVt(_, _, i + 1), tXrV(_, _, i + 1));
   }
 
-  cute::gemm(tiled_mma, tOrP(_, _, i), tXrV(_, _, i), acc);
+  cute::gemm(tiled_mma, tOrP(_, _, i), tXrV(_, _, i), acc_o);
 }
 ```
 
@@ -2176,11 +2180,12 @@ Whether you read a little or a lot of this, I am glad if you got something from 
 - [CuTe/CUTLASS Docs](https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/00_quickstart.html)
 - [NVIDIA/cutlass repo](https://github.com/NVIDIA/cutlass). The source files are in `include/`.
 
-## Blogs and Deep Dives
+## Blogs
 
 - [Lei Mao's Blog](https://leimao.github.io/blog/CuTe-Swizzle/). Browse around, he has great explanations on CuTe.
 - [NVIDIA Blogs](https://developer.nvidia.com/blog)
 - [Sonny's Blog -- FA2 from Scratch](https://lubits.ch/flash/). Literally raw inline PTX for those with time.
+- [Hyunsung Lee's Blog -- CUDA + Attention](https://ita9naiwa.github.io/mlsys/2023/11/16/attention-cuda.html)
 
 ## NVIDIA reference docs
 
