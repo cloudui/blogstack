@@ -896,10 +896,10 @@ Back to our example. For our column access pattern on the 32x32 array, we "reint
 
 > Think of it like a valet attendant. You give your keys to the guy up front, and he parks your car somewhere in the garage. When you come back from your day of disappointing your family, you simply ask for your car back. They fetch it, you get in, and you leave. You don't care whether it was on floor 1 or floor 9001--you just care that you got your car back.
 
-There are likely an infinite number of ways to scramble addresses, but we have to meet a few criteria:
+There are an infinite number of strategies to scramble addresses, but we have to meet a few criteria:
 1. Addresses or indices must have a 1-1 mapping. Each (i, j) has to have a unique physical location in memory.
 2. It must be fast and deterministic.
-3. If you are reading or writing N bytes, those N bytes still have to be contiguous in memory. Your data might be fp16, but you might be reading 8 fp16s at once. Those 128 bits/addresses must still be contiguous in the swizzled domain. Even though you could technically split those 128 bits into 4-byte bank chunks and distribute them throughout memory, the logic becomes way more convoluted and you likely lose vectorization or cache performance.
+3. If each thread is reading/writing N contiguous non-scrambled bytes, those N bytes scrambled bytes still have to be contiguous in memory. Your data might be fp16, but you might be reading 8 fp16s at once. Those 128 bits/addresses from our `Copy_Atom` must still be contiguous in the swizzled domain. Even though you could technically split those 128 bits into 4-byte bank chunks and distribute them throughout memory, the logic becomes way more convoluted and you likely lose vectorization or cache performance.
 
 Swizzling accomplishes this with a bit of clever bit arithmetic. It uses the XOR operation, which satisfies the three conditions above in the following way:
 1. `a xor b` is bijective. For any `a xor b`, changing either `a` or `b` changes the output.
@@ -919,7 +919,7 @@ So how do we actually apply this XOR? It's miraculously simple:
 Swizzle(row, col) = (row, row ^ col)
 ```
 
-Why does this work? Let's examine our float example. We access `(0...31, 0)` then `(0...31, 1)` and so on. For column 0, `n ^ 0 = n`. This means our outputs map to (0...31, 0...31). Since each row starts at a different bank, we adequately diversify across all 32 banks. For the other columns, we've shown that `a ^ b` is unique for any fixed `b=col`, so we are guaranteed to hit all 32 banks for all 32 threads. Neat! If you're unconvinced, try a few column examples yourself.
+Why does this work? Let's examine our float example. We access `(0...31, 0)` then `(0...31, 1)` and so on. For column 0, `n ^ 0 = n`. This means our outputs map to (0...31, 0...31). Since each row starts at a different bank, we adequately diversify across all 32 banks. For the other columns, we've know that `a ^ b` is unique for any fixed `b=col`, so we are guaranteed to hit all 32 banks for all 32 threads. Neat! If you're unconvinced, try a few column examples yourself.
 
 Let's visualize where each float ends up. The number of each square represents the column it originally belonged to. The color points to where it was originally.
 
