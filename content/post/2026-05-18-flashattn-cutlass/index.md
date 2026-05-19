@@ -36,7 +36,7 @@ If you've never touched CUDA, you should at least try to understand its SIMT pro
 
 Most of this blog concerns how high-level concepts like "online softmax" or "GEMM" actually translate to production-grade code. The algorithm itself is not particularly difficult in theory, but the implementation details at the CUDA level can become a nightmare, particularly for beginners. Tri Dao originally wrote FA2 using **CuTe** (CUDA Templates), the layout-algebra core inside NVIDIA's CUTLASS 3.x library -- see [Why CuTe](#why-cute-and-whats-cutlass) for the philosophy behind it and how it differs from Triton, WMMA, and raw CUDA. The short version is that CuTe doesn't abstract the hardware away -- it gives you the full-fat algebra to describe hardware-aware layouts exactly. Simply writing this in CuTe will force you to understand and optimize for the hardware.
 
-Since the release of Blackwell (B200), NVIDIA released CuTe's Python DSL--a Python library you can use to write the same code without all the annoying templating that comes baggaged with C++. The use case and methodology is pretty much unchanged, but debugging and templating become more palatable, and the compile times are enormously faster due to just-in-time (JIT) compilation. Moving forward, the CuTe 3.X in C++ we use today will probably be somewhat of a relic, but as a learning exercise, nothing beats the absolute struggle of working with the most annoying and explicit version of whatever you're trying to learn.
+Since the release of Blackwell (B200), NVIDIA released CuTe's Python DSL -- a Python library you can use to write the same code without all the annoying templating that comes baggaged with C++. The use case and methodology is pretty much unchanged, but debugging and templating become more palatable, and the compile times are enormously faster due to just-in-time (JIT) compilation. Moving forward, the CuTe 3.X in C++ we use today will probably be somewhat of a relic, but as a learning exercise, nothing beats the absolute struggle of working with the most annoying and explicit version of whatever you're trying to learn.
 
 # Overview
 ## Design Choices
@@ -190,7 +190,7 @@ Any standard C++ integer passed into a layout, shape, or stride is dynamically t
 A[i][j] = i*stride_row + j*stride_col
 ```
 
-Each index operation is a multiply-and-add, which can be quite costly. Instead, when we can, we opt to use statics: type wrappers used by CUTLASS to allow the value to be known at compile time. It's just a C++ compiler trick that allows CuTe to compute all indexing during compilation rather than at runtime, saving the GPU from having to do so while it's running. Obviously, you can only do this if the sizes are predetermined--either definite, templated, or constant. So instead of passing in `make_stride(2, 4)`, we can pass in `make_stride(Int<2>{}, _4{})`. Functionally, these are the same, but any subsequent indexing will be done at compile time for the latter.
+Each index operation is a multiply-and-add, which can be quite costly. Instead, when we can, we opt to use statics: type wrappers used by CUTLASS to allow the value to be known at compile time. It's just a C++ compiler trick that allows CuTe to compute all indexing during compilation rather than at runtime, saving the GPU from having to do so while it's running. Obviously, you can only do this if the sizes are predetermined -- either definite, templated, or constant. So instead of passing in `make_stride(2, 4)`, we can pass in `make_stride(Int<2>{}, _4{})`. Functionally, these are the same, but any subsequent indexing will be done at compile time for the latter.
 
 Layouts *do* take in dynamic integers as well. They should be used *if they are only known at runtime*.
 
@@ -267,7 +267,7 @@ $$
 
 > Math majors might find this zero-indexing sacrilegious, but I'd imagine they're not reading this blog anyway.
 
-In the context of programming languages and memory, row-major also means that the items in each row are contiguous in memory--i.e. contiguous *along* the columns. This means $a_{i,j}$ is NEXT TO $a_{i,j+1}$ in memory. For a 2D row-major tensor (M, N), the N-stride is the *innermost* dimension--the one where elements are adjacent in memory. The N-stride is always $1$. The M-stride is simply the number of columns N; to get to the next row, you offset by the N adjacent elements in the current row.
+In the context of programming languages and memory, row-major also means that the items in each row are contiguous in memory -- i.e. contiguous *along* the columns. This means $a_{i,j}$ is NEXT TO $a_{i,j+1}$ in memory. For a 2D row-major tensor (M, N), the N-stride is the *innermost* dimension -- the one where elements are adjacent in memory. The N-stride is always $1$. The M-stride is simply the number of columns N; to get to the next row, you offset by the N adjacent elements in the current row.
 
 ```cpp
 // for row-major of shape 2,8
@@ -277,7 +277,7 @@ auto shape = Shape<_2, _8>{};
 auto row_major_stride = Stride<_8, _1>{};
 ```
 
-Extrapolating to an N-D row-major tensor of shape $(d_{n-1}, d_{n-2}, \dots, d_0)$: the 0th dim stride is 1, the 1st dim stride is $d_{0}$. For each subsequent dimension, we have to step by the number of elements in the entire block inside--the second dim has $d_{1}\cdot d_{0}$ values for each of its "columns." Therefore:
+Extrapolating to an N-D row-major tensor of shape $(d_{n-1}, d_{n-2}, \dots, d_0)$: the 0th dim stride is 1, the 1st dim stride is $d_{0}$. For each subsequent dimension, we have to step by the number of elements in the entire block inside -- the second dim has $d_{1}\cdot d_{0}$ values for each of its "columns." Therefore:
 
 $$\text{stride}(x) = \Pi_{i=0}^{x-1} d_i$$
 
@@ -345,7 +345,7 @@ When we toggle between row- and column-major, we expect the indices to have the 
 
 > **Note**: Although they return the same numbers, depending on the order of iteration, one way will be more inefficient as it jumps from address to address instead of iterating contiguously. For example, `for i...for j` is great for row-major but potentially a cache disaster for col-major. This only applies to tensors stored in memory. In the register file, indexing is purely an abstraction.
 
-So what do I mean by "in what context?" So far, we've been aiming to create an equivalent representation of A via a row- or column-major format. But for CUDA kernels, there is no equivalence--we are given some tensors in a predefined row- or column-major format. FA2 expects Q, K, V to be contiguous *along* `head_dim`, i.e. `(seqlen, head_dim)`. This means they are *row-major* with respect to each *token*--each token is one row in the matrix. In this case, there is only one valid way to load the data--the row-major way, since the underlying data is *already fixed*.
+So what do I mean by "in what context?" So far, we've been aiming to create an equivalent representation of A via a row- or column-major format. But for CUDA kernels, there is no equivalence; we are given some tensors in a predefined row- or column-major format. FA2 expects Q, K, V to be contiguous *along* `head_dim`, i.e. `(seqlen, head_dim)`. This means they are *row-major* with respect to each *token* -- each token is one row in the matrix. In this case, there is only one valid way to load the data: the row-major way, since the underlying data is *already fixed*.
 
 ### Interpreting Fixed Data
 In our new view, we are reading some predefined data like we did in the [tensor section](#tensors), so now let's make some sense of it. Let's take a look at row-major vs. col-major indexing for the shape (2, 8).
@@ -375,7 +375,7 @@ Even if you specify all your layouts properly, there are some internal workings 
 Our `(seqlen, head_dim)` Q/K/V layout (from [Design Choices](#design-choices)) is row-major along the sequence, which lines up with PyTorch/JAX defaults and with Ampere's row-major-oriented tensor ops -- so even though CuTe defaults to col-major indexing, our data and our copies will all be row-major.
 
 ### Linear Indexing: Colex Indexing
-With our (2,8) shape layout from earlier, CuTe allows us to index it with just one index-value, essentially treating `(2, 3)` as a flat 6-element array--we refer to this as **linear indexing**. A programming language like C allows you to do the same:
+With our (2,8) shape layout from earlier, CuTe allows us to index it with just one index-value, essentially treating `(2, 3)` as a flat 6-element array -- we refer to this as **linear indexing**. A programming language like C allows you to do the same:
 
 ```cpp
 int arr[2][3] = {
@@ -385,9 +385,9 @@ int arr[2][3] = {
 int val = arr[4]; // val = 0
 ```
 
-However, the way C and CuTe handle this internally is very different. C just treats the index `[4]` as a memory offset; using its row-major memory layout, the 4th index grabs the 4th offset in memory, which lands in the second row and second element. In this system, the value at `(1, 0)` is "further along" than `(0, 1)`--i.e. as you move from left to right and top to bottom, you increase in the order of access. We call this *lexicographical order*. In lexicographical ordering, the index `arr[4]` on shape (2,3) maps to `arr[1][1]`.
+However, the way C and CuTe handle this internally is very different. C just treats the index `[4]` as a memory offset; using its row-major memory layout, the 4th index grabs the 4th offset in memory, which lands in the second row and second element. In this system, the value at `(1, 0)` is "further along" than `(0, 1)` -- i.e. as you move from left to right and top to bottom, you increase in the order of access. We call this *lexicographical order*. In lexicographical ordering, the index `arr[4]` on shape (2,3) maps to `arr[1][1]`.
 
-> In English, we read from left to right, top to bottom--that's where this ordering gets its name. You can think of it as simply row-major indexing. Since C just works with offsets rather than linearly mapping index `[4]` to `[1][1]`, we typically refer to it as **flat indexing**.
+> In English, we read from left to right, top to bottom -- that's where this ordering gets its name. You can think of it as simply row-major indexing. Since C just works with offsets rather than linearly mapping index `[4]` to `[1][1]`, we typically refer to it as **flat indexing**.
 
 On the other hand, CuTe uses **colexicographical indexing** (i.e. colex indexing), which is the opposite--order increases first from top to bottom, and then left to right. In this transposed view, index `(1, 0)` is adjacent to `(0, 0)` and is "before" the index `(0, 1)`. As before, it's pretty much just column-major order. It's CuTe's way of consistently enforcing 1D->N-dimensional indexing across layout algebra.
 
@@ -510,7 +510,7 @@ These two concepts are **vectorized loads** and **coalesced loads**. They are ve
 
 ![Vectorized load example. Can issue 4 fp32 load instructions or just 1 128-bit load and reinterpret as fp32. Byte-addressed, so 0x4 address increment per float.](vec.png)
 
-![Coalesced load example. Four threads want 128-bits--making a 64-byte contiguous chunk. The memory controller combines it into one transaction.](coalesce.png)
+![Coalesced load example. Four threads want 128-bits -- making a 64-byte contiguous chunk. The memory controller combines it into one transaction.](coalesce.png)
 
 Both vectorized and coalesced loads expect the data to be contiguous (e.g. 128 bits and 128 bytes, respectively). If your data is scattered, you might not be able to leverage the full benefit of vectorization and coalescing. However, it's possible that loading 64 bytes or 64 bits at a time could be good enough for your purpose. If memory becomes a bottleneck, you can always consider reformatting the data or loading out of order, as long as your downstream compute handles the data correctly.
 
@@ -519,7 +519,7 @@ Both vectorized and coalesced loads expect the data to be contiguous (e.g. 128 b
 > **Note**: Don't get confused between *vectorized loads* and *compute vectorization*. Although they have the same name, vectorized loads are about memory throughput while vectorized compute is about parallel computation. For example, numpy compute vectorization leverages SIMD CPU instructions to add matrices in one clock cycle. A GPU thread bundles a bunch of data into one load instruction to leverage higher memory bandwidth. Similar concept, different meanings depending on context.
 
 ### Copy Atoms
-Every NVIDIA GPU has a boatload of copy instructions--you can fetch 32 bytes, 64 bytes, one byte, synchronously or asynchronously. CuTe neatly packages these copy instructions into a core piece called an `Atom`. These "atomic" pieces are the core hardware instructions that you eventually pass to the `copy` function so it knows which instruction to use to copy your data.
+Every NVIDIA GPU has a boatload of copy instructions -- you can fetch 32 bytes, 64 bytes, one byte, synchronously or asynchronously. CuTe neatly packages these copy instructions into a core piece called an `Atom`. These "atomic" pieces are the core hardware instructions that you eventually pass to the `copy` function so it knows which instruction to use to copy your data.
 
 Ampere has a specific asynchronous `Copy_Atom` with the architecture name `SM_80`: `SM80_CP_ASYNC_CACHEGLOBAL<bit_size>` or `SM80_CP_ASYNC_CACHEALWAYS<bit_size>`. The `cache_global` and `cache_always` map to the PTX[^2] instructions `cp.async.cg.shared.global` and `cp.async.ca.shared.global`; `cache_global` loads straight from L2 to the destination, skipping over L1 cache, while `cache_always` also loads the data into L1. Most kernels use `cache_always` by default because of improved spatial and temporal locality across threads. But in FA2, we never reference Q, K, or V again once they're loaded into SMEM--therefore, we can bypass the L1 cache, which is slightly faster. It also reduces thrashing at the L1 level and allows more important data to stay in-cache. In practice, this is a micro-optimization and not that important.
 
@@ -587,7 +587,7 @@ using TiledCopyQKV = decltype(make_tiled_copy(
 
 ![The tiling strategy above, but assume two warps, not four to show how warps cycle. Each row is 8 threads, each square is a thread's 128-bit load (8 fp16s). Each full tile is two warp-loads, four rows per warp, so 8 rows per tile.](gmem_tiling.png)
 
-The way to think about this is that this `Tiled_Copy` is the tiling strategy for your source memory (GMEM in this case). All 128 threads load the first 128 contiguous 128-bit chunks, finish, then move onto the next 128 chunks until the entire GMEM section is copied. Even though this example is for a GMEM source, `Tiled_Copy` works between GMEM, SMEM, and per-thread registers. It doesn't know what anything is--it's just the floorplan, and we're responsible for providing the expected input.
+The way to think about this is that this `Tiled_Copy` is the tiling strategy for your source memory (GMEM in this case). All 128 threads load the first 128 contiguous 128-bit chunks, finish, then move onto the next 128 chunks until the entire GMEM section is copied. Even though this example is for a GMEM source, `Tiled_Copy` works between GMEM, SMEM, and per-thread registers. It doesn't know what anything is -- it's just the floorplan, and we're responsible for providing the expected input.
 
 ### Tiled Copy, Source and Destination
 Our `Tiled_Copy` determines how our source is tiled, but we now have to configure the destination. The destination layout is determined by the destination tensor itself. The `Tiled_Copy` simply places each thread's data in the "same place" it was loaded from. The destination layout can essentially be anything as long as it is compatible with the `Copy_Atom`. Since we have 128-bit loads/stores, the destination tensor layout must accept aligned 8-half blocks (more on this in swizzling). For now, we can ignore what the output tensor is. `Tiled_Copy` has a specific pattern for copying between a source and a destination: a thread view, a partitioning step, and finally the copy.
@@ -637,7 +637,7 @@ Tensor sK =
 
 This looks awful, but the mechanism is quite simple. Each thread block operates on a unique block of Q for some unique batch/head. We compute the batch and head index and offset into the Q tensor by the batch and head strides, arriving at that particular batch/head's Q tensor. CuTe has primitives like `make_gmem_ptr` and `make_smem_ptr` to tell the underlying engine to issue the correct PTX instructions for copying between GMEM, SMEM, and the register file. We provide it a layout so we can easily call `local_tile(tensor, tile_layout, coord)` to retrieve the tile of interest, in this case the `m`-th block of Q. It takes in a `Coord` which is the `(i, j)`-th tile according to `tile_layout`.
 
-We could just as easily have made the `mQ` pointer point to the start of the batch/head dimension and local-tiled into BH as well as `m_block`. The output PTX would be exactly the same--it's simply a matter of personal preference. The K and V GMEM tensors iterate over all blocks along the seqlen dimension, so their coord uses an underscore `_` to signal this to the compiler.
+We could just as easily have made the `mQ` pointer point to the start of the batch/head dimension and local-tiled into BH as well as `m_block`. The output PTX would be exactly the same -- it's simply a matter of personal preference. The K and V GMEM tensors iterate over all blocks along the seqlen dimension, so their coord uses an underscore `_` to signal this to the compiler.
 
 ```cpp
 Tensor gK = local_tile(mK, make_shape(Int<kBlockN>{}, Int<kHeadDim>{}),
@@ -660,7 +660,7 @@ Each warp does one MMA in one tensor core cycle, and the warps synchronize with 
 using SmemCopyAtom = Copy_Atom<SM75_U32x4_LDSM_N, cute::half_t>;
 ```
 
-Our copy atom this time leverages the `LDSM_N` SASS[^2] instruction: Load from Shared Memory with the "N"ormal row-major/no-transpose layout. It moves 4x32-bit words = 128 bits per instruction, similar to our async load from before. However, this instruction is quite special--it is *specifically made for tensor core MMAs*. As we'll see in the next section, the tensor cores require specific threads to have specific pieces of each fragment. Although each thread issues a 128-bit transfer, it *does not necessarily end up with that data*. Instead, `LDSM` performs a specialized hardware warp shuffle so that each thread ends up with the correct data.
+Our copy atom this time leverages the `LDSM_N` SASS[^2] instruction: Load from Shared Memory with the "N"ormal row-major/no-transpose layout. It moves 4x32-bit words = 128 bits per instruction, similar to our async load from before. However, this instruction is quite special -- it is *specifically made for tensor core MMAs*. As we'll see in the next section, the tensor cores require specific threads to have specific pieces of each fragment. Although each thread issues a 128-bit transfer, it *does not necessarily end up with that data*. Instead, `LDSM` performs a specialized hardware warp shuffle so that each thread ends up with the correct data.
 
 This instruction is also commonly referred to by its PTX counterpart, `ldmatrix`:
 
@@ -713,7 +713,7 @@ using TiledMma = TiledMMA<MMA_Atom<SM80_16x8x16_F32F16F16F32_TN>,
 
 ![Tiled MMA layout. Each solid color is one of four warps. If we had more rows/cols, the color pattern would repeat. The tiled layout for fragment B is pretty much the same as for fragment C, only with a size difference. Each 16x16 B-tile is composed of two fragments that are 1 N-tile adjacent for shape (K, N). Note that B is transposed in this visualization.](tiled_mma.png)
 
-We chose 128 threads (4 warps) because each SM has 4 resident tensor cores--a sensible choice to maximize MMA throughput. For the layout, we tile across the M-dimension (taking a slice from the left column of Q) and move across the K dimension. Each tile is `kNWarps` stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$.
+We chose 128 threads (4 warps) because each SM has 4 resident tensor cores -- a sensible choice to maximize MMA throughput. For the layout, we tile across the M-dimension (taking a slice from the left column of Q) and move across the K dimension. Each tile is `kNWarps` stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$.
 
 We flagged this M-tiling design choice in the [Basic Structure section](#basic-structure). The `Layout<Shape<Int<kNWarps>, _1, _1>>` puts all the warps along M with `_1` along N and K, which means **every warp owns whole rows of the output, never a horizontal slice of one**. When we compute the per-row max and per-row sum during softmax, the values to be reduced live in registers within a single warp, so the reduction is a `__shfl_xor_sync()` away — no SMEM staging, no thread-block sync. If we had tiled warps along N instead, that same reduction would have to cross warps and we'd be staging through SMEM with `__syncthreads()` on every iteration, crushing our performance. This staging was a forced sticking point on original FlashAttention-1.
 
@@ -858,7 +858,7 @@ for (int j = 0; j < 32; j++) {
 }
 ```
 
-In this example, at `j=0`, thread 0 accesses `(0, 0)`, thread 1 accesses `(1, 0)`, ..., and thread 31 accesses `(31, 0)`. Since our SMEM array is 32x32, the row stride increments by 32 floats--32 words/4-byte numbers, or 32 banks. This means all 32 threads access bank 0 on the same cycle, for all 32 elements in the column. This is the ultimate 32-way bank conflict that causes a 32x slowdown. It doesn't matter how optimized the rest of your kernel is--this access pattern will absolutely destroy your performance.
+In this example, at `j=0`, thread 0 accesses `(0, 0)`, thread 1 accesses `(1, 0)`, ..., and thread 31 accesses `(31, 0)`. Since our SMEM array is 32x32, the row stride increments by 32 floats -- 32 words/4-byte numbers, or 32 banks. This means all 32 threads access bank 0 on the same cycle, for all 32 elements in the column. This is the ultimate 32-way bank conflict that causes a 32x slowdown. It doesn't matter how optimized the rest of your kernel is; this access pattern will absolutely destroy your performance.
 
 In this case, the fix is simple. We can have the warp iterate over one row per cycle, which is 32 contiguous elements = 32 consecutive banks--no conflict, no problems.
 
@@ -894,7 +894,7 @@ Swizzling is your answer to the brilliant thought: "what if our access patterns 
 
 Back to our example. For our column access pattern on the 32x32 array, we "reinterpret" our SMEM so that address 0 is bank 0, address 32 is bank 1, ..., and address 31*32 is bank 31. It's a scrambler (or swizzler, if you will) that maps your (i, j) to a true address under the hood such that your bank conflicts magically disappear. Before each write and read to SMEM, we swizzle the incoming access (i, j) and translate it to a physical address (or vice versa), so that even though we think we're writing (1, 3) to memory location $32\cdot 1 + 3$, we're actually writing it to some swizzled address under the hood. The writer and consumer are none the wiser. As long as it writes (1, 3) and gets back the same (1, 3), it doesn't care.
 
-> Think of it like a valet attendant. You give your keys to the guy up front, and he parks your car somewhere in the garage. When you come back from your day of disappointing your family, you simply ask for your car back. They fetch it, you get in, and you leave. You don't care whether it was on floor 1 or floor 9001--you just care that you got your car back.
+> Think of it like a valet attendant. You give your keys to the guy up front, and he parks your car somewhere in the garage. When you come back from your day of disappointing your family, you simply ask for your car back. They fetch it, you get in, and you leave. You don't care whether it was on floor 1 or floor 9001 -- you just care that you got your car back.
 
 There are an infinite number of strategies to scramble addresses, but we have to meet a few criteria:
 1. Addresses or indices must have a 1-1 mapping. Each (i, j) has to have a unique physical location in memory.
@@ -978,7 +978,7 @@ Swizzle<B, M, S> swizzle;
 - M: mask of LSB bits you want to keep contiguous. We want 8 contiguous halfs, so 3 LSB bits.
 - S: shift bits; how many bits to the "left" of the mask represent which row we're at? For our case, the row bits sit beyond bit 6, so `S=6-M=6-3=3`.
 
-> For our 32x32 float example, let's compute B, M, S. We only look at one float at a time, so `M=0`. We have 32 columns/floats per row, so `B=log2(32)=5`. Finally, our row bits are just all the bits above the columns, so `S=B=5`. Since we only have 32 rows, we'll only ever have 5 row bits as well, but Swizzle doesn't need to know that--our swizzle pattern just computes the translation, and we're responsible for providing it the relevant SMEM pointers.
+> For our 32x32 float example, let's compute B, M, S. We only look at one float at a time, so `M=0`. We have 32 columns/floats per row, so `B=log2(32)=5`. Finally, our row bits are just all the bits above the columns, so `S=B=5`. Since we only have 32 rows, we'll only ever have 5 row bits as well, but Swizzle doesn't need to know that -- our swizzle pattern just computes the translation, and we're responsible for providing it the relevant SMEM pointers.
 
 Notice that the B and S bits can actually overlap. In most scenarios, they don't. There may be some behavior you can exploit with this overlap, but more often, the B and S bits don't need to be adjacent. In our case, our row and column bits *are* adjacent, so `B=S`. For different strides or certain layouts, this split gives us flexibility to ensure our swizzles point to the correct bits.
 
@@ -991,14 +991,14 @@ You'll see this swizzle pattern a lot for fp16, since the bank-conflict repeat c
 static constexpr int kBlockKSmem = (kHeadDim % 64 == 0) ? 64 : 32;
 ```
 
-> For `hdim=32`, you still have to redeclare some things, for example `B=2` for the swizzle atom. I bring this stipulation up because it's the path the FA2 source code took. It's not the only implementation and not necessarily the best one--it just might be a point of confusion when reading their `kernel_traits.h` definition. We'll cover another huge stipulation in our [V-fragment section](#svtnoswizzle-the-no-op-nobody-caught).
+> For `hdim=32`, you still have to redeclare some things, for example `B=2` for the swizzle atom. I bring this stipulation up because it's the path the FA2 source code took. It's not the only implementation and not necessarily the best one -- it just might be a point of confusion when reading their `kernel_traits.h` definition. We'll cover another huge stipulation in our [V-fragment section](#svtnoswizzle-the-no-op-nobody-caught).
 
 #### Swizzle Composition
-Now let's actually make the SMEM layout. Since we have a swizzle and the actual SMEM dimensions, our resulting `SmemLayout` is a tiled layout--we have to tile the swizzle on top of the underlying memory. We first create our tile atom and then tile the atom to our SMEM shape.
+Now let's actually make the SMEM layout. Since we have a swizzle and the actual SMEM dimensions, our resulting `SmemLayout` is a tiled layout -- we have to tile the swizzle on top of the underlying memory. We first create our tile atom and then tile the atom to our SMEM shape.
 
 The swizzle atom relies on a composition of a swizzle and the layout underneath. The layout provides the raw coordinates/address to the swizzler, so that B, M, S actually mean something. Our swizzle atom is `Swizzle<3, 3, 3>`, and our layout underneath is the SMEM subsection we're actually scrambling. From our analysis earlier, it has 8 rows and spans the entire column width, so that each 32x4 `LDSM_N`/16x8x16 MMA tile load becomes bank-conflict-free. Therefore, the layout has shape `(8, kBlockSmem)` and stride `(kBlockSmem, 1)`.
 
-We use the `composition(f1, f2)` function, which composes the layouts as `f1(f2(x))`. The raw coordinates are translated into the unswizzled address, which gets fed to the swizzler--therefore `f1=Swizzle` and `f2=Layout`. We apply this atom to our overall SMEM shape; for Q, this is `(kBlockM, kBlockSmem)`.
+We use the `composition(f1, f2)` function, which composes the layouts as `f1(f2(x))`. The raw coordinates are translated into the unswizzled address, which gets fed to the swizzler -- therefore `f1=Swizzle` and `f2=Layout`. We apply this atom to our overall SMEM shape; for Q, this is `(kBlockM, kBlockSmem)`.
 
 ```cpp
 using SmemLayoutAtomQ = decltype(composition(
@@ -1035,18 +1035,18 @@ Tensor tVsV = gmem_thr_copy_QKV.partition_D(sV);
 ```
 
 ### V: SMEM->Register
-This is the step where we have to tread a bit carefully. V is sitting in SMEM in the same format as Q and K--contiguous along `kHeadDim`--so we can't just copy our SMEM->register pipeline from earlier. This part is a bit confusing, so let's visualize the problem first:
+This is the step where we have to tread a bit carefully. V is sitting in SMEM in the same format as Q and K -- contiguous along `kHeadDim` -- so we can't just copy our SMEM->register pipeline from earlier. This part is a bit confusing, so let's visualize the problem first:
 
 ![SMEM physical layout for our MMAs. Each block is a tile.](mma_v_layout.png)
 
-> **Note**: The tiled MMA visualization in our [tiled MMA section](#tiled-mma) was a human-friendly view that's actually what `sV` looks like here--it doesn't represent the physical SMEM layout we have.
+> **Note**: The tiled MMA visualization in our [tiled MMA section](#tiled-mma) was a human-friendly view that's actually what `sV` looks like here; it doesn't represent the physical SMEM layout we have.
 
 As we can see, Q and K are both row-contiguous along `kHeadDim`, which they matmul across. S and V matmul across `kBlockN`, not `kHeadDim`, so V is not row-contiguous along the concatenation dimension. As a result, we have to tile it "vertically" along the columns for the tiled MMA.
 
 But what does "vertically" even mean? We were pretty hand-wavy about the `SM75_U32x4_LDSM_N` atom earlier, so let's clarify it now:
 
 #### LDSM Copy Atom
-When we issue the `LDSM_N` instruction, we load the entire 16x16 fragment in one go. Since we have 8-half contiguous blocks for the 128-bit load (which is also our SMEM layout), each 16x16 `ldmatrix` load takes in exactly 32 SMEM addresses--one from each thread. For the `U32x4` denomination, we treat each one as a 4x32-bit register load, which is perfect since the MMA Atom underneath understands that each 32-bit register holds two fp16s.
+When we issue the `LDSM_N` instruction, we load the entire 16x16 fragment in one go. Since we have 8-half contiguous blocks for the 128-bit load (which is also our SMEM layout), each 16x16 `ldmatrix` load takes in exactly 32 SMEM addresses -- one from each thread. For the `U32x4` denomination, we treat each one as a 4x32-bit register load, which is perfect since the MMA Atom underneath understands that each 32-bit register holds two fp16s.
 
 > **Note**: Ampere tensor cores support `INT4`, `INT8`, `FP16`, `BF16`, and `TF32` (19 bits). The `U32x4` modifier can be confusing because it only describes the source data/register size, not the actual data type underneath. The `LDSM` instructions are purpose-made for tensor core MMAs and don't support standard 32-bit floats.
 
@@ -1128,10 +1128,10 @@ Tensor tOrV = thr_mma.partition_fragment_B(sVtNoSwizzle);
 
 This `sVtNoSwizzle` is only used to derive the fragment shape for `tOrV`. It leads us to assume that *something* breaks if we don't extract the `nonswizzle_portion` of `sVt`'s layout.
 
-When we declared our fragments for Q and K, we simply passed in the swizzled tensors `sQ, sK` to `partition_fragment`. So why don't we do that for `sVt`? You'd imagine it's due to the transpose we apply on top of the swizzle atom. In this case you'd be right, with a few massive caveats.
+When we declared our fragments for Q and K, we simply passed in the swizzled tensors `sQ, sK` to `partition_fragment`. So why don't we do that for `sVt`? You'd imagine it's due to the transpose we apply on top of the swizzle atom. In this case you'd be half right -- in reality, we see the same "issues" even on Q and K. The true reason actually has to do with the `hdim` instead.
 
 #### Breaking the Fragment Shapes
-If we compile the code for `hdim=64,128` and pass in `sVt` to `partition_fragment_B`, all the layouts are identical to passing in `sVtNoSwizzle`. Seemingly, it makes no difference. However, if we compile the code for `hdim=32,96`, the fragment shapes end up different:
+If we compile the code for `hdim=64,128` and pass in `sVt` to `partition_fragment_B`, the resulting layouts are *completely identical* to passing in `sVtNoSwizzle`. Seemingly, the `NoSwizzle` makes no difference. However, if we compile the same code for `hdim=32,96`, the fragment shapes end up wonky:
 
 ```cpp
 ========== kHeadDim=32 kBlockN=64 (kBlockKSmem=32 kSwizzle=2) ==========
@@ -1150,9 +1150,9 @@ A couple of observations:
 - The default `print` function on the SMEM layouts prints some pseudo layout that shows the composition of our different pieces. The reason is that there is no homogenous shape/stride combo that can represent the swizzle logic. We'll take a look at the layout visually in a bit.
 - Something clearly "breaks" the fragments when we switch to non-multiples of 64. The second dimension of the V-fragment changes from a flat `4` to a nested `(2, 2)` layout. The Q-fragment's outer strides flip as well. However, both shapes are still the same size in total.
 
-To understand what's going on, we have to understand what `partition_fragment` is actually doing. Canonically, we pass in tensors as its argument, e.g. `tiled_mma.partition_fragment_A(sQ)`. However, this is a bit of a red herring, since the partitioning *only needs the layout*. We already saw this with `partition_fragment_C`, which is a standalone function that only takes in the tiled MMA and a shape. In the source code[^7], the function only uses the tensor's layout and nothing else. The tensor argument exists solely to anchor the partitioning to the physical SMEM buffer--a readability convention, not a functional requirement.
+To understand what's going on, we have to understand what `partition_fragment` is actually doing. Canonically, we pass in tensors as its argument, e.g. `tiled_mma.partition_fragment_A(sQ)`. However, this is a bit of a red herring, since the partitioning *only needs the layout*. We already saw this with `partition_fragment_C`, which is a standalone function that only takes in the tiled MMA and a shape. In the source code[^7], the function only grabs the tensor's layout (via `tensor.layout()`) and nothing else. The tensor argument exists solely to anchor the partitioning to a physical SMEM buffer -- a readability convention, not a functional requirement.
 
-We can see how the `nonswizzle` function simply chops off the swizzle component on the left of the layout and leaves us with the raw non-swizzled shape. So using the non-swizzled shape is actually ideal: we only need to partition the SMEM shape to extract the correct fragment tiles--the copy operation is independent of the underlying swizzling pattern. The dumb conclusion is that **we should have passed in a non-swizzled `sQ` and `sK` to the partitioner as well.**
+We can see how the `nonswizzle` function simply chops off the swizzle component on the left of the layout and leaves us with the raw non-swizzled shape. So using the non-swizzled shape is actually ideal: we only need to partition the SMEM shape to extract the correct fragment tiles; the copy operation is independent of the underlying swizzling pattern. The dumb conclusion is that **we should have passed in a non-swizzled `sQ` and `sK` to the partitioner as well.**
 
 However, the fact that the copy works regardless means there's some deeper reason for why the fragment shapes stay consistent for `hdim=64,128` and break for `hdim=32,96`. If you've gotten to this point, you should just take the above conclusion and run. If you want to continue to lose your sanity, we're going to understand why.
 
@@ -1194,7 +1194,7 @@ For `Swizzle<3,3,3>`, no SMEM rows share a bit-mask row. Therefore, an offset in
 When I figured this out, I didn't bother looking into how CuTe actually computes the output fragment. The culprit is clearly some inability to extract a flat layout, whatever the reason. Furthermore, even though FA2 non-swizzles `sVt`, it still uses a botched-up version of `sQ`...but the algorithm still works. So I wondered: what if I just replaced `sVtNoSwizzle` with `sVt`, even for `hdim=32`? Something must break, right?
 
 #### Bruh
-Yeah, nope. I tested the kernel and it worked perfectly--exact same output as the non-swizzled version, to the decimal. At this point I had spent 6 or 7 hours trying to figure out why this stupid line was there, only to realize it never mattered anyway. Someone at some point must've copied snippets from some CuTe example or other kernel, or got scared that the debug prints for the layouts looked wrong.
+Yeah, nope. I tested the kernel and it worked perfectly -- exact same output as the non-swizzled version, to the decimal. At this point I had spent 6 or 7 hours trying to figure out why this stupid line was there, only to realize it never mattered anyway. Someone at some point must've copied snippets from some CuTe example or other kernel, or got scared that the debug prints for the layouts looked wrong.
 
 This still begs the question: how does the kernel work despite these wonky layouts? The hint actually lies in the CuTe source code.
 
@@ -1215,7 +1215,7 @@ static constexpr int kSwizzle = (kBlockKSmem == 64) ? 3 : 2;
 ...Swizzle<kSwizzle, 3, 3>{}...;
 ```
 
-Yeah, me neither. For `kBlockKSmem=32`, we said that `B=2` because there are only four 8-half columns per row (2 bits). But does it have to be? Physical SMEM is just L1 cache and has no concept of a layout--that's purely software. We can simply treat each even-odd row pair as one 64-half row by setting `kSwizzle=3`. Our `B` bitmask just treats the underlying SMEM as if it were 64 wide again. Just like before, each pseudo-row is conflict-free and the tiled layout still extends 8 rows deep for our thread copy. I scratched my head for a while thinking that this would fix all the shape problems from earlier but break some access pattern somewhere else. Like a good engineer, I simply changed `kSwizzle=3` in my code and tested it...and
+Yeah, me neither. For `kBlockKSmem=32`, we said that `B=2` because there are only four 8-half columns per row (2 bits). But does it have to be? Physical SMEM is just L1 cache and has no concept of a layout -- that's purely software. We can simply treat each even-odd row pair as one 64-half row by setting `kSwizzle=3`. Our `B` bitmask just treats the underlying SMEM as if it were 64 wide again. Just like before, each pseudo-row is conflict-free and the tiled layout still extends 8 rows deep for our thread copy. I scratched my head for a while thinking that this would fix all the shape problems from earlier but break some access pattern somewhere else. Like a good engineer, I simply changed `kSwizzle=3` in my code and tested it...and
 
 ![Testing passed.](tests_pass.png)
 
@@ -1224,7 +1224,7 @@ So it seems that a variable `kSwizzle` pattern isn't necessary, even for smaller
 #### There are Multiple Options
 There's technically nothing wrong with the code as-is, but we have a few options to improve the confusion that `sVtNoSwizzle` introduces:
 
-1. Add no-swizzle versions for Q and K as well. This is the most clear about what `partition_fragment` is supposed to care about--the unswizzled shape. It might read as a requirement, which it is not, but it is the most direct with its intention.
+1. Add no-swizzle versions for Q and K as well. This is the most clear about what `partition_fragment` is supposed to care about -- the unswizzled shape. It might read as a requirement, which it is not, but it is the most direct with its intention.
 2. Remove `sVtNoSwizzle`. It's not strictly necessary, and it introduces the underlying assumptions that we now know don't exist. I assume it was added because a debug print statement showed that the V fragment had a strange shape, which may cause confusion to developers.
 3. Change the swizzle pattern to `Swizzle<3,3,3>` for all relevant hdims. We can pair this with 2., which fully removes any shape inconsistencies. The swizzle pattern doesn't match the physical SMEM layout at `hdim=32,96`, but to be fair, neither does using `kBlockKSmem=64` for `hdim=128`.
 
@@ -1361,7 +1361,7 @@ softmax_rescale_o(Tensor0 &acc_s, // (MMA, MMA_M, MMA_N) score block, fp32
 So what actually goes into computing the max and the sum?
 
 ## Row Reduce
-This is the moment where the [warp-per-row tiling](#tiled-mma) pays off. Each warp owns 16 rows of its MMA tile, fully--no row is split across warps. Therefore, the per-row max and sum reductions stay inside a warp and resolve via **warp reduction**, "a highly efficient CUDA parallel reduction technique that aggregates data across 32 threads within a single GPU warp."[^5] CUDA provides warp primitives such as `__shfl_down_sync()` and `__shfl_xor_sync()`, which shuffle data across threads in a warp without any load/stores or shared-memory staging. Zero memory latency, zero `__syncthreads()`, and our max/sum is pretty much free.
+This is the moment where the [warp-per-row tiling](#tiled-mma) pays off. Each warp owns 16 rows of its MMA tile, fully -- no row is split across warps. Therefore, the per-row max and sum reductions stay inside a warp and resolve via **warp reduction**, "a highly efficient CUDA parallel reduction technique that aggregates data across 32 threads within a single GPU warp."[^5] CUDA provides warp primitives such as `__shfl_down_sync()` and `__shfl_xor_sync()`, which shuffle data across threads in a warp without any load/stores or shared-memory staging. Zero memory latency, zero `__syncthreads()`, and our max/sum is pretty much free.
 
 ![XOR shuffle pattern. Thanks to Hyunsung Lee's Blog for this graphic](xor.png)
 
@@ -1520,7 +1520,7 @@ __device__ __forceinline__ T allreduce(T x, Op op) {
 ```
 
 ### Quad Reduce
-The reason we give `allreduce` a template variable `N` is that we're not actually reducing across all 32 threads. We only need to reduce over the number of threads that own each row. In the [MMA Atom Layout image](#thread-reduce) from earlier, we see that four adjacent threads collectively own each row. Therefore, `N=4`--hence, "quad" reduce. The XOR primitive automatically reduces between participating threads, so we don't have to iterate in groups of four--the sync instruction waits for each four-thread group to enter the reduction. Our quad reduce function is therefore quite simple:
+The reason we give `allreduce` a template variable `N` is that we're not actually reducing across all 32 threads. We only need to reduce over the number of threads that own each row. In the [MMA Atom Layout image](#thread-reduce) from earlier, we see that four adjacent threads collectively own each row. Therefore, `N=4` -- hence, "quad" reduce. The XOR primitive automatically reduces between participating threads, so we don't have to iterate in groups of four -- the sync instruction waits for each four-thread group to enter the reduction. Our quad reduce function is therefore quite simple:
 
 ```cpp
 template <typename Engine0, typename Layout0, typename Engine1,
@@ -1917,10 +1917,10 @@ using SmemCopyAtomO =
   Copy_Atom<UniversalCopy<cute::uint32_t>, cute::half_t>;
 ```
 
-This is technically more accurate than what the source code specifies. You can check by compiling the full kernel with fixed-size universal copies until it compiles--if it's not compatible, it'll throw an error. Other ways to verify include printing the per-thread shapes to see the strides, looking at the raw PTX instructions, or, unfortunately, using your brain.
+This is technically more accurate than what the source code specifies. You can check by compiling the full kernel with fixed-size universal copies until it compiles -- if it's not compatible, it'll throw an error. Other ways to verify include printing the per-thread shapes to see the strides, looking at the raw PTX instructions, or, unfortunately, using your brain.
 
 #### Tiled Copy
-Let's make our tiled copy object. To let CuTe know we're working with an output MMA thread layout, we can use `make_tiled_copy_C()`--the `C` version instead of the `A/B` we used for Q, K, and V.
+Let's make our tiled copy object. To let CuTe know we're working with an output MMA thread layout, we can use `make_tiled_copy_C()` -- the `C` version instead of the `A/B` we used for Q, K, and V.
 
 ```cpp
 auto smem_tiled_copy_O =
@@ -1957,7 +1957,7 @@ Tensor gO = local_tile(mO, make_shape(Int<kBlockM>{}, Int<kHeadDim>{}),
 
 Our tiled copy atom is pretty much exactly the same as the one for Q, except we use a standard synchronous 128-bit copy atom instead of the `cp.async` we used for GMEM->SMEM copies. This time, our 128-bit `AutoVectorizing` cheat is fine, since we're doing full 128-bit vectorized loads, although you can explicitly declare a 128-bit `UniversalCopy` for clarity. As with the GMEM->SMEM load, we still benefit from memory coalescing because the blocks written *TO* GMEM are contiguous in memory. Even though blocks may not be contiguous in SMEM, they are when we store to GMEM.
 
-> **Note**: Remember, memory coalescing is a *GMEM optimization*. The swizzle is our valet attendant--it stores and retrieves our car on the thread's behalf, and we don't really care *where* it puts it. Once each thread retrieves its "car", they each park them contiguously in GMEM, which is all that matters for coalescing.
+> **Note**: Remember, memory coalescing is a *GMEM optimization*. The swizzle is our valet attendant -- it stores and retrieves our car on the thread's behalf, and we don't really care *where* it puts it. Once each thread retrieves its "car", they each park them contiguously in GMEM, which is all that matters for coalescing.
 
 ```cpp
 // can reuse the 128-bit auto vectorized SMEM copy
@@ -1995,7 +1995,7 @@ OMG! We're...
 
 #### Sync Threads
 
-Not quite yet. We have one last dance. There's a slight bug in our epilogue as-is. Between the register->SMEM and SMEM->GMEM copy, threads control different parts of SMEM. We set up async waits earlier, but since we're synchronous for the O store, we simply have to call `__syncthreads()` sometime between the two copy stages. The FA2 production code opts to put it right before the final two `copy()` invocations to overlap the GMEM tiled copy setup with the register->SMEM copy, but practically it probably doesn't make much of a difference--you can just put the sync right after the r->S copy.
+Not quite yet. We have one last dance. There's a slight bug in our epilogue as-is. Between the register->SMEM and SMEM->GMEM copy, threads control different parts of SMEM. We set up async waits earlier, but since we're synchronous for the O store, we simply have to call `__syncthreads()` sometime between the two copy stages. The FA2 production code opts to put it right before the final two `copy()` invocations to overlap the GMEM tiled copy setup with the register->SMEM copy, but practically it probably doesn't make much of a difference -- you can just put the sync right after the r->S copy.
 
 # Plumbing: Params, Launch, Dispatch, Kernel Traits
 
