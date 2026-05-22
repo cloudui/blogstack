@@ -5,6 +5,7 @@ categories: [Discussion, Politics]
 tags: [politics, inequality, socialism, satire]
 
 math: true
+draft: true
 
 author: Eric Chen
 image: thumbnail.webp
@@ -25,6 +26,17 @@ Most short-form recommendation systems share a similar underlying architecture. 
 The feed is supposed to be an infinite continuous experience. YOu never want a user to wait for the next video -- it should ideally be a seamless experience where the videos just keep coming after every swipe. With milliions or billions of videos being uploaded every day, it would be physically impossible to carefully evaluate whether a user would like every single video item-by-item with one model. If you did, you'd probably have to wait days just to get back one video, or use an extremely dumb model that doesn't understand the user very well.
 
 Instead, these companies have *many different models* stacked on each other, increasing in complexity the more the videos are narrowed down. 
+
+## Stage 1: Candidate Generation (Retrieval)
+With billions of videos uploaded per day, you need a relatively small model to filter that set down to a more manageable working set. This step acts like a big filter -- it knows you like cats, memes, and food, and that you live in San Francisco, and it'll substantially narrow down the video pool from billions to a couple thousand. This model has to be quite small, as it has to narrow down a huge amount of data -- too big, and the model will take too long before moving onto the next step.
+
+## Stage 2: Pre-ranking
+Nowadays, the retrieval step is often not granular enough. The resulting candidate pool might be either too large or too unpredictable to decrease the output set, so companies opt for a second, slightly more advanced model to serve as a bridge between retrieval and final scoring. At this stage, the model likely is more complicated, with deeper layers, more features, or more granular scoring criteria. At this step, it really starts to narrow down the working set to a bunch of videos you would probably like. The pre-ranker typically narrows the working set to a thousand or a few hundred. 
+
+## Stage 3: Scoring (Ranking)
+This was my job at Facebook Reels. The goal at this step is to actually *score* every individual candidate one-by-one. The model attempts to predict the exact likelihood of any engagement item -- such as the probability of you liking, sharing, commenting, or skipping. It's a huge model that's learned as much information about you as possible, and it has the gargantuan task of predicting every action you might take on any given video. 
+
+> In recommendation systems, the target -- which in our case is a video -- is called a **candidate**. They are all candidates begging for your attentino.
 
 
 - Responsiveness: the feed is a continuous experience. You want to minimize the amount of time people have to wait for the next videos to load. Ideally, they never even know when it happens.
