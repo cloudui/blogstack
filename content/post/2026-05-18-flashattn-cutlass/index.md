@@ -213,7 +213,7 @@ auto shape = make_shape(2, _4{});
 auto stride = make_stride(Int<256>, 64);
 ```
 
-Read more here:
+> The CUTLASS Docs goes more into detail about statics and shapes. It's worth a visit once these concepts begin to click: https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/01_layout.html
 
 ## Tensors
 
