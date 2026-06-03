@@ -282,7 +282,10 @@ O &amp;amp;= S \cdot V
 &lt;/span>&lt;/span>&lt;span class="line">&lt;span class="cl">&lt;span class="k">auto&lt;/span> &lt;span class="n">stride&lt;/span> &lt;span class="o">=&lt;/span> &lt;span class="n">make_stride&lt;/span>&lt;span class="p">(&lt;/span>&lt;span class="n">Int&lt;/span>&lt;span class="o">&amp;lt;&lt;/span>&lt;span class="mi">256&lt;/span>&lt;span class="o">&amp;gt;&lt;/span>&lt;span class="p">,&lt;/span> &lt;span class="mi">64&lt;/span>&lt;span class="p">);&lt;/span>
 &lt;/span>&lt;/span>&lt;/code>&lt;/pre>&lt;/td>&lt;/tr>&lt;/table>
 &lt;/div>
-&lt;/div>&lt;p>Read more here:&lt;/p>
+&lt;/div>&lt;blockquote>
+&lt;p>The CUTLASS Docs goes more into detail about statics and shapes. It&amp;rsquo;s worth a visit once these concepts begin to click: &lt;a class="link" href="https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/01_layout.html" target="_blank" rel="noopener"
+>https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/01_layout.html&lt;/a>&lt;/p>
+&lt;/blockquote>
 &lt;h2 id="tensors">Tensors&lt;/h2>
 &lt;blockquote>
 &lt;p>&lt;strong>Play:&lt;/strong> &lt;a class="link" href="https://github.com/cloudui/cuda-triton/blob/main/scratch/02_tensor.cu" target="_blank" rel="noopener"
