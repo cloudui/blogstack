@@ -212,7 +212,7 @@ Int<8>{};
 
 // can have both dynamics and statics in same layout
 auto shape = make_shape(2, _4{});
-auto stride = make_stride(Int<256>, 64);
+auto stride = make_stride(Int<256>{}, 64);
 ```
 
 > The CUTLASS Docs goes more into detail about statics and shapes. It's worth a visit once these concepts begin to click: https://docs.nvidia.com/cutlass/latest/media/docs/cpp/cute/01_layout.html
@@ -242,7 +242,7 @@ int n_col = t_col_major(2, 3); // 15
 ```
 
 ## Registers Aren't Memory
-One critical clarification before we go further. CuTe gives you `Tensor` objects backed by GMEM, SMEM, *and* registers, and they all look identical in the code. You index them, you read layouts, and pass them to different functions. However, the register tensor is lying to you in a benign way: **registers are not addressable memory**. They are hardcoded slots wired into the cores. There is no "register address." The "layout" on a register tensor is purely a compiler-side mapping from a logical index (e.g. `frag(0, 1)`) to a specific physical register name (e.g. `%r17`). You should treat it like a 1-1 lookup table, not as something with strides you can do pointer arithmetic on.
+One critical clarification before we go further. CuTe gives you `Tensor` objects backed by GMEM, SMEM, *and* registers, and they all look identical in the code. You index them, you read layouts, and pass them to different functions. However, the register tensor is lying to you in a benign way: **registers are not addressable memory**. They are hardcoded slots wired into the cores. Registers *have no memory addresses*. The "layout" on a register tensor is purely a compiler-side mapping from a logical index (e.g. `frag(0, 1)`) to a specific physical register name (e.g. `%r17`). You should treat it like a 1-1 lookup table, not as some physical memory with strides you can do pointer arithmetic on.
 
 This matters because:
 - A register tensor "stride" is a code abstraction. A "column-major" register fragment doesn't have any physical column-major memory underneath it -- there is no memory underneath at all.
