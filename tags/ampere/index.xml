@@ -1276,7 +1276,7 @@ data-flex-basis="399px"
 &lt;ul>
 &lt;li>&lt;code>MMA&lt;/code>: shape/number of elements per thread. For our tiled MMA, it&amp;rsquo;s 8 elements per thread for Q and 4 elements per thread for K, V, and the accumulator. The output of our SM80 16x8x16 atom has &lt;code>MMA=(2,2)&lt;/code>, which means each thread holds 4 values in the shape (2, 2).&lt;/li>
 &lt;li>&lt;code>MMA_X&lt;/code> is the number of tiles along X and&lt;/li>
-&lt;li>&lt;code>MMA_Y&lt;/code> is the number of tiles along Y. In this case, &lt;code>X=kBlockM&lt;/code> and &lt;code>Y=kHeadDim&lt;/code> for &lt;code>tSsQ&lt;/code>. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.&lt;/li>
+&lt;li>&lt;code>MMA_Y&lt;/code> is the number of tiles along Y. In this case, &lt;code>X=kBlockM/(16*kNWarps)&lt;/code> and &lt;code>Y=kHeadDim/16&lt;/code> for &lt;code>tSsQ&lt;/code>. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.&lt;/li>
 &lt;/ul>
 &lt;h3 id="mma-loop-qkt-gemm">MMA Loop: QK^T GEMM&lt;/h3>
 &lt;blockquote>
