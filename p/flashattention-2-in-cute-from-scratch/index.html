@@ -33,7 +33,7 @@ O &= S \cdot V
 </span></span><span class=line><span class=cl><span class=k>auto</span> <span class=n>layout_1</span> <span class=o>=</span> <span class=n>make_layout</span><span class=p>(</span><span class=n>make_shape</span><span class=p>(</span><span class=n>Int</span><span class=o>&lt;</span><span class=mi>2</span><span class=o>&gt;</span><span class=p>{},</span> <span class=n>Int</span><span class=o>&lt;</span><span class=mi>8</span><span class=o>&gt;</span><span class=p>{}),</span>
 </span></span><span class=line><span class=cl>        <span class=n>make_stride</span><span class=p>(</span><span class=n>_8</span><span class=p>{},</span> <span class=n>_1</span><span class=p>{}));</span>
 </span></span><span class=line><span class=cl><span class=n>print_layout</span><span class=p>(</span><span class=n>layout</span><span class=p>);</span>
-</span></span><span class=line><span class=cl><span class=c1>// this is the shape of a torch.tensor([[0]*8 for _ in range(16)]).T
+</span></span><span class=line><span class=cl><span class=c1>// this is the shape of a torch.tensor([[0]*8 for _ in range(2)])
 </span></span></span><span class=line><span class=cl><span class=c1></span>
 </span></span><span class=line><span class=cl><span class=c1>// stdout
 </span></span></span><span class=line><span class=cl><span class=c1></span><span class=p>(</span><span class=n>_2</span><span class=p>,</span><span class=n>_8</span><span class=p>)</span><span class=o>:</span><span class=p>(</span><span class=n>_8</span><span class=p>,</span><span class=n>_1</span><span class=p>)</span>
