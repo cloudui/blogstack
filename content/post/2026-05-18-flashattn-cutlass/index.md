@@ -192,7 +192,7 @@ Any standard C++ integer passed into a layout, shape, or stride is dynamically t
 A[i][j] = i*stride_row + j*stride_col
 ```
 
-Each index operation is a multiply-and-add, which can be quite costly. Instead, when we can, we opt to use statics: type wrappers used by CUTLASS to allow the value to be known at compile time. It's just a C++ compiler trick that allows CuTe to compute all indexing during compilation rather than at runtime, saving the GPU from having to do so while it's running. Obviously, you can only do this if the sizes are predetermined -- either definite, templated, or constant. So instead of passing in `make_stride(2, 4)`, we can pass in `make_stride(Int<2>{}, _4{})`. Functionally, these are the same, but any subsequent indexing will be done at compile time for the latter.
+Each index operation is a multiply-and-add, which can be quite costly. Instead, when we can, we opt to use statics: type wrappers used by CUTLASS to allow the value to be known at compile time. It's just a C++ compiler trick that allows CuTe to compute all indexing during compilation rather than at runtime, saving the GPU from having to do so while it's running. Obviously, you can only do this if the sizes are predetermined -- either definite, templated, or constant. So instead of passing in `make_stride(2, 4)`, we can pass in `make_stride(Int<2>{}, Int<4>{})`. Functionally, these are the same, but any subsequent indexing will be done at compile time for the latter.
 
 Layouts *do* take in dynamic integers as well. They should be used *if they are only known at runtime*.
 
