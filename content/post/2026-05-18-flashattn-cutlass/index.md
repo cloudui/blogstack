@@ -171,7 +171,7 @@ auto layout = Layout<Shape<_2, _8>, Stride<_8, _1>>{};
 auto layout_1 = make_layout(make_shape(Int<2>{}, Int<8>{}),
         make_stride(_8{}, _1{}));
 print_layout(layout);
-// this is the shape of a torch.tensor([[0]*8 for _ in range(16)]).T
+// this is the shape of a torch.tensor([[0]*8 for _ in range(2)])
 
 // stdout
 (_2,_8):(_8,_1)
