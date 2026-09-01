@@ -25,7 +25,9 @@ A quick note on what this blog is supposed to be -- CuTe's documentation is a re
 
 The code we'll walk through is a stripped-down mirror of Tri Dao's production FA-2: same idioms, same building blocks, often the same lines, but with the causal/RoPE/dropout/KV-cache/QK-smem-sharing template branches removed. The core logic is visible instead of buried under config flags that bloat up the repo. Where it matters, our kernel reaches close to parity with the source -- on an A100, **88-105% of production FA-2's throughput** across hdim=64/128 and seq lengths up to 64K, peaking at 63% of fp16 tensor-core utilization ([full benchmark table](https://github.com/cloudui/cuda-triton#cute-flashattention-2-cuda-batch4-heads8)).
 
-The point is not novelty -- it's just to show that our simplifications do not break performance. We are rewriting one production case of many, albeit the simplest and least commonly used (LLMs are all non-causal). Where our code diverges, that's usually because we found something -- an inconsistency, a copy-paste from a CuTe example that most take for granted, a one-line simplification, a choice that turns out to be critical for some non-trivial reason. These moments are flagged in-line throughout the post, and at least one of them ([the `sVtNoSwizzle` line](#svtnoswizzle-the-no-op-nobody-caught)) appears to be a no-op that nobody in the lineage of this code understood. Make of that what you will.
+The point is not novelty -- it's just to show that our simplifications do not break performance. We are rewriting one production case of many, albeit the simplest and least commonly used: full standard attention. Unlike the autoregressive attention used in LLMs, there is no causal mask prior to the softmax; we're working with the full, standard attention operation. 
+
+Where our code diverges from the source, that's usually because we found something -- an inconsistency, a copy-paste from a CuTe example that most take for granted, a one-line simplification, a choice that turns out to be critical for some non-trivial reason. These moments are flagged in-line throughout the post, and at least one of them ([the `sVtNoSwizzle` line](#svtnoswizzle-the-no-op-nobody-caught)) appears to be a no-op that nobody in the lineage of this code understood. Make of that what you will.
 
 What this isn't: a summary of the FA-2 paper, a Hopper/Blackwell post (newer algorithms are meaningfully different on newer hardware), or a CuTe guide. This is Ampere-specific, code-level, and committed to the bit that we don't move on from a line until we fully understand why it's there.
 
@@ -140,7 +142,7 @@ As established in the intro, the CuTe docs are a reference; this section is the 
 
 ## Why CuTe (and what's CUTLASS?)
 
-**CUTLASS** (probably writing out what it stands for takes about as long as this parenthetical)[^9] is NVIDIA's open-source library of GEMM and GEMM-adjacent building blocks -- templated kernels, atoms, copy primitives, etc. **CuTe** is the layout-algebra core *inside* CUTLASS introduced in version 3. CUTLASS 2.x was a different, more rigid GEMM-policy-composition framework; CUTLASS 3.x reorganized everything around CuTe, which is now the language we use to describe layouts, tile shapes, and thread-data mappings. "CuTe FA2" references FA2 written in the CUTLASS 3.x idiom, which is what the production source uses.
+**CUTLASS** (writing what it stands for takes about as long as this parenthetical)[^9] is NVIDIA's open-source library of GEMM and GEMM-adjacent building blocks -- templated kernels, atoms, copy primitives, etc. **CuTe** is the layout-algebra core *inside* CUTLASS introduced in version 3. CUTLASS 2.x was a different, more rigid GEMM-policy-composition framework; CUTLASS 3.x reorganized everything around CuTe, which is now the language we use to describe layouts, tile shapes, and thread-data mappings. "CuTe FA2" references FA2 written in the CUTLASS 3.x idiom, which is what the production source uses.
 
 Why use CuTe at all? There are other options for writing high-performance GPU kernels:
 
@@ -2202,6 +2204,6 @@ Anyway, welcome to the club. Your tears and sweat are non-refundable.
 [^6]: Oxford shuffle lecture notes, p.6 for XOR warp shuffle: https://people.maths.ox.ac.uk/gilesm/cuda/lecs/lec4.pdf
 [^7]: CuTe `partition_fragment()` source: https://github.com/NVIDIA/cutlass/blob/e406c186f510a15091cce01f782020ceb7ba8eb5/include/cute/atom/mma_atom.hpp#L508
 [^8]: CuTe `make_fragment_like()` source: https://github.com/NVIDIA/cutlass/blob/e406c186f510a15091cce01f782020ceb7ba8eb5/include/cute/tensor_impl.hpp#L463
-[^9]: Ok sorry. CUTLASS is a a cool sword and also CUDA Templates for Linear Algebra Subroutines and Solvers
+[^9]: Ok sorry. CUTLASS is a cool sword and also CUDA Templates for Linear Algebra Subroutines and Solvers
 [^10]: Four-transaction 512-byte load explanation: https://forums.developer.nvidia.com/t/128-bit-access-bank-conflict/287039/5
 [^11]: Honestly, maybe they'll figure out how to inject our brains directly with learning modules and everyone becomes an expert tomorrow.
