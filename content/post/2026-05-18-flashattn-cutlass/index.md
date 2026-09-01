@@ -803,7 +803,7 @@ Unlike the GMEM->SMEM transaction where we copy the whole tile in one go, we can
 The tiled MMA register tensors (`tSsQ`, `tSsK`) have shape `(MMA, MMA_X, MMA_Y)` for a row-major tiling of shape `(X, Y)` (see visualization in the [fragment reshape section](#fragment-reshape)).
 - `MMA`: shape/number of elements per thread. For our tiled MMA, it's 8 elements per thread for Q and 4 elements per thread for K, V, and the accumulator. The output of our SM80 16x8x16 atom has `MMA=(2,2)`, which means each thread holds 4 values in the shape (2, 2).
 - `MMA_X` is the number of tiles along X and
-- `MMA_Y` is the number of tiles along Y. In this case, `X=kBlockM` and `Y=kHeadDim` for `tSsQ`. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.
+- `MMA_Y` is the number of tiles along Y. In this case, `X=kBlockM/(16*kNWarps)` and `Y=kHeadDim/16` for `tSsQ`. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.
 
 ### MMA Loop: QK^T GEMM
 
