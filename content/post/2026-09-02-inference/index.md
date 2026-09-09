@@ -144,12 +144,89 @@ Hugging Face (HF) is basically the GitHub for machine learning models. Most of a
 
 The source code is the direct barebones implementation using PyTorch. It's the minimal viable code -- clean, obvious, and pretty, because the purpose is to elegantly implement what the architecture describes. This is great because it's extremely readable and easy to follow, with the downside that they don't give you any of the performance optimizations out of the box. But, as the hands-on optimist that you are, this is a wonderful thing as it is an opportunity to do all the hard work ourselves. 
 
-# Optimizing Decode for Llama3
+## Important Llama Concepts
+
+### General Query Attention (GQA)
+The original multi-head attention mechanism (MHA) covered in my previous blog splits the Q, K, and V into the same number of attention heads. Earlier models like GPT-2 used MHA -- for example, the original GPT-2 small base model had:
+
+- vocab size (`hidden_size`): 768
+- number of heads (`num_heads`): 12
+- head dim (`head_dim`): 64
+
+After tokenization, this means the input `x` is of size `(batch_size, seq_len, hidden_size)` and the weight matrices $W_q, W_k, W_v$ are of size `(hidden_size, num_heads, head_dim)` We can interpret each head of Q, K, V to be a separate set of questions, keys, and values; for example, one set of questions relating to "is this token a noun?" and another relating to "is this token a verb?". 
+
+One thing we notice is that each Q, K, V tensor is quite beefy in VRAM. This is mainly a bottleneck for the KV cache, where larger and larger context lengths were blowing up the available memory space. In 2023, Google introduced general query attention (GQA), a modified version of MHA that reduces the number heads on the K and V tensors with relatively negligible performance impact. In the GQA representation, multiple question heads share the same KV heads. We can imagine that the "information" that the questions "is this token a noun?" and "is this token a verb?" rely on are very similar. GQA essentially compresses the KV representation space to encode information across different question spaces. 
+
+Meta used GQA as its attention backbone for Llama-2 through Llama-4, using `qhead:kv_head` ratios from 4:1 for smaller models to 16:1 for bigger models. In GQA, we still want each attention block to ask a lot of questions, taking advantage of the fact that the keys and values can be reliably shared between similar questions. As a result, we can reduce the KV cache size by up to 16x on the mega 405B model, which is massive.
+
+> As shown in the [architecture section](#llama31-8b-architecture), Llama3.1-8B uses a GQA head ratio of `4:1`. 
+
+![TODO]: link paper, maybe a good blog explaining more about it
+
+### Rotary Position Embedding (RoPE)
+The earlier LLM attention mechanisms added a position vector $p$ to encode the the positional information of each token ($x+p$). This $p$ vector was simply a learned embedding in the token space -- each token 0-2047 (or whatever the context length was) had its own absolute positional representation. Researchers quickly realized that these absolute embeddings were noisy, where semantic content often got tangled with positional meaning. Furthermore, this additive $p$ never strictly isolates the relative distance $m-n$ between tokens $m, n$ -- if the model learns that a adjective precedes a noun by one token, it's forced to relearn that relationship between repeatedly at $(1,2)$, $(800, 801)$, and $(1022, 1023)$. It simply doesn't have the means to understand the relative difference between tokens.
+
+RoPE was introduced to force the model to understand position as a relative mechanism. It injects the absolute positional info by rotating the Q and K vectors in the 2D vector space so that their inner product naturally computes the *relative* position. While the original attention mechanism modifies the input embedding via $x + p$ while RoPE is a function $\mathbf{R}(\mathbf{x},m)$ that modifies Q, K such that:
+
+$$\langle \mathbf{R}(\mathbf{q}, m), \mathbf{R}(\mathbf{k}, n)\rangle = g(\mathbf{q}, \mathbf{k}, m-n)$$
+
+> If you want to skip the mathematical details of RoPE, go ahead. Just knowing the equations is sufficient for optimizing an inference kernel, but it's nice to understand the mechanisms behind what we're doing. It might require you to refresh your linear algebra or complex analysis knowledge.
+
+RoPE chooses the humble rotation as it's geometric formulation for this task. If we somehow represent the embedding space as complex 2D pairs $z= x + iy$, we can easily rotate $z$ by multiplying by $e^{im\theta}$. 
+
+$$\mathbf{R}(\mathbf{x}, m) = \mathbf{x}e^{im\theta}$$
+
+In the first attention step $QK^T$, we find the dot product between pairs of $\mathbf{q}_m$ and $\mathbf{k}_n$. Taking the inner product of rotated q, k yields: 
+
+$$\langle \mathbf{q} e^{im\theta}, \mathbf{k} e^{in\theta} \rangle = \operatorname{Re}\left[(\mathbf{q} e^{im\theta}) (\mathbf{k} e^{in\theta})^{\*}\right] = \operatorname{Re}\left[\mathbf{q}\mathbf{k}^{\*} e^{i(m-n)\theta}\right]$$
+
+We can see from this formulation that the product here is strictly a function of the relative distance $(m-n)\rightarrow e^{i(m-n)\theta}$. 
+
+You might notice that Q and K are usually have dim size 64 or 128 and not 2. This is true. Instead, the authors encode this rotational relationship by *pairing up* weights in the Q, K token embedding space. For an attention head of even dimension $d$, RoPE splits the vector into $d/2$ independent 2D chunks:
+
+$$[x_1, x_2], [x_3, x_4], \dots, [x_{d-1}, x_d]$$
+
+Each 2D sub-vector is rotated by an angle determined by its position m and a base frequency $\theta_i$:
+
+$$\theta_i = 10000^{-2(i-1)/d}, \quad i \in \left\\{1, 2, \dots, \frac{d}{2} \right\\}$$
+
+The complex notation earlier was convenient to represent this relationship, but in our new 2D pair embedding space, it's more convenient to work with the equivalent 2D rotation matrix:
+
+$$\mathbf{R}_{\Theta, m}^{(2D)} = \begin{pmatrix} \cos m\theta & -\sin m\theta \\\\ \sin m\theta & \cos m\theta \end{pmatrix}$$
+
+After the rotation, instead of $[x_1, x_2]$, we now have
+
+$$[x_1\cos(m\theta_1)-x_2\sin(m\theta_1), \\, x_1\sin(m\theta_1)+x_2\cos(m\theta_1)]$$
+
+Subsequent pairs are transformed the same way with decreasing angle $\theta_i$. The exponentially decreasing angle based on the chunk gives us the following properties:
+
+- Early chunks have angles close to 1: $\theta_1 = 10000^{0}=1, \theta_2 = 10000^{-2/d} \approx 1$. The angle rotates through the entire circle extremely quickly. Let's call them "fast knobs".
+- Later chunks have angles close to 0: $\theta_{end} \approx 10000^{-1} = 0.0001$. The angle rotates through the entire circle extremely slowly. Let's call these "slow knobs".
+
+The frequency of these knobs is what gives us the positional information. For tokens that are close together, the "fast knobs" have high signal (similar cosine) while the slow knobs are more stable. For tokens that are far apart, the "fast knobs" essentially become pseudo-random since the periodicity is so small compared to context sizes that they essentially carry *no information*. However, the "slow knobs" still carry a stable signal. The collection of knobs is what allows us to model short-term and long-term relationships. 
+
+What you might notice is that RoPE attenuates far-apart tokens naturally. Language is overwhelmingly local, and it's usually unlikely that a word on page 100 is still relevant to one on the first. In our $theta_i$ example here we use a coefficient of 10,000, which is not simply an arbitrary choice. In the original paper, this coefficient modeled context lengths from 512 to 4096 tokens. With the minimum angle of 0.0001, the max context length only traces an angle of $0.0001 \cdot 4097 \approx 23.5\deg$. The period of the slowest knob would be $2\pi/0.0001 \approx 62800 \text{ tok}$, so we see that the slowest gears have no long-range aliasing. At close token distances, the cos similarity for 64 tokens all have signal close to $\cos(0)=1$, where the cosine in long-distance tokens only remain close to 1 for the long range knobs while the faster moving knobs destructively interfere toward 0. Therefore, tokens far apart "attend" to each other less, which logically makes sense. You can see the actual cosine similarity curve in either of the links at the bottom of this section. 
+
+We can analogize much of the behavior of RoPE, but it's important to realize that if it didn't work empirically, then any explanation would be moot. The original team likely had motivation to try this technique and realized it actually worked in practice, which is why we can convince ourselves that these explanations make sense. It's good to understand the intuition behind it, but it's also fine if parts of it sort of feel like black magic. For example, this arbitrary forcing of weight pairs in the QK embedding space forces the gradient to "learn" the position. It explicitly forces certain pairs to carry certain information, which could of not worked for some reason. But, given that we could just add a fully learned position $p$ to the token space, maybe this doesn't seem too far of a stretch. Either way, this section is simply to help us figure out how to optimize inference. So dwell on it a little bit, have some faith, and let's get a move on. 
+
+### RoPE Llama-3 vs Llama-3.1
+
+
+#### Benefits (KV cache, absolute, etc.)
+
+
+> Original Paper: https://arxiv.org/pdf/2104.09864
+> 
+> Some blogs with visualizations and motivation:
+> - Eleuther AI: https://blog.eleuther.ai/rotary-embeddings/
+> - Towards Data Science: https://towardsdatascience.com/rope-clearly-explained/
+
+# Let's Get it Working First
 
 ## We're using Triton
 One thing we'll notice quite soon is that it's not worth the effort to write any of these kernels in raw CUDA/CuTe like last time. The computation is extremely minimal at `seq_len=1` that a slight nanosecond improvement will not move the needle at all. We can show the principles that actually matter for decode inference equally well using Triton, and we need not spend 5x the time for no appreciable gain. 
 
-Furthermore, we will be orchestrating many kernels wrapped together in Python, where Triton will be much faster and easier to work with. Most of the insight here comes from how we tackle inference *in* the wrapper, so we'll be focusing a lot of the effort here.
+Furthermore, we will be orchestrating many kernels wrapped together in Python, where Triton will be much faster and easier to work with. Most of the insight here comes from how we tackle inference *within* the wrapper itself, so we'll be focusing a lot of the effort here.
 
 ## Equipment
 
@@ -157,9 +234,86 @@ I worked with the 32GB RTX 4500 Pro server edition on Runpod as my primary GPU. 
 
 In practice, different memory to performance profiles changes the things you optimize for. It might change whether your bottle neck is your orchestration, compute efficiency, or data movement, so sometimes you have to be careful which card you're working with. Compared to the RTX 4500 I worked with, the newest H100s and BX00s have 2-10x the memory speed with more than 2x the performance on FP16 alone. With different quantizations, the differences skew even more. For our purpose with batch size 1, FP16, and basic decoding, these differences don't matter too much. But in production-grade systems, evaluating the profiles and tradeoffs become crucial. 
 
-## Analyzing the Source
+## A Quick Analysis of the Source
 
-I mentioned in the [Hugging Face section](#huggingface) that the source is unoptimized. Let's see what that actually means by looking at some snippets:
+Let's quickly take a look at the structure of the code:
+
+```python
+class LlamaDecoderLayer(...):
+  ...
+
+  def forward(...
+  ):
+    residual = hidden_states
+    hidden_states = self.input_layernorm(hidden_states)
+    # Self Attention
+    hidden_states, _ = self.self_attn(
+        hidden_states=hidden_states,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        past_key_values=past_key_values,
+        use_cache=use_cache,
+        position_embeddings=position_embeddings,
+        **kwargs,
+    )
+    hidden_states = residual + hidden_states
+
+    # Fully Connected
+    residual = hidden_states
+    hidden_states = self.post_attention_layernorm(hidden_states)
+    hidden_states = self.mlp(hidden_states)
+    hidden_states = residual + hidden_states
+    return hidden_states
+```
+This `DecoderLayer` is one LLama attention block and is about as nice as you can write it in PyTorch. Each operation is clearly invoked and defined in the constructor with the class implementation defined in the same file (e.g. `RMSNorm`, `MLP`). Each class module is implemented simply; for example, the MLP module is defined a standard PyTorch linear layer:
+
+```python
+class LlamaMLP(nn.Module):
+  def __init__(self, config):
+    super().__init__()
+    self.config = config
+    self.hidden_size = config.hidden_size
+    self.intermediate_size = config.intermediate_size
+    self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=config.mlp_bias)
+    self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=config.mlp_bias)
+    self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=config.mlp_bias)
+    self.act_fn = ACT2FN[config.hidden_act]
+
+  def forward(self, x):
+    down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+    return down_proj
+```
+
+The final `LlamaModel` is just combining the tokenization, embedding, and decoder stack together to actually generate the output. 
+
+### Benchmarking Hugging Face
+https://github.com/cloudui/inference/blob/main/benchmarks/bench_throughput_hf.py
+Benching 128 decode steps on top of a 512-token prefill yields us a throughput of ~42-43 tok/s. This uses the default eager mode with Dynamic Cache with standard dot-product attention (SDPA, same as FlashAttention-2). Typically, we compile with static cache (full KV cache allocation) to see the true max performance, which yields a throughput of ~45 tok/s. This is the baseline performance we're benchmarking against. We know that the source doesn't optimize anything, so there should be room for improvement. 
+
+The RTX Pro 4500 server edition has a max HBM throughput of ~800 GB/s. One decode step feeds all 8B parameters every cycle, with negligible space for the one-token input space. Since we're working with FP16 weights, the theoretical max throughput is:
+
+$$800\text { GB/s} / (8\text{B param} \times 2\text { bytes / param}) \approx 50\text{ tok/s}$$
+
+An unoptimized HF easily achieves 90% of the max performance out of the box, which tells us basic PyTorch CUDA dispatch is already pretty computationally efficient. Just this number alone will soon tell us where our bottlenecks are.
+
+## Step 1: Recreate the Call Stack
+The first step for a decode engine is pretty much to get a barebones one working. I recreated the HF call tree from scratch using simple PyTorch calls to perform the operations. At this stage, the implementation details aren't too important; we just want to make sure the output we get matches whatever HF has. 
+
+For example, something like `RMSNorm` can be as simple as:
+
+```python
+class RMSNorm:
+  """Holds the learned scale weight for RMSNorm. Forward dispatches to kernel."""
+
+  def __init__(self, dim: int, eps: float = 1e-6):
+    self.eps = eps
+    self.weight = torch.ones(dim)
+
+  def __call__(self, x: torch.Tensor) -> torch.Tensor:
+    return rmsnorm(x, self.weight, self.eps)
+```
+
+
 
 ### Memory Layouts
 
