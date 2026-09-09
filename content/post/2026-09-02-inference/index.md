@@ -123,6 +123,8 @@ Practically: the 8B parameter count fits comfortably on a single card without ne
 
 ## Llama3.1-8B Architecture
 
+!TODO llama  3 vs llama3.1
+
 Llama3.1-8B is a 32-layer decoder-only transformer with a hidden size of 4096. A few specifics that matter for an inference engine specifically:
 
 - **Attention**: Grouped-Query Attention (GQA) with 32 query heads and 8 KV heads (a 4:1 ratio), head dimension 128. This is the piece that directly shapes the KV cache — 8 KV heads instead of 32 means the cache is 4x smaller than full multi-head attention would produce, which is the number I used in the memory math in the Background section.
@@ -210,6 +212,54 @@ What you might notice is that RoPE attenuates far-apart tokens naturally. Langua
 We can analogize much of the behavior of RoPE, but it's important to realize that if it didn't work empirically, then any explanation would be moot. The original team likely had motivation to try this technique and realized it actually worked in practice, which is why we can convince ourselves that these explanations make sense. It's good to understand the intuition behind it, but it's also fine if parts of it sort of feel like black magic. For example, this arbitrary forcing of weight pairs in the QK embedding space forces the gradient to "learn" the position. It explicitly forces certain pairs to carry certain information, which could of not worked for some reason. But, given that we could just add a fully learned position $p$ to the token space, maybe this doesn't seem too far of a stretch. Either way, this section is simply to help us figure out how to optimize inference. So dwell on it a little bit, have some faith, and let's get a move on. 
 
 ### RoPE Llama-3 vs Llama-3.1
+The original Llama-3 use the base vanilla RoPE as we described above with a max context window of 8K tokens. Although Llama-3 and 3.1 share the exact same decoder architecture, it required one architectural change in the RoPE mechanism in order to achieve the massive jump to the 128K context window. Let's talk about the change first and then discuss the motivation:
+
+The original Llama3-8B RoPE used the formula:
+
+$$\theta_i = 500000^{2i/d=128}$$
+
+The adjusted RoPE depends on the configuration depends on two cutoff frequency thresholds defined in a config. For 3.1-8B:
+
+```python
+{
+"rope_scaling": {
+  "factor": 8.0,
+  "low_freq_factor": 1.0,
+  "high_freq_factor": 4.0,
+  "original_max_position_embeddings": 8192,
+  "rope_type": "llama3"
+},
+"rope_theta": 500000.0,
+"head_dim": 128
+}
+```
+The frequency thresholds are inversely proportional to the wavelength, so we define our wavelength thresholds based on the original max position embeddings and the high frequency factors:
+
+```python
+low_wavelength_cutoff = original_max_position_embeddings / high_frequency_factor 
+= 8192/4 = 2048
+high_wavelength_cutoff = original_max_position_embeddings / low_frequency_factor 
+= 8192/1 = 8192
+```
+
+We scale the the range of the wavelength:
+
+- High frequency (low index): if $\lambda_i < 2048$, $\theta_i^\prime= \theta_i / 1.0$
+- Low frequency: if $\lambda_i > 8192$, $\theta_i^\prime = \theta_i / 8.0 $
+- Mid frequency: if $2048 < \lambda_i < 8192$:
+
+$$\theta_i^\prime = (1 - \alpha_i) (\theta_i / 8.0) + \alpha_i \theta_i,$$
+$$\alpha = \frac{\frac{L_{\text{old}}}{\lambda} - \text{low\\_freq\\_factor}}{\text{high\\_freq\\_factor} - \text{low\\_freq\\_factor}}$$
+
+So this all seems kind of arbitrary and weird, and the reason this is necessary to begin with is that Llama3.1 is simply an extension of Llama3 and not a completely retrained model. The original RoPE theta mechanism was designed around the 8K context window, and Meta wanted to use their already trained base models to *extend* training to these new 128K context models. 
+
+- At the 8K RoPE scale, the knobs start to fall apart when you use the same RoPE scaling factor for token number 100,250. The model wasn't trained to understand $\cos(100250\theta_i)$ scaling. As a result, we need to scale it down to be in the range that the 8K base model understands
+- Extending training means you don't waste the money and time they spent training on the 15T training tokens
+- If they just rescaled the RoPE coefficient, it would have scrambled the high-frequency dimensions that the model relied on for basic grammar and short-range syntax
+
+So if Llama3.1 was trained from scratch, they could've just tweaked the coefficient and called it a day. But since they wanted to simply extend to a larger context model, they just tweaked the number range to mimic the original one via this scheme. If we look at this piecewise scaling, we just see that we keep high frequencies (low index RoPE pairs, e.g. 0-10) the same, tune down the low frequencies (high index RoPE pairs, e.g. 50-63) and then create a linear step function in-between. 
+
+As we'll see soon, this frequency table is pre-computed once and just sits in memory. There's no performance impact here -- we're just taking our old table, checking some ranges and tweaking some numbers, and putting it back in its place. 
 
 
 #### Benefits (KV cache, absolute, etc.)
