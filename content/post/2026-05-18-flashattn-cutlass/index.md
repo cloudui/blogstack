@@ -306,13 +306,14 @@ A = [9, 2, 4, 6; -1, 3, 7, 0]
 
 When you create `A` in torch, it allocates an 8-int memory chunk that stores the values in the order we gave them: `[9,2,4,6,-1,3,7,0]`. On the other hand, MATLAB allocates the same 8-int memory chunk but stores the values along the columns instead: `[9,-1,2,3,4,7,6,0]`. When we index `(i, j)` into torch and MATLAB (bless their souls for being 1-indexed), we obtain the same value:
 
+```python
+# python
+A[1, 2] = 7
+```
+
 ```matlab
 % some MATLAB version that's 0-indexed, technically A(2, 3)
 A(1, 2) = 7
-```
-
-```python
-A[1, 2] = 7
 ```
 
 But now we realize the strides *cannot* be the same. We know our row-major stride must be `Stride<4, 1>`. Following our formula:
