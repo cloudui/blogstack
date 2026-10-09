@@ -23,7 +23,7 @@ We'll walk through FlashAttention-2 end-to-end on an A100, implemented in C++ Cu
 
 A quick note on what this blog is supposed to be -- CuTe's documentation is a reference, not a tutorial. You can read it cover to cover and walk away still not knowing CuTe; it's only really worth consulting once you're already trying to do something specific and have hit a wall. This post attempts to be that something specific, and we're going to run straight into those walls together. Most public CuTe writing covers one layer at a time: a layout here, a swizzle there, an MMA atom over there. Tying them into a real kernel is where the difficulty actually lies, and that's the gap this post is trying to fill.
 
-The code we'll walk through is a stripped-down mirror of Tri Dao's production FA-2: same idioms, same building blocks, often the same lines, but with the causal/RoPE/dropout/KV-cache/QK-smem-sharing template branches removed. The core logic is visible instead of buried under config flags that bloat up the repo. Where it matters, our kernel reaches close to parity with the source -- on an A100, **88-105% of production FA-2's throughput** across hdim=64/128 and seq lengths up to 64K, peaking at 63% of fp16 tensor-core utilization ([full benchmark table](https://github.com/cloudui/cuda-triton#cute-flashattention-2-cuda-batch4-heads8)).
+The code we'll walk through is a stripped-down mirror of Tri Dao's production FA-2: same idioms, same building blocks, often the same lines, but with the causal/RoPE/dropout/KV-cache/QK-smem-sharing template branches removed. The core logic is visible instead of buried under config flags that bloat up the repo. Where it matters, our kernel reaches close to parity with the source -- on an A100, **98-112% of production FA-2's throughput** across hdim=64/128 and seq lengths up to 64K, peaking at 63% of fp16 tensor-core utilization ([full benchmark table](https://github.com/cloudui/cuda-triton#cute-flashattention-2-cuda-batch4-heads8)).
 
 The point is not novelty -- it's just to show that our simplifications do not break performance. We are rewriting one production case of many, albeit the simplest and least commonly used: full standard attention. Unlike the autoregressive attention used in LLMs, there is no causal mask prior to the softmax; we're working with the full, standard attention operation. 
 
@@ -648,7 +648,7 @@ Tensor gK = local_tile(mK, make_shape(Int<kBlockN>{}, Int<kHeadDim>{}),
 
 ## SMEM->Registers
 
-> **Read this first: thread view vs. tile view.** From here on out, we're working with tensor-core fragments, and CuTe will start lying to you in a productive way. When CuTe shows you a fragment with shape `((2,2), MMA_M, MMA_N)`, that is **not the shape of a tile** — it's the shape of *one thread's slice of every tile*. The `(2,2)` is the 4 elements that thread holds in a single 16x8 atom; the `MMA_M, MMA_N` count how many atoms tile across the full block. Every operation on a fragment tensor — every `for r in size<0>(frag)`, every `frag(i, j)` — is implicitly executed by all 32 threads of a warp in lock-step, each on its own values. CuTe abstractions (`partition_fragment`, `cute::gemm`, `cute::copy`) make this look like normal tensor code, which is the exact source of confusion: the only place the thread view is *visible* in code is the ~5 lines around `get_thread_slice(tid)`. Whenever a layout stops making sense, ask "is this a tile shape or a thread-slice shape?" — it's almost always the second.
+> **Read this first: thread view vs. tile view.** From here on out, we're working with tensor-core fragments, and CuTe will start lying to you in a productive way. When CuTe shows you a fragment with shape `((2,2), MMA_M, MMA_N)`, that is **not the shape of a tile** -- it's the shape of *one thread's slice of every tile*. The `(2,2)` is the 4 elements that thread holds in a single 16x8 atom; the `MMA_M, MMA_N` count how many atoms tile across the full block. Every operation on a fragment tensor -- every `for r in size<0>(frag)`, every `frag(i, j)` -- is implicitly executed by all 32 threads of a warp in lock-step, each on its own values. CuTe abstractions (`partition_fragment`, `cute::gemm`, `cute::copy`) make this look like normal tensor code, which is the exact source of confusion: the only place the thread view is *visible* in code is the ~5 lines around `get_thread_slice(tid)`. Whenever a layout stops making sense, ask "is this a tile shape or a thread-slice shape?" -- it's almost always the second.
 
 We'll issue a second `Tiled_Copy` to copy from SMEM to the registers. The copy pattern is mostly the same, but instead of simply transferring memory from SMEM to the registers, we must format the SMEM and registers for the tensor core matrix multiply-add (MMA) instructions.
 
@@ -723,13 +723,12 @@ The standard practice for any GEMM is to split the GEMM along the K-dimension. T
 
 We choose 128 threads (4 warps) because each SM has 4 resident tensor cores -- a sensible choice to maximize MMA throughput. For the layout, we tile across the M-dimension (taking a slice from the left column of Q) and move across the K-dimension. Each tile is `kNWarps` stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$.
 
-We flagged this M-tiling design choice in the [Basic Structure section](#basic-structure). The `Layout<Shape<Int<kNWarps>, _1, _1>>` puts all the warps along M with `_1` along N and K, which means **every warp owns whole rows of the output, never a horizontal slice of one**. Since N only gets `_1`, the same warp sweeps across every N-tile itself, computing its rows of S against every key in the block. When we compute the per-row max and per-row sum during softmax, the values to be reduced live in registers within a single warp, so the reduction is a `__shfl_xor_sync()` away — no SMEM staging, no thread-block sync. If we had tiled warps along N instead, that same reduction would have to cross warps and we'd be staging through SMEM with `__syncthreads()` on every iteration, crushing our performance. This staging was a forced sticking point on original FlashAttention-1.
+We flagged this M-tiling design choice in the [Basic Structure section](#basic-structure). The `Layout<Shape<Int<kNWarps>, _1, _1>>` puts all the warps along M with `_1` along N and K, which means **every warp owns whole rows of the output, never a horizontal slice of one**. Since N only gets `_1`, the same warp sweeps across every N-tile itself, computing its rows of S against every key in the block. When we compute the per-row max and per-row sum during softmax, the values to be reduced live in registers within a single warp, so the reduction is a `__shfl_xor_sync()` away -- no SMEM staging, no thread-block sync. If we had tiled warps along N instead, that same reduction would have to cross warps and we'd be staging through SMEM with `__syncthreads()` on every iteration, crushing our performance. This staging was a forced sticking point on original FlashAttention-1.
 
 We'll also see soon that this TiledMMA takes in only one `Layout` argument. The `(M, N, K)` we defined applies to A, B, and C according to the M, N, K dimensions they hold. This is why `16*kNWarps` means each warp holds a 16-row band of the output C spanning all N columns. (Within the warp, each row is further spread across a quad of 4 threads, which we'll come back to in softmax.) And when we actually write the code loop, we'll see how this influences the K-loop.
 
 > **Note**: $N=16$, not 8, because we must aggregate across adjacent N-atoms to produce one 16x16 output tile due to the 16x8 asymmetry. That also means our `LDSM` copy atom loads two K, V tiles per instruction. This works because our N-tiles are index-adjacent.
 
-<!-- TODO: recolor B in tiled_mma.png as a neutral gray (shared), keeping A and C in warp colors -->
 ![Tiled MMA layout for one step of the GEMM. For A and C, each solid color is one of four warps; if we had more rows, the color pattern would repeat. B is shared: every warp reads all of B, and its tiling shows the MMA atoms, not ownership. Each 16x16 B-tile is composed of two 16x8 fragments that are adjacent along N for shape (K, N). Note that B is transposed in this visualization.](tiled_mma.png)
 
 With this info, let's define the full `Tiled_MMA`.
@@ -832,13 +831,30 @@ Notice that Q's M mode is divided by `kNWarps`, but K's N mode isn't. Each warp 
 
 We already defined the `TiledMMA` and our `SmemCopyAtom`, but as we said before, nothing happens until we actually invoke our copy and GEMM calls. As discussed in the [K-split section](#k-split-gemm), we load one k-slice per iteration and accumulate it into the output. Before each GEMM, we prefetch the next k-slice of the Q and K fragments so we can overlap the SMEM->register loads with the GEMM compute.
 
+![How one warp creates one output tile. It's pretty much how you learned to multiply matrices by hand but with tiles instead of individual numbers. We iterate over the K-dimension where the warp does one tile MMA at a time and adds to the previous's result. The colors match the blocks that multiply.](mma_macro.png)
+
 We index these k-slices via `register(_, _, i)` to grab the relevant fragments per loop iteration. The underscores keep the M (or N) mode intact, so each partial GEMM computes across the M and N dimensions automatically, since those are independent output cells for a fixed k-slice. That means each warp computes its resident Q fragment against all `kBlockN/8` K fragments in one go, and every warp reads those same K fragments from SMEM. The accumulator `acc_s` covers the full `(kBlockM, kBlockN)` block across all warps, with each warp holding its own 16-row band across every column, and each k iteration just adds to the existing output.
 
-![Macro view of the MMA. We iterate over the K-dimension, each tile multiplying across and summing into one output tile. The colors just mean they pair, not that they are the same. In the tiled MMA, CuTe handles all the M, N work on our behalf. We just have to accumulate along the K-dim.](mma_macro.png)
+![One k-step of the warp-wide MMA (k=0). Each warp (color) multiplies its own k=0 slice of Q by the same k=0 slice of K^T, which every warp reads from SMEM, and accumulates into its row band of S across all of N. At the next step, every warp moves to k=1 together.](tiled_mma_step_0.png)
 
 Here's the full GEMM block:
 
-(code unchanged)
+```cpp
+// load initial Q, K fragments (0)
+cute::copy(smem_tiled_copy_Q, tSsQ(_, _, _0{}), tXrQ(_, _, _0{}));
+cute::copy(smem_tiled_copy_K, tSsK(_, _, _0{}), tXrK(_, _, _0{}));
+// compile-time static, registers only live per iteration
+#pragma unroll
+for (int i = 0; i < size<2>(tSrQ); i++) {
+  // prefetch next Q, K block
+  if (i < size<2>(tSrQ) - 1) {
+    cute::copy(smem_tiled_copy_Q, tSsQ(_, _, i + 1), tXrQ(_, _, i + 1));
+    cute::copy(smem_tiled_copy_K, tSsK(_, _, i + 1), tXrK(_, _, i + 1));
+  }
+  // MMA on frags
+  cute::gemm(tiled_mma, tSrQ(_, _, i), tSrK(_, _, i), acc_s);
+}
+```
 
 > **Note**: The `cute::gemm` call does all the M, N work for us automatically, so this K loop isn't strictly required. `cute::gemm` also accepts fragments with a K mode, so we could invoke one full `cute::copy` on `tSsQ, tSsK` without indexing, which would load every k-slice of the Q and K fragments into registers at once, and then call `cute::gemm` a single time with no loop. The K-split is the standard pattern because it keeps only about two k-slices live in registers, avoiding register pressure (and possible spills at larger head dims), and lets us overlap loads with the MMAs. CuTe gives us the flexibility to choose.
 
@@ -1051,8 +1067,7 @@ Tensor tVsV = gmem_thr_copy_QKV.partition_D(sV);
 ### V: SMEM->Register
 This is the step where we have to tread a bit carefully. V is sitting in SMEM in the same format as Q and K -- contiguous along `kHeadDim` -- so we can't just copy our SMEM->register pipeline from earlier. This part is a bit confusing, so let's visualize the problem first:
 
-<!-- TODO: recolor V in mma_v_layout.png as a neutral gray (shared by all warps), keeping Q and S in warp colors -->
-![SMEM physical layout for our MMAs. Each block is a tile. Q and S are colored by the warp that owns their rows; K and V are shared, and every warp reads the whole tile.](mma_v_layout.png)
+![SMEM layout of the Q, K, S, and V tiles (logical row-major view, swizzle not shown). Q and S are colored by the warp that owns their rows; K and V are shared by all warps. Q·Kᵀ reduces along kHeadDim, which is contiguous for K, but S·V reduces along kBlockN, which runs down V's rows -- so the MMA tiles fall on V transposed relative to K.](mma_v_layout.png)
 
 > **Note**: The Tiled MMA figure in our [tiled MMA section](#tiled-mma) shows the logical (K, N) view the MMA wants. The figure here shows V's physical layout in SMEM, which is why we need the transpose.
 
@@ -1376,7 +1391,7 @@ softmax_rescale_o(Tensor0 &acc_s, // (MMA, MMA_M, MMA_N) score block, fp32
 So what actually goes into computing the max and the sum?
 
 ## Row Reduce
-This is the moment where the [warp-per-row tiling](#tiled-mma) pays off. Each warp owns 16 rows of its MMA tile, fully -- no row is split across warps. Therefore, the per-row max and sum reductions stay inside a warp and resolve via **warp reduction**, "a highly efficient CUDA parallel reduction technique that aggregates data across 32 threads within a single GPU warp."[^5] CUDA provides warp primitives such as `__shfl_down_sync()` and `__shfl_xor_sync()`, which shuffle data across threads in a warp without any load/stores or shared-memory staging. Zero memory latency, zero `__syncthreads()`, and our max/sum is pretty much free.
+This is the moment where the [warp-per-row tiling](#tiled-mma) pays off. Each warp owns 16 rows of its MMA tile, fully -- no row is split across warps -- and computes each of those rows against every key in the block. Therefore, the per-row max and sum reductions stay inside a warp and resolve via **warp reduction**, "a highly efficient CUDA parallel reduction technique that aggregates data across 32 threads within a single GPU warp."[^5] CUDA provides warp primitives such as `__shfl_down_sync()` and `__shfl_xor_sync()`, which shuffle data across threads in a warp without any load/stores or shared-memory staging. Zero memory latency, zero `__syncthreads()`, and our max/sum is pretty much free.
 
 ![XOR shuffle pattern. Thanks to Hyunsung Lee's Blog for this graphic](xor.png)
 
@@ -1389,7 +1404,7 @@ Recall that every thread in a 16x8 MMA output fragment holds $16\cdot 8 / 32=4$ 
 
 Let's look at the bottom right output fragment C this time and zoom in on thread 0's values. We can see it owns output elements `(0, 0), (0, 1), (8, 0), (8, 1)`. If we examine all the other threads, we see that they each own 4 elements across two rows. Let's clarify the math a bit:
 
-From the [MMA Shape](#mma-shape) section, the C-fragment has shape `((2, 2), MMA_M, MMA_N)` where `MMA_M = kBlockM / (16*kNWarps)` and `MMA_N = kBlockN / 8`. The `(2, 2)` is each thread's 4 values per tile (2 rows, 2 columns) so each thread's values span `MMA_M * 2` rows and `MMA_N * 2` columns total.
+From the [MMA Shape](#mma-shape) section, the C-fragment has shape `((2, 2), MMA_M, MMA_N)` where `MMA_M = kBlockM / (16*kNWarps)` and `MMA_N = kBlockN / 8`. The `(2, 2)` is each thread's 4 values per tile (2 rows, 2 columns) so each thread's values span `MMA_M * 2` rows and `MMA_N * 2` columns total. Since warps never split N, `MMA_N` covers the *entire* `kBlockN`. That's why a per-thread reduce followed by a reduce across the few threads sharing each row is a complete row reduction: no other warp holds any part of the row.
 
 To make the reduction loop look like ordinary 2D code, Dao reshapes this hierarchical fragment into a flat row-major `(2*MMA_M, 2*MMA_N)` view. Since the block sizes are static, the reshape is free. It's purely a code-quality trick; the resulting PTX is identical to iterating over the raw MMA shape.
 
@@ -1535,7 +1550,7 @@ __device__ __forceinline__ T allreduce(T x, Op op) {
 ```
 
 ### Quad Reduce
-The reason we give `allreduce` a template variable `N` is that we're not actually reducing across all 32 threads. We only need to reduce over the number of threads that own each row. In the [MMA Atom Layout image](#thread-reduce) from earlier, we see that four adjacent threads collectively own each row. Therefore, `N=4` -- hence, "quad" reduce. The XOR primitive automatically reduces between participating threads, so we don't have to iterate in groups of four -- the sync instruction waits for each four-thread group to enter the reduction. Our quad reduce function is therefore quite simple:
+The reason we give `allreduce` a template variable `N` is that we're not actually reducing across all 32 threads. We only need to reduce over the threads that own each row. In the [MMA Atom Layout image](#thread-reduce) from earlier, we see that four adjacent threads collectively own each row. Therefore, `N=4` -- hence, "quad" reduce. With XOR offsets of 2 and then 1, each shuffle only ever exchanges values between lanes in the same group of four, so all eight quads in the warp reduce simultaneously in two steps -- we don't have to iterate in groups of four ourselves. Our quad reduce function is therefore quite simple:
 
 ```cpp
 template <typename Engine0, typename Layout0, typename Engine1,
@@ -1878,7 +1893,7 @@ softmax.normalize_softmax(acc_o);
 ```
 
 # Epilogue: Output->GMEM
-We now have our output stored in fragments across all the warps, and we want to write them back to `o_ptr` in GMEM. The optimal way to perform the write-back is:
+We now have our output stored in fragments across all the warps -- each warp holding exactly its own rows of O, just as it held its own rows of S -- and we want to write them back to `o_ptr` in GMEM. The optimal way to perform the write-back is:
 
 ```
 Registers->SMEM->Registers->GMEM
@@ -1887,8 +1902,8 @@ Registers->SMEM->Registers->GMEM
 You might be wondering: if we're going to go from SMEM back to registers anyway, why don't we just write back directly from the fragments? The answer is threefold:
 
 1. **No SMEM->GMEM instructions**: Ampere has the nice async GMEM->SMEM pipeline, but no direct SMEM->GMEM pipeline. Therefore, we have to stage the SMEM blocks in registers before writing back to HBM.
-2. **Vectorization**: The fragments are stored as per-thread shapes, scattered as halfs across all the registers. To write back to GMEM directly, each thread would have to write one fp32 at a time across a bunch of scattered memory addresses. Given what we know about the memory bus and vectorization, this is excruciatingly inefficient and slow. By staging through SMEM, each thread can write a full 128-bit block in one instruction, like before.
-3. **Coalescing**: Furthermore, we can group all 32 threads into a contiguous block to coalesce the store into a 512-byte memory transaction, like before.
+2. **Vectorization**: The fragments are stored as per-thread shapes, scattered as half-pairs across all the registers. To write back to GMEM directly, each thread would have to write 32 bits (two fp16s) at a time across a bunch of scattered memory addresses. Given what we know about the memory bus and vectorization, this is excruciatingly inefficient and slow. By staging through SMEM, each thread can write a full 128-bit block in one instruction, like before.
+3. **Coalescing**: Furthermore, we can arrange each warp's 32 threads to write one contiguous 512-byte block, which the memory controller drains as full 128-byte transactions, like before.
 
 > **Note**: Vectorization is per-thread; coalescing is across threads (per-warp).
 
