@@ -696,6 +696,8 @@ Getting deja vu yet? This time, we define the tiling for the MMA GEMM. We define
 using TiledMmaAtom = MMA_Atom<SM80_16x8x16_F32F16F16F32_TN>
 ```
 
+These atoms tile across our Q, K, and V tiles that follow what the hardware expects so we can take advantage of those blazing fast tensor cores. 
+
 You might wonder why 16x8x16 and not 16x16x16. Again, it's a hardware design choice made by NVIDIA engineers. There are a few reasons:
 1. Less register pressure: B and C fragments are both 16x8, reducing the total register footprint compared to a 16x16 per warp.
 2. More register re-use. Each A tile is used twice per B and C tile, reducing the number of simultaneous register reads.
@@ -705,21 +707,35 @@ This is by no means an exhaustive list, and tensor core shapes change generation
 
 ![MMA Atom thread layout. We can see each thread gets 32-bits (2 halfs) at a time. For each 16x16 tile, each thread has two half-pairs per row, and only 1 half-pair for each 16x8 tile.](mma_atom.png)
 
-With this info, let's define the full `Tiled_MMA`:
+Before we go into the implementation, I wanted to highlight a fundamental difference between the `Tiled_MMA` and the GMEM->SMEM `Tiled_Copy`. In the copy, each warp "owns" certain tiles that it copies from GMEM->SMEM -- the only goal is to transport the block from global to local memory, and that's it. On the other hand, the MMA layout defines a layout for a mathematical operation that pulls 16x16 and 16x8 blocks from the A and B shared memory. Each A block is reused along N and each B along M, because each A row-tile meets every column of B, and each B column-tile meets every row of A. For each A-tile that a warp owns, it has to see `kBlockN/(N-tile-length)` B-tiles. 
+
+We can see that a warp can be responsible for a block in a copy but blocks are shared in a `Tiled_MMA` -- which is the whole point why we loaded them in to SMEM to begin with. This means we have to tile arrangement in the `Tiled_MMA` carefully as the way we choose which blocks each warp sees changes how the resulting GEMM is carried out. 
+
+> **Note**: Another reminder is that these tiled layouts are simply layouts and carry no action. The real "action" occurs when we eventually define the SMEM->Register copy layout and *actually* invoke a `cute::copy` function call. This `Tiled_MMA` will be used in that copy to tell the GPU where values are and where they're supposed to go. And when we call the `cute::gemm` we'll actually get the result we expect. 
+
+#### K-Split GEMM
+
+The standard practice for any GEMM is to split the GEMM along the K-dimension. This means we iterate through the K-dim explicitly -- each step caries out 1/kth of the MMA and we sum each step with the previous to obtain the full MMA result. As a result, each warp only needs to hold the registers for one tile at a time. As a result, we can overlap the SMEM->register loads with the previous load's GEMM. In this case, the L1 cache is much faster than GMEM, but it allows us to minimize the register footprint and overlap some compute, which is deal. 
+
+#### Warp Layout and Softmax Design
+
+We choose 128 threads (4 warps) because each SM has 4 resident tensor cores -- a sensible choice to maximize MMA throughput. For the layout, we tile across the M-dimension (taking a slice from the left column of Q) and move across the K-dimension. Each tile is `kNWarps` stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$.
+
+We flagged this M-tiling design choice in the [Basic Structure section](#basic-structure). The `Layout<Shape<Int<kNWarps>, _1, _1>>` puts all the warps along M with `_1` along N and K, which means **every warp owns whole rows of the output, never a horizontal slice of one**. When we compute the per-row max and per-row sum during softmax, the values to be reduced live in registers within a single warp, so the reduction is a `__shfl_xor_sync()` away — no SMEM staging, no thread-block sync. If we had tiled warps along N instead, that same reduction would have to cross warps and we'd be staging through SMEM with `__syncthreads()` on every iteration, crushing our performance. This staging was a forced sticking point on original FlashAttention-1.
+
+We'll also see soon that this TiledMMA takes in only one `Layout` argument. The `(M, N, K)` we defined applies to A, B, and C according to the M, N, K dimensions they hold. This is why the `16*kNWarps` means each warp holds a row in the output C. And when we actually write the code loop, we'll see how this influences the K-loop. 
+
+> **Note**: $N=16$, not 8, because we must aggregate across adjacent N-atoms to produce one 16x16 output tile due to the 16x8 asymmetry. That also means our `LDSM` copy atom loads two K, V tiles per instruction. This works because our N-tiles are index-adjacent.
+
+![Tiled MMA layout. Each solid color is one of four warps. If we had more rows/cols, the color pattern would repeat. The tiled layout for fragment B is pretty much the same as for fragment C, only with a size difference. Each 16x16 B-tile is composed of two fragments that are 1 N-tile adjacent for shape (K, N). Note that B is transposed in this visualization.](tiled_mma.png)
+
+With this info, let's define the full `Tiled_MMA`. 
 
 ```cpp
 using TiledMma = TiledMMA<MMA_Atom<SM80_16x8x16_F32F16F16F32_TN>,
     Layout<Shape<Int<kNWarps>, _1, _1>>,
     Tile<Int<16 * kNWarps>, _16, _16>>;
 ```
-
-![Tiled MMA layout. Each solid color is one of four warps. If we had more rows/cols, the color pattern would repeat. The tiled layout for fragment B is pretty much the same as for fragment C, only with a size difference. Each 16x16 B-tile is composed of two fragments that are 1 N-tile adjacent for shape (K, N). Note that B is transposed in this visualization.](tiled_mma.png)
-
-We chose 128 threads (4 warps) because each SM has 4 resident tensor cores -- a sensible choice to maximize MMA throughput. For the layout, we tile across the M-dimension (taking a slice from the left column of Q) and move across the K dimension. Each tile is `kNWarps` stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$.
-
-We flagged this M-tiling design choice in the [Basic Structure section](#basic-structure). The `Layout<Shape<Int<kNWarps>, _1, _1>>` puts all the warps along M with `_1` along N and K, which means **every warp owns whole rows of the output, never a horizontal slice of one**. When we compute the per-row max and per-row sum during softmax, the values to be reduced live in registers within a single warp, so the reduction is a `__shfl_xor_sync()` away — no SMEM staging, no thread-block sync. If we had tiled warps along N instead, that same reduction would have to cross warps and we'd be staging through SMEM with `__syncthreads()` on every iteration, crushing our performance. This staging was a forced sticking point on original FlashAttention-1.
-
-> **Note**: $N=16$, not 8, because we must aggregate across adjacent N-atoms to produce one 16x16 output tile due to the 16x8 asymmetry. That also means our `LDSM` copy atom loads two K, V tiles per instruction. This works because our N-tiles are index-adjacent.
 
 ![(16,16) x (16,8) MMA produces an (16,8) output. MMA of one A tile with two adjacent B tiles + concatenation produces one (16,16) output tile.](mma_in_to_out.png)
 
