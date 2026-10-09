@@ -696,40 +696,43 @@ Getting deja vu yet? This time, we define the tiling for the MMA GEMM. We define
 using TiledMmaAtom = MMA_Atom<SM80_16x8x16_F32F16F16F32_TN>
 ```
 
-These atoms tile across our Q, K, and V tiles that follow what the hardware expects so we can take advantage of those blazing fast tensor cores. 
+These atoms tile across our Q, K, and V tiles in the exact layout the hardware expects, so we can take advantage of those blazing fast tensor cores.
 
 You might wonder why 16x8x16 and not 16x16x16. Again, it's a hardware design choice made by NVIDIA engineers. There are a few reasons:
 1. Less register pressure: B and C fragments are both 16x8, reducing the total register footprint compared to a 16x16 per warp.
-2. More register re-use. Each A tile is used twice per B and C tile, reducing the number of simultaneous register reads.
+2. More register reuse. Each A fragment gets reused across multiple B and C fragments along N, so we need fewer simultaneous register reads.
 3. Best "area of efficiency". NVIDIA certainly tested many combos and found this size to be optimal.
 
 This is by no means an exhaustive list, and tensor core shapes change generation-to-generation for a multitude of reasons. It's best to just use it as-is instead of wondering all day why it is the way it is. The TiledMMA atom conveniently defines which threads get which chunks and which registers are used for the MMA, which we can see below:
 
 ![MMA Atom thread layout. We can see each thread gets 32-bits (2 halfs) at a time. For each 16x16 tile, each thread has two half-pairs per row, and only 1 half-pair for each 16x8 tile.](mma_atom.png)
 
-Before we go into the implementation, I wanted to highlight a fundamental difference between the `Tiled_MMA` and the GMEM->SMEM `Tiled_Copy`. In the copy, each warp "owns" certain tiles that it copies from GMEM->SMEM -- the only goal is to transport the block from global to local memory, and that's it. On the other hand, the MMA layout defines a layout for a mathematical operation that pulls 16x16 and 16x8 blocks from the A and B shared memory. Each A block is reused along N and each B along M, because each A row-tile meets every column of B, and each B column-tile meets every row of A. For each A-tile that a warp owns, it has to see `kBlockN/(N-tile-length)` B-tiles. 
+Before we go into the implementation, I wanted to highlight a fundamental difference between the `Tiled_MMA` and the GMEM->SMEM `Tiled_Copy`. In the copy, each warp "owns" certain tiles that it copies from GMEM->SMEM -- the only goal is to transport the block from global to shared memory, and that's it. On the other hand, the MMA layout defines a layout for a mathematical operation that pulls 16x16 and 16x8 blocks from the A and B tiles sitting in shared memory. Each A block is reused along N and each B block along M, because each A row-tile meets every column-tile of B, and each B column-tile meets every row-tile of A. For each A-tile that a warp owns, it has to see `kBlockN/(N-tile length)` B-tiles for every k-slice.
 
-We can see that a warp can be responsible for a block in a copy but blocks are shared in a `Tiled_MMA` -- which is the whole point why we loaded them in to SMEM to begin with. This means we have to tile arrangement in the `Tiled_MMA` carefully as the way we choose which blocks each warp sees changes how the resulting GEMM is carried out. 
+We can see that a warp can be responsible for a block in a copy, but blocks are shared in a `Tiled_MMA` -- which is the whole point of loading them into SMEM to begin with. In our case, **every warp reads the entire K tile (and later the entire V tile) from SMEM; only Q and the output S are split across warps.** This means we have to choose the tile arrangement in the `Tiled_MMA` carefully, as the way we choose which blocks each warp sees changes how the resulting GEMM is carried out.
 
-> **Note**: Another reminder is that these tiled layouts are simply layouts and carry no action. The real "action" occurs when we eventually define the SMEM->Register copy layout and *actually* invoke a `cute::copy` function call. This `Tiled_MMA` will be used in that copy to tell the GPU where values are and where they're supposed to go. And when we call the `cute::gemm` we'll actually get the result we expect. 
+> **Note**: Another reminder is that these tiled layouts are simply layouts and carry no action. The `Tiled_MMA` only tells the partition functions which thread holds which values. The real "action" occurs when we define the SMEM->register copy and *actually* invoke `cute::copy` to move the data into registers, and then `cute::gemm` to issue the tensor core instructions on whatever is sitting in those registers. That's when we'll actually get the result we expect.
 
 #### K-Split GEMM
 
-The standard practice for any GEMM is to split the GEMM along the K-dimension. This means we iterate through the K-dim explicitly -- each step caries out 1/kth of the MMA and we sum each step with the previous to obtain the full MMA result. As a result, each warp only needs to hold the registers for one tile at a time. As a result, we can overlap the SMEM->register loads with the previous load's GEMM. In this case, the L1 cache is much faster than GMEM, but it allows us to minimize the register footprint and overlap some compute, which is deal. 
+The standard practice for any GEMM is to split the GEMM along the K-dimension. This means we iterate through the K-dim explicitly -- each step computes one k-slice's contribution, and we accumulate each step into the previous ones to obtain the full MMA result. As a result, each warp only needs to hold the registers for one k-slice of fragments at a time (plus the next one we prefetch), and we can overlap the SMEM->register load for the next slice with the current slice's MMAs. SMEM is much faster than GMEM, so this isn't hiding a huge load like our async copies, but it minimizes our register footprint and overlaps some compute, which is ideal.
+
+> **Note**: A general tiled GEMM actually has two levels of K-loop: an outer loop over K-tiles going GMEM->SMEM, and an inner loop over k-slices going SMEM->registers. In $QK^T$, our K-dim is `kHeadDim`, which fits entirely in one SMEM tile, so we only have the inner loop. FA2's GMEM pipelining happens on a different loop entirely -- the outer loop over the K, V blocks along `seqlen_k`.
 
 #### Warp Layout and Softmax Design
 
 We choose 128 threads (4 warps) because each SM has 4 resident tensor cores -- a sensible choice to maximize MMA throughput. For the layout, we tile across the M-dimension (taking a slice from the left column of Q) and move across the K-dimension. Each tile is `kNWarps` stacked on top of each other; for a 16x8x16 MMA atom, our tile shape becomes $(M, N, K) = (16\cdot\text{kNWarps}, 16, 16)$.
 
-We flagged this M-tiling design choice in the [Basic Structure section](#basic-structure). The `Layout<Shape<Int<kNWarps>, _1, _1>>` puts all the warps along M with `_1` along N and K, which means **every warp owns whole rows of the output, never a horizontal slice of one**. When we compute the per-row max and per-row sum during softmax, the values to be reduced live in registers within a single warp, so the reduction is a `__shfl_xor_sync()` away — no SMEM staging, no thread-block sync. If we had tiled warps along N instead, that same reduction would have to cross warps and we'd be staging through SMEM with `__syncthreads()` on every iteration, crushing our performance. This staging was a forced sticking point on original FlashAttention-1.
+We flagged this M-tiling design choice in the [Basic Structure section](#basic-structure). The `Layout<Shape<Int<kNWarps>, _1, _1>>` puts all the warps along M with `_1` along N and K, which means **every warp owns whole rows of the output, never a horizontal slice of one**. Since N only gets `_1`, the same warp sweeps across every N-tile itself, computing its rows of S against every key in the block. When we compute the per-row max and per-row sum during softmax, the values to be reduced live in registers within a single warp, so the reduction is a `__shfl_xor_sync()` away — no SMEM staging, no thread-block sync. If we had tiled warps along N instead, that same reduction would have to cross warps and we'd be staging through SMEM with `__syncthreads()` on every iteration, crushing our performance. This staging was a forced sticking point on original FlashAttention-1.
 
-We'll also see soon that this TiledMMA takes in only one `Layout` argument. The `(M, N, K)` we defined applies to A, B, and C according to the M, N, K dimensions they hold. This is why the `16*kNWarps` means each warp holds a row in the output C. And when we actually write the code loop, we'll see how this influences the K-loop. 
+We'll also see soon that this TiledMMA takes in only one `Layout` argument. The `(M, N, K)` we defined applies to A, B, and C according to the M, N, K dimensions they hold. This is why `16*kNWarps` means each warp holds a 16-row band of the output C spanning all N columns. (Within the warp, each row is further spread across a quad of 4 threads, which we'll come back to in softmax.) And when we actually write the code loop, we'll see how this influences the K-loop.
 
 > **Note**: $N=16$, not 8, because we must aggregate across adjacent N-atoms to produce one 16x16 output tile due to the 16x8 asymmetry. That also means our `LDSM` copy atom loads two K, V tiles per instruction. This works because our N-tiles are index-adjacent.
 
-![Tiled MMA layout. Each solid color is one of four warps. If we had more rows/cols, the color pattern would repeat. The tiled layout for fragment B is pretty much the same as for fragment C, only with a size difference. Each 16x16 B-tile is composed of two fragments that are 1 N-tile adjacent for shape (K, N). Note that B is transposed in this visualization.](tiled_mma.png)
+<!-- TODO: recolor B in tiled_mma.png as a neutral gray (shared), keeping A and C in warp colors -->
+![Tiled MMA layout for one step of the GEMM. For A and C, each solid color is one of four warps; if we had more rows, the color pattern would repeat. B is shared: every warp reads all of B, and its tiling shows the MMA atoms, not ownership. Each 16x16 B-tile is composed of two 16x8 fragments that are adjacent along N for shape (K, N). Note that B is transposed in this visualization.](tiled_mma.png)
 
-With this info, let's define the full `Tiled_MMA`. 
+With this info, let's define the full `Tiled_MMA`.
 
 ```cpp
 using TiledMma = TiledMMA<MMA_Atom<SM80_16x8x16_F32F16F16F32_TN>,
@@ -825,7 +828,9 @@ The tiled MMA register tensors (`tSsQ`, `tSsK`) have shape `(MMA, MMA_X, MMA_Y)`
 
 > **Source:** [`utils.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/utils.cuh) (`gemm`)
 
-We index these K-tiles via `register(_, _, i)` to grab the relevant K-fragment per loop iteration. The TiledMMA handles the M and N dimensions.
+We already defined the `TiledMMA` and our `SmemCopyAtom`, but as we said before, nothing actually happens until we actually invoke our copy and GEMM calls. As discussed in the [K-split section](#k-split-gemm), we load one k-tile per iteration and add it to the output. Before each GEMM, we prefetch the next K block so we can overlap the SMEM->register loads and the GEMM compute. 
+
+We index these K-tiles via `register(_, _, i)` to grab the relevant K-fragment per loop iteration. The underscores indicate that each partial-GEMM computes along the M and N dimensions automatically, which are independent output cells for a constant K-block. That means each warp computes its resident Q-tile against `kBlockN/8` K-tiles in one go. This means the output shape is the final shape `(kBlockM, kBlockN)`, where each k iteration just adds to the existing output. 
 
 ![Macro view of the MMA. We iterate over the K-dimension, each tile multiplying across and summing to form one output tile. The colors just mean they pair, not that they are the same. In the tiled MMA, CuTe handles all the M, N work on our behalf. We just have to concatenate via the K-dim.](mma_macro.png)
 
@@ -847,6 +852,8 @@ for (int i = 0; i < size<2>(tSrQ); i++) {
   cute::gemm(tiled_mma, tSrQ(_, _, i), tSrK(_, _, i), acc_s);
 }
 ```
+
+> **Note**: The `cute::gemm` call does all the M, N work for us automatically, and this K loop is actually not necessary. We could technically just invoke a full `cute::copy` on `tSsQ, tSsK` without any indexing, which would load all of K into each warp at once. Then, we could just call `cute::gemm` in one go without the loop. The only purpose of doing this K-split is to reduce register pressure and overlap loads and GEMMs. CuTe gives us the flexibiliity to choose. 
 
 ## Bank Conflicts and SMEM Layout
 Ok, we have to address the elephant in the room. I've gone this far without talking about the SMEM layout, which is critical if we don't want to kill all of our performance with suboptimal SMEM access patterns. If we simply stored data in SMEM in the same format as GMEM, we would quickly run into serious memory-bound issues due to **bank conflicts.** If you've made it this far, you hopefully know what these are already. However, if you don't:
