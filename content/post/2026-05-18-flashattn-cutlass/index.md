@@ -819,10 +819,12 @@ Unlike the GMEM->SMEM transaction where we copy the whole tile in one go, we can
 
 ### MMA Shape
 
-The tiled MMA register tensors (`tSsQ`, `tSsK`) have shape `(MMA, MMA_X, MMA_Y)` for a row-major tiling of shape `(X, Y)` (see visualization in the [fragment reshape section](#fragment-reshape)).
+The tiled MMA register tensors (`tSrQ`, `tSrK`) have shape `(MMA, MMA_X, MMA_Y)` for a row-major tiling of shape `(X, Y)` (see visualization in the [fragment reshape section](#fragment-reshape)). Their SMEM partitions (`tSsQ`, `tSsK`) follow the same pattern.
 - `MMA`: shape/number of elements per thread. For our tiled MMA, it's 8 elements per thread for Q and 4 elements per thread for K, V, and the accumulator. The output of our SM80 16x8x16 atom has `MMA=(2,2)`, which means each thread holds 4 values in the shape (2, 2).
 - `MMA_X` is the number of tiles along X and
-- `MMA_Y` is the number of tiles along Y. In this case, `X=kBlockM/(16*kNWarps)` and `Y=kHeadDim/16` for `tSsQ`. By explicitly constructing the loop ourselves, we ensure the GEMM tiles across K for each output tile and that each warp holds all of the values of its output row tile.
+- `MMA_Y` is the number of tiles along Y. In this case, `X=kBlockM/(16*kNWarps)` and `Y=kHeadDim/16` for `tSrQ`. For `tSrK`, `X=kBlockN/8` and `Y=kHeadDim/16`.
+
+Notice that Q's M mode is divided by `kNWarps`, but K's N mode isn't. Each warp only holds fragments for its own rows of Q, but each thread's K fragments span the *entire* K tile, because every warp reads all of K. The explicit loop we write next handles the K-dimension; the `TiledMMA`'s warp layout is what gives each warp its complete output rows.
 
 ### MMA Loop: QK^T GEMM
 
@@ -1023,7 +1025,9 @@ auto SmemLayoutQ = tile_to_shape(SmemLayoutAtomQ{},
 We can finally replace the layout we used to make `sQ` above. `sK` and `sV` are an exercise left to the reader.
 
 ## Dealing with V Copies
-V is a slightly different beast, since it doesn't follow the row-major loading pattern of Q and K during `O=S@V`. When we compute our attention scores S, the resulting shape is `(kBlockM, kBlockN)`. Since V is of shape `(kBlockN, kHeadDim)`, we have to transpose V, since our original copy/MMA pattern expects the concatenation dim to be the second shape dimension. As a result, we have to make transpose-view tensors for V's SMEM layouts to make sure the copies and fragments are correct.
+V is a slightly different beast, since it doesn't follow the row-major loading pattern of Q and K during `O=S@V`. When we compute our attention scores S, the resulting shape is `(kBlockM, kBlockN)`. Since V is of shape `(kBlockN, kHeadDim)`, we have to transpose V, since our original copy/MMA pattern expects the reduction (K) dimension to be the second shape dimension. As a result, we have to make transpose-view tensors for V's SMEM layouts to make sure the copies and fragments are correct.
+
+Just like K, V is the B operand of its GEMM: every warp reads the **entire** V tile. Only the A operand, S, is split across warps by rows.
 
 ### V: GMEM->SMEM
 To get maximum coalesced-vectorized load performance, we can simply copy V in its row-major form from GMEM to SMEM. We need to eventually transpose V before it hits the register fragments, and Ampere and Turing (SM75+) fortunately provide some transposed `ldmatrix` instructions that do so for us. As a result, we only have to worry about the transpose once we hit the SMEM->register stage. The GMEM->SMEM copy fully mirrors the tiled copy for K from earlier:
@@ -1047,11 +1051,12 @@ Tensor tVsV = gmem_thr_copy_QKV.partition_D(sV);
 ### V: SMEM->Register
 This is the step where we have to tread a bit carefully. V is sitting in SMEM in the same format as Q and K -- contiguous along `kHeadDim` -- so we can't just copy our SMEM->register pipeline from earlier. This part is a bit confusing, so let's visualize the problem first:
 
-![SMEM physical layout for our MMAs. Each block is a tile.](mma_v_layout.png)
+<!-- TODO: recolor V in mma_v_layout.png as a neutral gray (shared by all warps), keeping Q and S in warp colors -->
+![SMEM physical layout for our MMAs. Each block is a tile. Q and S are colored by the warp that owns their rows; K and V are shared, and every warp reads the whole tile.](mma_v_layout.png)
 
-> **Note**: The tiled MMA visualization in our [tiled MMA section](#tiled-mma) was a human-friendly view that's actually what `sV` looks like here; it doesn't represent the physical SMEM layout we have.
+> **Note**: The Tiled MMA figure in our [tiled MMA section](#tiled-mma) shows the logical (K, N) view the MMA wants. The figure here shows V's physical layout in SMEM, which is why we need the transpose.
 
-As we can see, Q and K are both row-contiguous along `kHeadDim`, which they matmul across. S and V matmul across `kBlockN`, not `kHeadDim`, so V is not row-contiguous along the concatenation dimension. As a result, we have to tile it "vertically" along the columns for the tiled MMA.
+As we can see, Q and K are both row-contiguous along `kHeadDim`, which they reduce over. S and V reduce over `kBlockN`, not `kHeadDim`, so V is not row-contiguous along the reduction dimension. The reduction runs *down* V's rows in memory, so each B fragment for SV is a slice spanning 16 rows of V along `kBlockN` by 8 columns along `kHeadDim`, and every warp walks through all of them. As a result, we have to tile it "vertically" along the columns for the tiled MMA.
 
 But what does "vertically" even mean? We were pretty hand-wavy about the `SM75_U32x4_LDSM_N` atom earlier, so let's clarify it now:
 
@@ -1060,7 +1065,7 @@ When we issue the `LDSM_N` instruction, we load the entire 16x16 fragment in one
 
 > **Note**: Ampere tensor cores support `INT4`, `INT8`, `FP16`, `BF16`, and `TF32` (19 bits). The `U32x4` modifier can be confusing because it only describes the source data/register size, not the actual data type underneath. The `LDSM` instructions are purpose-made for tensor core MMAs and don't support standard 32-bit floats.
 
-The `LDSM_T` instruction is slightly different because the contiguous data is meant to be transposed before hitting the registers. In the [thread layout diagram](#tiled-mma) from earlier, we see how each thread holds its data in two halfs, each packed into one 32-bit register. During the `LDSM_N` instruction, it can split the 128 bits (8 halfs) into 4 32-bit chunks directly, since the two fp16s are contiguous. However, for the transposed view, two contiguous fp16s no longer belong to the same thread's register. One fp16 in a 32-bit chunk goes to half of one register and the other goes to the half of another's to fit the MMA Atom's expectation:
+The `LDSM_T` instruction is slightly different because the contiguous data is meant to be transposed before hitting the registers. In the [thread layout diagram](#tiled-mma) from earlier, we see how each thread holds its data in two halfs, each packed into one 32-bit register. During the `LDSM_N` instruction, it can split the 128 bits (8 halfs) into 4 32-bit chunks directly, since the two fp16s are contiguous. However, for the transposed view, two contiguous fp16s no longer belong to the same thread's register. One fp16 in a 32-bit chunk goes to half of one register and the other goes to half of another's to fit the MMA Atom's expectation:
 
 ![LDSM_N vs. LDSM_T SMEM->register movement following the 16x8x16 MMA atom layout.](ldsm_reg.png)
 
@@ -1087,7 +1092,7 @@ using SmemLayoutVt = decltype(composition(
 // They're not consistent with their stride defs haha
 ```
 
-Our stride is row-major because in this layout interpretation we want our `LDSM` tile and layout tile to move along the concat dim `kBlockN` the fastest. Our full layout is therefore:
+Our stride is row-major because in this layout interpretation we want our `LDSM` tile and layout tile to move along the reduction dim `kBlockN` the fastest. Our full layout is therefore:
 
 ```
 composition([tile_to_shape(Swizzle->Layout), (kBlockN, kHeadDim)],
@@ -1114,7 +1119,7 @@ auto smem_thr_copy_V = smem_tiled_copy_V.get_thread_slice(tid);
 auto tOsVt = smem_thr_copy_V.partition_S(sVt);
 ```
 
-As you can see, we use `sV` for our GMEM tiled copy since we preserve the row-major shape. Only when we copy from SMEM->registers do we transpose the SMEM view for `LDSM_T`.
+As you can see, we use `sV` for our GMEM tiled copy since we preserve the row-major shape. Only when we copy from SMEM->registers do we transpose the SMEM view for `LDSM_T`. And since V is the B operand, each thread's `tOsVt` partition covers the full V tile, just like K.
 
 ### `sVtNoSwizzle`: The No-Op Nobody Caught
 
@@ -1753,9 +1758,11 @@ if (nblock == 0) {
 
 ## MMA Loop: SV GEMM
 
-> **Source:** [`utils.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/utils.cuh) (`gemm_rs`), `rs`: right side only.
+> **Source:** [`utils.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/utils.cuh) (`gemm_rs`), `rs`: A in **R**egisters, B from **S**hared memory.
 
 Next comes $SV$. This GEMM is almost exactly the same as the one before, except that S is already in the registers. This means we only need to deal with V SMEM copies in the GEMM loop this time.
+
+This only works because of our M-tiling decision from the [Tiled MMA section](#warp-layout-and-softmax-design). Each warp already holds its own complete rows of S, which are exactly the A operand rows it needs for $SV$. If warps had tiled along N instead, each row of S would be split across warps, and we'd have to stage S through SMEM before this GEMM. Instead, each warp multiplies its rows of S against the entire V tile and accumulates into its own rows of `acc_o`.
 
 However, even though `acc_s` is in registers, we have to do two transformations before our GEMM:
 1. It is currently an fp32 accumulator. We have to convert it back to fp16 before the MMA.
@@ -1782,20 +1789,20 @@ convert_type(Tensor<Engine, Layout> const &tensor) {
 ```
 
 ### Frag-C to Frag-A Reshape
-Now for the reshape. If you recall from our [MMA Atom thread layout](#tiled-mma), each A-fragment holds 8 values (16x16) while our C-fragment holds 8 values, but across two 16x8 tiles. To remove any guesswork, we can just print the fragment shapes:
+Now for the reshape. If you recall from our [MMA Atom thread layout](#tiled-mma), each thread holds 8 values of an A-fragment (16x16), but only 4 values of a C-fragment (16x8). So two adjacent C-fragments along N give each thread 8 values -- exactly one A-fragment. To remove any guesswork, we can just print the fragment shapes:
 
 ```
 A fragment layout: ((_2,_2,_2),_1,_1):((_1,_2,_4),_0,_0)
 C fragment layout: ((_2,_2),_1,_1):((_1,_2),_0,_0)
 ```
 
-The second and third dimensions here are `MMA_M` and `MMA_N` (tile width/height dividing into M, N). Since the $SV$ MMA concatenates along N, we just need to combine each pair of N blocks.
+The second and third dimensions here are `MMA_M` and `MMA_N` (tile width/height dividing into M, N). The key role change: S's N dimension (`kBlockN`) becomes the K (reduction) dimension of the $SV$ GEMM. So we just need to combine each pair of adjacent N blocks into one A block along K, and after the reshape, the third mode is the K mode we loop over.
 
 ```python
 acc_s C shape: ((2, 2), MMA_M, MMA_N):
                ((1, 2), STRIDE_M, STRIDE_N)
 
-# Concatenate along N, each N dim halves, stride doubles
+# Concatenate pairs along N, each N dim halves, stride doubles
 acc_s A shape: ((2, 2, 2), MMA_M, MMA_N/2):
                ((1, 2, 4), STRIDE_M, STRIDE_N*2)
 ```
@@ -1850,11 +1857,11 @@ cute::copy(smem_tiled_copy_V, tOsVt(_, _, _0{}), tXrV(_, _, _0{}));
 #pragma unroll
 for (int i = 0; i < size<2>(tOrP); i++) {
   // prefetch next block
-  if (i < size<2>(tCrV) - 1) {
+  if (i < size<2>(tOrVt) - 1) {
     cute::copy(smem_tiled_copy_V, tOsVt(_, _, i + 1), tXrV(_, _, i + 1));
   }
 
-  cute::gemm(tiled_mma, tOrP(_, _, i), tXrV(_, _, i), acc_o);
+  cute::gemm(tiled_mma, tOrP(_, _, i), tOrVt(_, _, i), acc_o);
 }
 ```
 
