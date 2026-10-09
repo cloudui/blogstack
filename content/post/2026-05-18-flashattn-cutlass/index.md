@@ -828,32 +828,17 @@ The tiled MMA register tensors (`tSsQ`, `tSsK`) have shape `(MMA, MMA_X, MMA_Y)`
 
 > **Source:** [`utils.cuh`](https://github.com/cloudui/cuda-triton/blob/main/cuda/flash_attn_cutlass/utils.cuh) (`gemm`)
 
-We already defined the `TiledMMA` and our `SmemCopyAtom`, but as we said before, nothing actually happens until we actually invoke our copy and GEMM calls. As discussed in the [K-split section](#k-split-gemm), we load one k-tile per iteration and add it to the output. Before each GEMM, we prefetch the next K block so we can overlap the SMEM->register loads and the GEMM compute. 
+We already defined the `TiledMMA` and our `SmemCopyAtom`, but as we said before, nothing happens until we actually invoke our copy and GEMM calls. As discussed in the [K-split section](#k-split-gemm), we load one k-slice per iteration and accumulate it into the output. Before each GEMM, we prefetch the next k-slice of the Q and K fragments so we can overlap the SMEM->register loads with the GEMM compute.
 
-We index these K-tiles via `register(_, _, i)` to grab the relevant K-fragment per loop iteration. The underscores indicate that each partial-GEMM computes along the M and N dimensions automatically, which are independent output cells for a constant K-block. That means each warp computes its resident Q-tile against `kBlockN/8` K-tiles in one go. This means the output shape is the final shape `(kBlockM, kBlockN)`, where each k iteration just adds to the existing output. 
+We index these k-slices via `register(_, _, i)` to grab the relevant fragments per loop iteration. The underscores keep the M (or N) mode intact, so each partial GEMM computes across the M and N dimensions automatically, since those are independent output cells for a fixed k-slice. That means each warp computes its resident Q fragment against all `kBlockN/8` K fragments in one go, and every warp reads those same K fragments from SMEM. The accumulator `acc_s` covers the full `(kBlockM, kBlockN)` block across all warps, with each warp holding its own 16-row band across every column, and each k iteration just adds to the existing output.
 
-![Macro view of the MMA. We iterate over the K-dimension, each tile multiplying across and summing to form one output tile. The colors just mean they pair, not that they are the same. In the tiled MMA, CuTe handles all the M, N work on our behalf. We just have to concatenate via the K-dim.](mma_macro.png)
+![Macro view of the MMA. We iterate over the K-dimension, each tile multiplying across and summing into one output tile. The colors just mean they pair, not that they are the same. In the tiled MMA, CuTe handles all the M, N work on our behalf. We just have to accumulate along the K-dim.](mma_macro.png)
 
 Here's the full GEMM block:
 
-```cpp
-// load initial Q, K fragments (0)
-cute::copy(smem_tiled_copy_Q, tSsQ(_, _, _0{}), tXrQ(_, _, _0{}));
-cute::copy(smem_tiled_copy_K, tSsK(_, _, _0{}), tXrK(_, _, _0{}));
-// compile-time static, registers only live per iteration
-#pragma unroll
-for (int i = 0; i < size<2>(tSrQ); i++) {
-  // prefetch next Q, K block
-  if (i < size<2>(tSrQ) - 1) {
-    cute::copy(smem_tiled_copy_Q, tSsQ(_, _, i + 1), tXrQ(_, _, i + 1));
-    cute::copy(smem_tiled_copy_K, tSsK(_, _, i + 1), tXrK(_, _, i + 1));
-  }
-  // MMA on frags
-  cute::gemm(tiled_mma, tSrQ(_, _, i), tSrK(_, _, i), acc_s);
-}
-```
+(code unchanged)
 
-> **Note**: The `cute::gemm` call does all the M, N work for us automatically, and this K loop is actually not necessary. We could technically just invoke a full `cute::copy` on `tSsQ, tSsK` without any indexing, which would load all of K into each warp at once. Then, we could just call `cute::gemm` in one go without the loop. The only purpose of doing this K-split is to reduce register pressure and overlap loads and GEMMs. CuTe gives us the flexibiliity to choose. 
+> **Note**: The `cute::gemm` call does all the M, N work for us automatically, so this K loop isn't strictly required. `cute::gemm` also accepts fragments with a K mode, so we could invoke one full `cute::copy` on `tSsQ, tSsK` without indexing, which would load every k-slice of the Q and K fragments into registers at once, and then call `cute::gemm` a single time with no loop. The K-split is the standard pattern because it keeps only about two k-slices live in registers, avoiding register pressure (and possible spills at larger head dims), and lets us overlap loads with the MMAs. CuTe gives us the flexibility to choose.
 
 ## Bank Conflicts and SMEM Layout
 Ok, we have to address the elephant in the room. I've gone this far without talking about the SMEM layout, which is critical if we don't want to kill all of our performance with suboptimal SMEM access patterns. If we simply stored data in SMEM in the same format as GMEM, we would quickly run into serious memory-bound issues due to **bank conflicts.** If you've made it this far, you hopefully know what these are already. However, if you don't:
